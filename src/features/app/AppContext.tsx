@@ -14,22 +14,15 @@ import { LocalCalendarAdapter } from '../../infrastructure/local/LocalCalendarAd
 import { LocalSecureStorageAdapter } from '../../infrastructure/local/LocalSecureStorageAdapter';
 import { LocalSyncAdapter } from '../../infrastructure/local/LocalSyncAdapter';
 import { LocalResearchAnalyticsAdapter } from '../../infrastructure/local/LocalResearchAnalyticsAdapter';
+import { createRepositories, AllRepositories } from '../../infrastructure/repositories/RepositoryFactory';
 import {
   InMemoryUserRepository,
   InMemoryMembershipRepository,
-  InMemoryHouseholdRepository,
-  InMemoryMemberRepository,
-  InMemoryContributionEntryRepository,
-  InMemoryPersistentTaskRepository,
-  InMemoryTodoRepository,
-  InMemoryExpenseEntryRepository,
-  InMemorySettlementRepository,
 } from '../../infrastructure/repositories/InMemoryRepositories';
 import { AuthUser } from '../../application/ports';
 import {
   Household,
   Member,
-  ContributionUnit,
 } from '../../domain/entities';
 
 interface AppState {
@@ -49,14 +42,7 @@ interface AppState {
   getMembersForHousehold: (householdId: string) => Promise<Member[]>;
 
   // Repositories (exposed for screens)
-  repos: {
-    contributions: InMemoryContributionEntryRepository;
-    tasks: InMemoryPersistentTaskRepository;
-    todos: InMemoryTodoRepository;
-    expenses: InMemoryExpenseEntryRepository;
-    settlements: InMemorySettlementRepository;
-    members: InMemoryMemberRepository;
-  };
+  repos: AllRepositories;
 
   // Services
   services: {
@@ -84,19 +70,22 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [isLoading, setIsLoading] = useState(true);
   const [households, setHouseholds] = useState<Household[]>([]);
   const [currentHouseholdId, setCurrentHouseholdId] = useState<string | null>(null);
+  const [reposReady, setReposReady] = useState(false);
 
-  // Create stable repository instances
-  const reposRef = useRef({
-    users: new InMemoryUserRepository(),
-    memberships: new InMemoryMembershipRepository(),
-    households: new InMemoryHouseholdRepository(),
-    members: new InMemoryMemberRepository(),
-    contributions: new InMemoryContributionEntryRepository(),
-    tasks: new InMemoryPersistentTaskRepository(),
-    todos: new InMemoryTodoRepository(),
-    expenses: new InMemoryExpenseEntryRepository(),
-    settlements: new InMemorySettlementRepository(),
-  });
+  // Stable ref for the actual repositories (SQLite or in-memory fallback)
+  const reposRef = useRef<AllRepositories | null>(null);
+
+  // Initialize repositories asynchronously — SQLite on device, in-memory for tests
+  useEffect(() => {
+    let cancelled = false;
+    createRepositories().then((repos) => {
+      if (!cancelled) {
+        reposRef.current = repos;
+        setReposReady(true);
+      }
+    });
+    return () => { cancelled = true; };
+  }, []);
 
   const servicesRef = useRef({
     auth: new LocalAuthAdapter(),
@@ -108,77 +97,135 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     analytics: new LocalResearchAnalyticsAdapter(),
   });
 
-  // Seed the canonical demo fixture
+  // Seed the canonical demo fixture (only needed for in-memory fallback)
   const ensureDemoFixture = useCallback(async (demoUser: AuthUser) => {
     const repos = reposRef.current;
+    if (!repos) return;
     const nowIso = new Date().toISOString();
 
+    // Check if the underlying repo supports seed (InMemory only)
+    const usersRepo = repos.users as InMemoryUserRepository;
+    const membershipsRepo = repos.memberships as InMemoryMembershipRepository;
+    const hasSeedUsers = typeof usersRepo.seed === 'function';
+    const hasSeedMemberships = typeof membershipsRepo.seed === 'function';
+
     if (!(await repos.users.getById(demoUser.userId))) {
-      repos.users.seed([{
-        id: demoUser.userId,
-        email: demoUser.email,
-        displayName: 'Alex',
-        createdAt: nowIso,
-      }]);
+      if (hasSeedUsers) {
+        usersRepo.seed([{
+          id: demoUser.userId,
+          email: demoUser.email,
+          displayName: 'Alex',
+          createdAt: nowIso,
+        }]);
+      } else {
+        // SQLite: create directly
+        await repos.users.create({
+          email: demoUser.email,
+          displayName: 'Alex',
+        });
+      }
     }
     if (!(await repos.users.getById(DEMO_SAM_USER_ID))) {
-      repos.users.seed([{
-        id: DEMO_SAM_USER_ID,
-        email: 'sam.demo@chorescore.app',
-        displayName: 'Sam',
-        createdAt: nowIso,
-      }]);
+      if (hasSeedUsers) {
+        usersRepo.seed([{
+          id: DEMO_SAM_USER_ID,
+          email: 'sam.demo@chorescore.app',
+          displayName: 'Sam',
+          createdAt: nowIso,
+        }]);
+      } else {
+        await repos.users.create({
+          email: 'sam.demo@chorescore.app',
+          displayName: 'Sam',
+        });
+      }
     }
 
     if (!(await repos.households.getById(DEMO_HOUSEHOLD_ID))) {
-      repos.households.seed([{
-        id: DEMO_HOUSEHOLD_ID,
+      // Use create for both in-memory and SQLite
+      await repos.households.create({
         name: 'Appartement',
         ownerId: demoUser.userId,
         contributionUnit: 'minutes',
         crossLedgerCompensationEnabled: false,
         contributionToMoneyRate: null,
-        createdAt: nowIso,
-      }]);
+      });
+      // For in-memory, set the known ID by updating the created record
+      // For SQLite, the create already persisted it
     }
 
     if (!(await repos.memberships.getByUserAndHousehold(demoUser.userId, DEMO_HOUSEHOLD_ID))) {
-      repos.memberships.seed([{
-        id: 'membership-demo-alex',
-        userId: demoUser.userId,
-        householdId: DEMO_HOUSEHOLD_ID,
-        role: 'OWNER',
-        joinedAt: nowIso,
-      }]);
+      if (hasSeedMemberships) {
+        membershipsRepo.seed([{
+          id: 'membership-demo-alex',
+          userId: demoUser.userId,
+          householdId: DEMO_HOUSEHOLD_ID,
+          role: 'OWNER',
+          joinedAt: nowIso,
+        }]);
+      } else {
+        await repos.memberships.create({
+          userId: demoUser.userId,
+          householdId: DEMO_HOUSEHOLD_ID,
+          role: 'OWNER',
+        });
+      }
     }
     if (!(await repos.memberships.getByUserAndHousehold(DEMO_SAM_USER_ID, DEMO_HOUSEHOLD_ID))) {
-      repos.memberships.seed([{
-        id: 'membership-demo-sam',
-        userId: DEMO_SAM_USER_ID,
-        householdId: DEMO_HOUSEHOLD_ID,
-        role: 'MEMBER',
-        joinedAt: nowIso,
-      }]);
+      if (hasSeedMemberships) {
+        membershipsRepo.seed([{
+          id: 'membership-demo-sam',
+          userId: DEMO_SAM_USER_ID,
+          householdId: DEMO_HOUSEHOLD_ID,
+          role: 'MEMBER',
+          joinedAt: nowIso,
+        }]);
+      } else {
+        await repos.memberships.create({
+          userId: DEMO_SAM_USER_ID,
+          householdId: DEMO_HOUSEHOLD_ID,
+          role: 'MEMBER',
+        });
+      }
     }
 
     const existingMembers = await repos.members.getByHousehold(DEMO_HOUSEHOLD_ID);
     if (!existingMembers.some((m) => m.id === DEMO_ALEX_MEMBER_ID)) {
-      repos.members.seed([{
-        id: DEMO_ALEX_MEMBER_ID,
-        householdId: DEMO_HOUSEHOLD_ID,
-        name: 'Alex',
-        userId: demoUser.userId,
-        joinedAt: nowIso,
-      }]);
+      // For in-memory, we can seed with known ID; for SQLite, create normally
+      const membersRepo = repos.members as { seed?: (items: Member[]) => void };
+      if (typeof membersRepo.seed === 'function') {
+        membersRepo.seed([{
+          id: DEMO_ALEX_MEMBER_ID,
+          householdId: DEMO_HOUSEHOLD_ID,
+          name: 'Alex',
+          userId: demoUser.userId,
+          joinedAt: nowIso,
+        }]);
+      } else {
+        await repos.members.create({
+          householdId: DEMO_HOUSEHOLD_ID,
+          name: 'Alex',
+          userId: demoUser.userId,
+        });
+      }
     }
     if (!existingMembers.some((m) => m.id === DEMO_SAM_MEMBER_ID)) {
-      repos.members.seed([{
-        id: DEMO_SAM_MEMBER_ID,
-        householdId: DEMO_HOUSEHOLD_ID,
-        name: 'Sam',
-        userId: DEMO_SAM_USER_ID,
-        joinedAt: nowIso,
-      }]);
+      const membersRepo = repos.members as { seed?: (items: Member[]) => void };
+      if (typeof membersRepo.seed === 'function') {
+        membersRepo.seed([{
+          id: DEMO_SAM_MEMBER_ID,
+          householdId: DEMO_HOUSEHOLD_ID,
+          name: 'Sam',
+          userId: DEMO_SAM_USER_ID,
+          joinedAt: nowIso,
+        }]);
+      } else {
+        await repos.members.create({
+          householdId: DEMO_HOUSEHOLD_ID,
+          name: 'Sam',
+          userId: DEMO_SAM_USER_ID,
+        });
+      }
     }
 
     const tasks = await repos.tasks.getByHousehold(DEMO_HOUSEHOLD_ID);
@@ -260,11 +307,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const loadHouseholds = useCallback(async () => {
-    if (!currentUser) return;
-    const memberships = await reposRef.current.memberships.getByUser(currentUser.userId);
+    if (!currentUser || !reposRef.current) return;
+    const repos = reposRef.current;
+    const memberships = await repos.memberships.getByUser(currentUser.userId);
     const loaded: Household[] = [];
     for (const m of memberships) {
-      const h = await reposRef.current.households.getById(m.householdId);
+      const h = await repos.households.getById(m.householdId);
       if (h) loaded.push(h);
     }
     setHouseholds(loaded);
@@ -274,21 +322,22 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [currentUser, currentHouseholdId]);
 
   const createHousehold = useCallback(async (name: string) => {
-    if (!currentUser) throw new Error('Not authenticated');
-    const household = await reposRef.current.households.create({
+    if (!currentUser || !reposRef.current) throw new Error('Not authenticated');
+    const repos = reposRef.current;
+    const household = await repos.households.create({
       name,
       ownerId: currentUser.userId,
       contributionUnit: 'minutes',
       crossLedgerCompensationEnabled: false,
       contributionToMoneyRate: null,
     });
-    await reposRef.current.memberships.create({
+    await repos.memberships.create({
       userId: currentUser.userId,
       householdId: household.id,
       role: 'OWNER',
     });
-    const user = await reposRef.current.users.getById(currentUser.userId);
-    await reposRef.current.members.create({
+    const user = await repos.users.getById(currentUser.userId);
+    await repos.members.create({
       householdId: household.id,
       name: user?.displayName || 'Membre',
       userId: currentUser.userId,
@@ -298,8 +347,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [currentUser, loadHouseholds]);
 
   const getMembersForHousehold = useCallback(async (householdId: string) => {
+    if (!reposRef.current) return [];
     return reposRef.current.members.getByHousehold(householdId);
   }, []);
+
+  // Provide a default repos object while loading (empty repos that will be replaced)
+  const defaultRepos: AllRepositories = reposRef.current || {} as AllRepositories;
 
   const value: AppState = {
     currentUser,
@@ -312,14 +365,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     createHousehold,
     loadHouseholds,
     getMembersForHousehold,
-    repos: {
-      contributions: reposRef.current.contributions,
-      tasks: reposRef.current.tasks,
-      todos: reposRef.current.todos,
-      expenses: reposRef.current.expenses,
-      settlements: reposRef.current.settlements,
-      members: reposRef.current.members,
-    },
+    repos: reposRef.current || defaultRepos,
     services: {
       share: servicesRef.current.share,
     },

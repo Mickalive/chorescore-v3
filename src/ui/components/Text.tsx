@@ -8,7 +8,7 @@ import React from 'react';
 import { Text as RNText, TextProps as RNTextProps, StyleSheet } from 'react-native';
 import { typography, colors } from '../design-system/theme';
 
-type Variant = 'screenTitle' | 'sectionTitle' | 'body' | 'bodyBold' | 'caption' | 'metric' | 'metricUnit' | 'balance';
+type Variant = 'screenTitle' | 'sectionTitle' | 'body' | 'bodyBold' | 'caption' | 'metric' | 'metricUnit' | 'balance' | 'tabLabel';
 
 interface TextProps extends RNTextProps {
   variant?: Variant;

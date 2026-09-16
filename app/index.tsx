@@ -19,7 +19,7 @@ import { Household } from '../src/domain/entities';
 
 export default function HomeScreen() {
   const router = useRouter();
-  const { currentUser, isLoading, signIn, households, loadHouseholds, createHousehold } = useApp();
+  const { currentUser, isLoading, signIn, households, loadHouseholds, createHousehold, setCurrentHouseholdId } = useApp();
   const [showSignIn, setShowSignIn] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -36,8 +36,9 @@ export default function HomeScreen() {
     load();
   }, [load]);
 
-  const openHousehold = (id: string) => {
-    router.push(`/(tabs)`);
+  const openHousehold = async (id: string) => {
+    setCurrentHouseholdId(id);
+    router.push('/(tabs)');
   };
 
   const handleCreateHousehold = async () => {
@@ -178,7 +179,7 @@ export default function HomeScreen() {
                       {item.contributionUnit === 'minutes' ? 'Minutes' : 'Points'}
                     </Text>
                   </View>
-                  <Text variant="caption" style={styles.chevron}>></Text>
+                  <Text variant="caption" style={styles.chevron}>{'>'}</Text>
                 </View>
               </Card>
             </TouchableOpacity>
