@@ -56,7 +56,7 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-      - name: Trusted product and privacy gates
+      - name: Trusted product, privacy and cost gates
         run: |
           set -euo pipefail
           test -s package-lock.json
@@ -64,6 +64,8 @@ jobs:
           npm run check
           jq -e '.scripts["privacy:check"]' package.json >/dev/null
           npm run privacy:check
+          jq -e '.scripts["cost:check"]' package.json >/dev/null
+          npm run cost:check
           test -f app.json -o -f app.config.js -o -f app.config.ts
           npx --no-install expo install --check
           npx --no-install expo export --platform android --output-dir "$RUNNER_TEMP/v3-final-android-export"
@@ -115,9 +117,9 @@ jobs:
           tmp=$(mktemp)
           jq --arg cycle "$cycle" --arg apk "$APK_SHA" '
             (.criteria[] | select(.id=="V3-08") | .status)="complete" |
-            (.criteria[] | select(.id=="V3-08") | .evidence) += ["finalizer-run-"+$cycle,"android-release-apk-sha256-"+$apk,"android-api35-install-launch-e2e-green","ios-export-readiness-green"] |
+            (.criteria[] | select(.id=="V3-08") | .evidence) += ["finalizer-run-"+$cycle,"android-release-apk-sha256-"+$apk,"android-api35-install-launch-e2e-green","ios-export-readiness-green","privacy-and-cost-gates-green"] |
             .pendingArtifact=null | .activeCriteria=[] | .openFindings=[] | .lastCycle=$cycle |
-            .progressSummary="V3 RC complete: trusted finalizer built the release APK, installed/launched it on Android API 35, passed the automated golden path and verified iOS export readiness." |
+            .progressSummary="V3 RC complete: trusted finalizer passed product, privacy and cost gates, built the release APK, installed/launched it on Android API 35, passed the automated golden path and verified iOS export readiness." |
             .factoryHealth.stalled=false | .factoryHealth.consecutiveNoProgress=0 | .factoryHealth.reason=null
           ' docs/RELEASE_STATUS.json > "$tmp"; mv "$tmp" docs/RELEASE_STATUS.json
           tmp=$(mktemp); jq '.builder.enabled=false | .builder.criterionId=null | .builder.objective="V3 RC complete." | .builder.scope="No further Builder work." | .builder.acceptance=[]' directives/TASKS.json > "$tmp"; mv "$tmp" directives/TASKS.json
@@ -147,12 +149,12 @@ jobs:
           jq --arg run "$run" '
             (.criteria[] | select(.id=="V3-08") | .status)="in_progress" |
             .pendingArtifact=null | .activeCriteria=["V3-08"] |
-            .openFindings=[{path:"release",problem:"Trusted V3 finalizer failed",evidence:("GitHub Actions finalizer run "+$run),mustFix:true,requiredFix:"Inspect the exact trusted finalizer failure and repair only the concrete mobile/runtime/E2E blocker while preserving V3-01..V3-07.",verification:"Trusted V3 finalizer must pass APK build, install/launch and golden path."}] |
+            .openFindings=[{path:"release",problem:"Trusted V3 finalizer failed",evidence:("GitHub Actions finalizer run "+$run),mustFix:true,requiredFix:"Inspect the exact trusted finalizer failure and repair only the concrete product/privacy/cost/APK/runtime/E2E blocker while preserving V3-01..V3-07.",verification:"Trusted V3 finalizer must pass product, privacy and cost gates, APK build, install/launch and golden path."}] |
             .progressSummary=("V3-08 reopened after trusted finalizer failure in run "+$run) |
             .factoryHealth.stalled=false | .factoryHealth.consecutiveNoProgress=0 | .factoryHealth.reason=null
           ' docs/RELEASE_STATUS.json > "$tmp"; mv "$tmp" docs/RELEASE_STATUS.json
           tmp=$(mktemp)
-          jq --arg run "$run" '.builder.enabled=true | .builder.criterionId="V3-08" | .builder.objective=("REPAIR V3-08 trusted finalizer failure from Actions run "+$run+". Inspect the exact failed release logs, fix only the concrete APK/runtime/E2E/readiness blocker, and preserve all accepted criteria.") | .builder.scope="Target the trusted release failure and directly necessary product/config/test/scripts repairs. Protected control-plane files remain trusted-shell owned."' directives/TASKS.json > "$tmp"; mv "$tmp" directives/TASKS.json
+          jq --arg run "$run" '.builder.enabled=true | .builder.criterionId="V3-08" | .builder.objective=("REPAIR V3-08 trusted finalizer failure from Actions run "+$run+". Inspect the exact failed release logs, fix only the concrete product/privacy/cost/APK/runtime/E2E/readiness blocker, and preserve all accepted criteria.") | .builder.scope="Target the trusted release failure and directly necessary product/config/test/scripts repairs. Protected control-plane files remain trusted-shell owned."' directives/TASKS.json > "$tmp"; mv "$tmp" directives/TASKS.json
           git config user.name chorescore-v3-finalizer
           git config user.email chorescore-v3-finalizer@users.noreply.github.com
           git add docs/RELEASE_STATUS.json directives/TASKS.json
