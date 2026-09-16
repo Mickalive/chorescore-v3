@@ -187,6 +187,12 @@ export class InMemoryMemberRepository implements MemberRepository {
 export class InMemoryContributionEntryRepository implements ContributionEntryRepository {
   private items = new Map<string, ContributionEntry>();
 
+  seed(entries: ContributionEntry[]): void {
+    for (const e of entries) {
+      this.items.set(e.id, { ...e });
+    }
+  }
+
   async getByHousehold(householdId: string): Promise<ContributionEntry[]> {
     return Array.from(this.items.values()).filter((e) => e.householdId === householdId);
   }
@@ -220,6 +226,12 @@ export class InMemoryContributionEntryRepository implements ContributionEntryRep
 export class InMemoryPersistentTaskRepository implements PersistentTaskRepository {
   private items = new Map<string, PersistentTask>();
 
+  seed(tasks: PersistentTask[]): void {
+    for (const t of tasks) {
+      this.items.set(t.id, { ...t });
+    }
+  }
+
   async getByHousehold(householdId: string): Promise<PersistentTask[]> {
     return Array.from(this.items.values()).filter((t) => t.householdId === householdId);
   }
@@ -245,6 +257,12 @@ export class InMemoryPersistentTaskRepository implements PersistentTaskRepositor
 
 export class InMemoryTodoRepository implements TodoRepository {
   private items = new Map<string, TodoItem>();
+
+  seed(todos: TodoItem[]): void {
+    for (const t of todos) {
+      this.items.set(t.id, { ...t });
+    }
+  }
 
   async getByHousehold(householdId: string): Promise<TodoItem[]> {
     return Array.from(this.items.values()).filter((t) => t.householdId === householdId);
@@ -280,6 +298,12 @@ export class InMemoryTodoRepository implements TodoRepository {
 export class InMemoryExpenseEntryRepository implements ExpenseEntryRepository {
   private items = new Map<string, ExpenseEntry>();
 
+  seed(entries: ExpenseEntry[]): void {
+    for (const e of entries) {
+      this.items.set(e.id, { ...e });
+    }
+  }
+
   async getByHousehold(householdId: string): Promise<ExpenseEntry[]> {
     return Array.from(this.items.values()).filter((e) => e.householdId === householdId);
   }
@@ -312,6 +336,12 @@ export class InMemoryExpenseEntryRepository implements ExpenseEntryRepository {
 
 export class InMemorySettlementRepository implements SettlementRepository {
   private items = new Map<string, CrossLedgerSettlement>();
+
+  seed(settlements: CrossLedgerSettlement[]): void {
+    for (const s of settlements) {
+      this.items.set(s.id, { ...s });
+    }
+  }
 
   async getByHousehold(householdId: string): Promise<CrossLedgerSettlement[]> {
     return Array.from(this.items.values()).filter((s) => s.householdId === householdId);

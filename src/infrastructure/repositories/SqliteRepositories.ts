@@ -40,6 +40,16 @@ function generateId(prefix: string): string {
 // ── User Repository ────────────────────────────────────────────
 
 export class SqliteUserRepository implements UserRepository {
+  async seed(users: User[]): Promise<void> {
+    const db = await getDatabase();
+    for (const user of users) {
+      await db.runAsync(
+        'INSERT OR REPLACE INTO users (id, email, displayName, createdAt) VALUES (?, ?, ?, ?)',
+        [user.id, user.email, user.displayName, user.createdAt]
+      );
+    }
+  }
+
   async getById(id: string): Promise<User | null> {
     const db = await getDatabase();
     const row = await db.getFirstAsync<{ id: string; email: string; displayName: string; createdAt: string }>(
@@ -98,6 +108,16 @@ export class SqliteUserRepository implements UserRepository {
 // ── Membership Repository ──────────────────────────────────────
 
 export class SqliteMembershipRepository implements MembershipRepository {
+  async seed(memberships: Membership[]): Promise<void> {
+    const db = await getDatabase();
+    for (const m of memberships) {
+      await db.runAsync(
+        'INSERT OR REPLACE INTO memberships (id, userId, householdId, role, joinedAt) VALUES (?, ?, ?, ?, ?)',
+        [m.id, m.userId, m.householdId, m.role, m.joinedAt]
+      );
+    }
+  }
+
   async getByUser(userId: string): Promise<Membership[]> {
     const db = await getDatabase();
     const rows = await db.getAllAsync<{ id: string; userId: string; householdId: string; role: string; joinedAt: string }>(
@@ -167,6 +187,24 @@ export class SqliteMembershipRepository implements MembershipRepository {
 // ── Household Repository ───────────────────────────────────────
 
 export class SqliteHouseholdRepository implements HouseholdRepository {
+  async seed(households: Household[]): Promise<void> {
+    const db = await getDatabase();
+    for (const h of households) {
+      await db.runAsync(
+        'INSERT OR REPLACE INTO households (id, name, ownerId, contributionUnit, crossLedgerCompensationEnabled, contributionToMoneyRateJson, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?)',
+        [
+          h.id,
+          h.name,
+          h.ownerId,
+          h.contributionUnit,
+          h.crossLedgerCompensationEnabled ? 1 : 0,
+          h.contributionToMoneyRate ? JSON.stringify(h.contributionToMoneyRate) : null,
+          h.createdAt,
+        ]
+      );
+    }
+  }
+
   async getAll(): Promise<Household[]> {
     const db = await getDatabase();
     const rows = await db.getAllAsync<HouseholdRow>('SELECT * FROM households');
@@ -254,6 +292,16 @@ function householdFromRow(row: HouseholdRow): Household {
 // ── Member Repository ──────────────────────────────────────────
 
 export class SqliteMemberRepository implements MemberRepository {
+  async seed(members: Member[]): Promise<void> {
+    const db = await getDatabase();
+    for (const m of members) {
+      await db.runAsync(
+        'INSERT OR REPLACE INTO members (id, householdId, name, userId, joinedAt) VALUES (?, ?, ?, ?, ?)',
+        [m.id, m.householdId, m.name, m.userId, m.joinedAt]
+      );
+    }
+  }
+
   async getByHousehold(householdId: string): Promise<Member[]> {
     const db = await getDatabase();
     const rows = await db.getAllAsync<{ id: string; householdId: string; name: string; userId: string; joinedAt: string }>(
@@ -297,6 +345,28 @@ export class SqliteMemberRepository implements MemberRepository {
 // ── Contribution Entry Repository ──────────────────────────────
 
 export class SqliteContributionEntryRepository implements ContributionEntryRepository {
+  async seed(entries: ContributionEntry[]): Promise<void> {
+    const db = await getDatabase();
+    for (const entry of entries) {
+      await db.runAsync(
+        'INSERT OR REPLACE INTO contribution_entries (id, householdId, label, performedByMemberId, beneficiaryMemberIds, value, unit, persistentTaskId, occurredAt, createdBy, modifiedBy) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        [
+          entry.id,
+          entry.householdId,
+          entry.label,
+          entry.performedByMemberId,
+          toJsonArray(entry.beneficiaryMemberIds),
+          entry.value,
+          entry.unit,
+          entry.persistentTaskId,
+          entry.occurredAt,
+          entry.createdBy,
+          entry.modifiedBy ?? null,
+        ]
+      );
+    }
+  }
+
   async getByHousehold(householdId: string): Promise<ContributionEntry[]> {
     const db = await getDatabase();
     const rows = await db.getAllAsync<ContributionEntryRow>(
@@ -402,6 +472,24 @@ function contributionFromRow(row: ContributionEntryRow): ContributionEntry {
 // ── Persistent Task Repository ─────────────────────────────────
 
 export class SqlitePersistentTaskRepository implements PersistentTaskRepository {
+  async seed(tasks: PersistentTask[]): Promise<void> {
+    const db = await getDatabase();
+    for (const task of tasks) {
+      await db.runAsync(
+        'INSERT OR REPLACE INTO persistent_tasks (id, householdId, name, defaultValue, defaultUnit, defaultBeneficiaryMemberIds, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?)',
+        [
+          task.id,
+          task.householdId,
+          task.name,
+          task.defaultValue,
+          task.defaultUnit,
+          task.defaultBeneficiaryMemberIds ? toJsonArray(task.defaultBeneficiaryMemberIds) : null,
+          task.createdAt,
+        ]
+      );
+    }
+  }
+
   async getByHousehold(householdId: string): Promise<PersistentTask[]> {
     const db = await getDatabase();
     const rows = await db.getAllAsync<PersistentTaskRow>(
@@ -476,6 +564,29 @@ function taskFromRow(row: PersistentTaskRow): PersistentTask {
 // ── Todo Repository ────────────────────────────────────────────
 
 export class SqliteTodoRepository implements TodoRepository {
+  async seed(todos: TodoItem[]): Promise<void> {
+    const db = await getDatabase();
+    for (const todo of todos) {
+      await db.runAsync(
+        'INSERT OR REPLACE INTO todo_items (id, householdId, title, assigneeMemberId, beneficiaryMemberIds, dueAt, reminderAt, notes, persistentTaskId, status, createdAt, completedAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        [
+          todo.id,
+          todo.householdId,
+          todo.title,
+          todo.assigneeMemberId,
+          toJsonArray(todo.beneficiaryMemberIds),
+          todo.dueAt,
+          todo.reminderAt,
+          todo.notes,
+          todo.persistentTaskId,
+          todo.status,
+          todo.createdAt,
+          todo.completedAt ?? null,
+        ]
+      );
+    }
+  }
+
   async getByHousehold(householdId: string): Promise<TodoItem[]> {
     const db = await getDatabase();
     const rows = await db.getAllAsync<TodoRow>(
@@ -583,6 +694,31 @@ function todoFromRow(row: TodoRow): TodoItem {
 // ── Expense Entry Repository ───────────────────────────────────
 
 export class SqliteExpenseEntryRepository implements ExpenseEntryRepository {
+  async seed(entries: ExpenseEntry[]): Promise<void> {
+    const db = await getDatabase();
+    for (const entry of entries) {
+      await db.runAsync(
+        'INSERT OR REPLACE INTO expense_entries (id, householdId, title, amountMinor, currency, paidByMemberId, participantMemberIds, splitMode, customSharesJson, note, category, occurredAt, createdBy, modifiedBy) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        [
+          entry.id,
+          entry.householdId,
+          entry.title,
+          entry.amountMinor,
+          entry.currency,
+          entry.paidByMemberId,
+          toJsonArray(entry.participantMemberIds),
+          entry.splitMode,
+          entry.customShares ? toJsonArray(entry.customShares) : null,
+          entry.note ?? null,
+          entry.category ?? null,
+          entry.occurredAt,
+          entry.createdBy,
+          entry.modifiedBy ?? null,
+        ]
+      );
+    }
+  }
+
   async getByHousehold(householdId: string): Promise<ExpenseEntry[]> {
     const db = await getDatabase();
     const rows = await db.getAllAsync<ExpenseEntryRow>(
@@ -700,6 +836,28 @@ function expenseFromRow(row: ExpenseEntryRow): ExpenseEntry {
 // ── Settlement Repository ──────────────────────────────────────
 
 export class SqliteSettlementRepository implements SettlementRepository {
+  async seed(settlements: CrossLedgerSettlement[]): Promise<void> {
+    const db = await getDatabase();
+    for (const settlement of settlements) {
+      await db.runAsync(
+        'INSERT OR REPLACE INTO settlements (id, householdId, contributionCreditorMemberId, counterpartyMemberId, contributionValue, contributionUnit, moneyAmountMinor, currency, rateSnapshotJson, occurredAt, createdBy) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        [
+          settlement.id,
+          settlement.householdId,
+          settlement.contributionCreditorMemberId,
+          settlement.counterpartyMemberId,
+          settlement.contributionValue,
+          settlement.contributionUnit,
+          settlement.moneyAmountMinor,
+          settlement.currency,
+          JSON.stringify(settlement.rateSnapshot),
+          settlement.occurredAt,
+          settlement.createdBy,
+        ]
+      );
+    }
+  }
+
   async getByHousehold(householdId: string): Promise<CrossLedgerSettlement[]> {
     const db = await getDatabase();
     const rows = await db.getAllAsync<SettlementRow>(

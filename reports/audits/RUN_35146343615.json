@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "cycle": "35146343615",
+  "role": "builder",
+  "decision": "accept",
+  "summary": "V3-02 repair accepted: demo fixture now seeded under canonical ids (h-core, demo-user-alex, m-alex/m-sam) via SeedableRepository, sign-in/loadHouseholds gate on reposReady promise, and SQLite-backed repository CRUD + factory fallback + fixture idempotency tests added (86 tests green). Trusted verification 0, Android export/prebuild ok, no V3-01 regression.",
+  "checks": [
+    "trusted_verification_exit_0",
+    "typecheck_pass",
+    "tests_86_pass_including_sqlite_crud_and_factory_and_fixture",
+    "expo_export_android_ok",
+    "android_prebuild_ok",
+    "demo_fixture_canonical_ids_consistent_seed",
+    "reposReady_consumed_signIn_and_loadHouseholds_gated",
+    "sqlite_repositories_crud_roundtrip_preserves_units_minutes_points_and_minorUnits",
+    "repositoryFactory_test_env_fallback_inMemory_verified",
+    "business_data_written_via_factory_readable",
+    "fixture_idempotent_no_duplicate_on_second_signin",
+    "fixture_converges_via_sqlite_direct",
+    "V3-01_zero_sum_and_integer_minorInvariants_still_green",
+    "V3-02_three_tabs_Ajouter_Balances_Afaire_exact",
+    "V3-02_design_system_graphite_offwhite_metallic_no_premium_warm_chrono",
+    "V3-02_local_first_sqlite_indexed_read_local_no_cloud_fetch",
+    "V3-02_provider_agnostic_ports_no_firebase_in_domain"
+  ],
+  "findings": []
+}

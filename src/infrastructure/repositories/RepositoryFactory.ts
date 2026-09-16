@@ -55,12 +55,18 @@ export interface AllRepositories {
 /**
  * Detect whether we are running in a test environment.
  * In tests, SQLite is not available (no native modules), so we use in-memory.
+ * Detection is explicit: jest sets NODE_ENV=test and the jest config also
+ * defines globalThis.__TEST__ = true.
  */
 function isTestEnvironment(): boolean {
-  return (
-    typeof globalThis !== 'undefined' &&
-    (globalThis as Record<string, unknown>).__TEST__ === true
-  );
+  if (typeof globalThis !== 'undefined') {
+    const g = globalThis as Record<string, unknown>;
+    if (g.__TEST__ === true) return true;
+  }
+  if (typeof process !== 'undefined' && process.env?.NODE_ENV === 'test') {
+    return true;
+  }
+  return false;
 }
 
 /**
@@ -114,6 +120,8 @@ function createInMemoryRepositories(): AllRepositories {
     settlements: new InMemorySettlementRepository(),
   };
 }
+
+export { createInMemoryRepositories };
 
 /**
  * Create the appropriate repository set.

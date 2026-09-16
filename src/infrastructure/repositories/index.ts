@@ -17,7 +17,18 @@ import {
   CrossLedgerSettlement,
 } from '../../domain/entities';
 
-export interface UserRepository {
+/**
+ * Idempotent upsert of full entities with known ids.
+ *
+ * Used by the demo fixture (canonical ids), tests and future sync
+ * reconciliation. Implementations must not duplicate rows when the same
+ * id (or unique key) is seeded again.
+ */
+export interface SeedableRepository<T> {
+  seed(items: T[]): Promise<void> | void;
+}
+
+export interface UserRepository extends SeedableRepository<User> {
   getById(id: string): Promise<User | null>;
   getByEmail(email: string): Promise<User | null>;
   create(data: Omit<User, 'id' | 'createdAt'>): Promise<User>;
@@ -25,7 +36,7 @@ export interface UserRepository {
   getAll(): Promise<User[]>;
 }
 
-export interface MembershipRepository {
+export interface MembershipRepository extends SeedableRepository<Membership> {
   getByUser(userId: string): Promise<Membership[]>;
   getByHousehold(householdId: string): Promise<Membership[]>;
   getByUserAndHousehold(userId: string, householdId: string): Promise<Membership | null>;
@@ -33,7 +44,7 @@ export interface MembershipRepository {
   delete(id: string): Promise<void>;
 }
 
-export interface HouseholdRepository {
+export interface HouseholdRepository extends SeedableRepository<Household> {
   getAll(): Promise<Household[]>;
   getById(id: string): Promise<Household | null>;
   create(data: Omit<Household, 'id' | 'createdAt'>): Promise<Household>;
@@ -41,13 +52,13 @@ export interface HouseholdRepository {
   delete(id: string): Promise<void>;
 }
 
-export interface MemberRepository {
+export interface MemberRepository extends SeedableRepository<Member> {
   getByHousehold(householdId: string): Promise<Member[]>;
   getById(id: string): Promise<Member | null>;
   create(data: Omit<Member, 'id' | 'joinedAt'>): Promise<Member>;
 }
 
-export interface ContributionEntryRepository {
+export interface ContributionEntryRepository extends SeedableRepository<ContributionEntry> {
   getByHousehold(householdId: string): Promise<ContributionEntry[]>;
   getById(id: string): Promise<ContributionEntry | null>;
   create(entry: Omit<ContributionEntry, 'id'>): Promise<ContributionEntry>;
@@ -55,14 +66,14 @@ export interface ContributionEntryRepository {
   delete(id: string): Promise<void>;
 }
 
-export interface PersistentTaskRepository {
+export interface PersistentTaskRepository extends SeedableRepository<PersistentTask> {
   getByHousehold(householdId: string): Promise<PersistentTask[]>;
   getById(id: string): Promise<PersistentTask | null>;
   create(task: Omit<PersistentTask, 'id' | 'createdAt'>): Promise<PersistentTask>;
   delete(id: string): Promise<void>;
 }
 
-export interface TodoRepository {
+export interface TodoRepository extends SeedableRepository<TodoItem> {
   getByHousehold(householdId: string): Promise<TodoItem[]>;
   getById(id: string): Promise<TodoItem | null>;
   create(todo: Omit<TodoItem, 'id' | 'createdAt'>): Promise<TodoItem>;
@@ -70,7 +81,7 @@ export interface TodoRepository {
   delete(id: string): Promise<void>;
 }
 
-export interface ExpenseEntryRepository {
+export interface ExpenseEntryRepository extends SeedableRepository<ExpenseEntry> {
   getByHousehold(householdId: string): Promise<ExpenseEntry[]>;
   getById(id: string): Promise<ExpenseEntry | null>;
   create(entry: Omit<ExpenseEntry, 'id'>): Promise<ExpenseEntry>;
@@ -78,7 +89,7 @@ export interface ExpenseEntryRepository {
   delete(id: string): Promise<void>;
 }
 
-export interface SettlementRepository {
+export interface SettlementRepository extends SeedableRepository<CrossLedgerSettlement> {
   getByHousehold(householdId: string): Promise<CrossLedgerSettlement[]>;
   getById(id: string): Promise<CrossLedgerSettlement | null>;
   create(settlement: Omit<CrossLedgerSettlement, 'id'>): Promise<CrossLedgerSettlement>;

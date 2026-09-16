@@ -4,8 +4,19 @@
  * Verifies in-memory repositories work correctly and that
  * the domain entities flow through the infrastructure layer.
  * These are provider-independent tests that validate the contracts.
+ *
+ * Also covers the SQLite-backed repositories (against a mocked in-memory
+ * expo-sqlite driver), the RepositoryFactory fallback selection and the
+ * demo fixture consistency (canonical ids, idempotent sign-in).
  */
 
+// Mock expo-sqlite with an in-memory fake driver so the real
+// SqliteStorage/SqliteRepositories code can be exercised in jest.
+jest.mock('expo-sqlite', () => ({
+  openDatabaseAsync: jest.fn(),
+}));
+
+import * as SQLite from 'expo-sqlite';
 import {
   InMemoryUserRepository,
   InMemoryMembershipRepository,
@@ -17,6 +28,147 @@ import {
   InMemoryExpenseEntryRepository,
   InMemorySettlementRepository,
 } from '../../src/infrastructure/repositories/InMemoryRepositories';
+import {
+  SqliteUserRepository,
+  SqliteMembershipRepository,
+  SqliteHouseholdRepository,
+  SqliteMemberRepository,
+  SqliteContributionEntryRepository,
+  SqlitePersistentTaskRepository,
+  SqliteTodoRepository,
+  SqliteExpenseEntryRepository,
+  SqliteSettlementRepository,
+} from '../../src/infrastructure/repositories/SqliteRepositories';
+import { createRepositories } from '../../src/infrastructure/repositories/RepositoryFactory';
+import {
+  ensureDemoFixture,
+  loadHouseholdsForUser,
+  DEMO_HOUSEHOLD_ID,
+  DEMO_ALEX_MEMBER_ID,
+  DEMO_SAM_MEMBER_ID,
+  DEMO_SAM_USER_ID,
+} from '../../src/features/app/demoFixture';
+import { AuthUser } from '../../src/application/ports';
+
+const openDatabaseAsyncMock = SQLite.openDatabaseAsync as jest.Mock;
+
+/**
+ * Minimal in-memory SQL engine covering the exact SQL subset used by
+ * SqliteStorage (DDL, ignored) and SqliteRepositories (INSERT/INSERT OR
+ * REPLACE/UPDATE/DELETE/SELECT with ? params and ORDER BY).
+ */
+class FakeSQLiteDatabase {
+  private tables = new Map<string, Map<string, Record<string, unknown>>>();
+
+  async execAsync(_sql: string): Promise<void> {
+    // DDL (CREATE TABLE/INDEX, PRAGMA) is a no-op; tables are created lazily.
+  }
+
+  async runAsync(sql: string, params: unknown[] = []): Promise<{ lastInsertRowId: number; changes: number }> {
+    const insertMatch = sql.match(/^INSERT(?: OR REPLACE)? INTO (\w+) \(([^)]+)\) VALUES \(([^)]+)\)$/i);
+    if (insertMatch) {
+      const [, table, colsStr, placeholdersStr] = insertMatch;
+      const cols = colsStr.split(',').map((c) => c.trim());
+      const placeholders = placeholdersStr.split(',').map((p) => p.trim());
+      const row: Record<string, unknown> = {};
+      let paramIndex = 0;
+      for (let i = 0; i < cols.length; i++) {
+        row[cols[i]] = placeholders[i] === '?' ? params[paramIndex++] : placeholders[i];
+      }
+      const id = String(row.id);
+      this.getTable(table).set(id, row);
+      return { lastInsertRowId: Number(id.replace(/\D/g, '') || 0), changes: 1 };
+    }
+
+    const updateMatch = sql.match(/^UPDATE (\w+) SET (.+) WHERE id = \?$/i);
+    if (updateMatch) {
+      const [, table, setClause] = updateMatch;
+      const id = String(params[params.length - 1]);
+      const row = this.getTable(table).get(id);
+      if (!row) throw new Error(`${table} ${id} not found`);
+      const assignments = setClause.split(',').map((a) => a.trim());
+      let paramIndex = 0;
+      for (const assignment of assignments) {
+        const [col] = assignment.split('=').map((s) => s.trim());
+        row[col] = params[paramIndex++];
+      }
+      return { lastInsertRowId: 0, changes: 1 };
+    }
+
+    const deleteMatch = sql.match(/^DELETE FROM (\w+) WHERE id = \?$/i);
+    if (deleteMatch) {
+      const [, table] = deleteMatch;
+      this.getTable(table).delete(String(params[0]));
+      return { lastInsertRowId: 0, changes: 1 };
+    }
+
+    throw new Error(`Unsupported SQL: ${sql}`);
+  }
+
+  async getFirstAsync<T>(sql: string, params: unknown[] = []): Promise<T | null> {
+    const rows = this.query(sql, params);
+    return (rows[0] as T) ?? null;
+  }
+
+  async getAllAsync<T>(sql: string, params: unknown[] = []): Promise<T[]> {
+    return this.query(sql, params) as T[];
+  }
+
+  private query(sql: string, params: unknown[]): Record<string, unknown>[] {
+    const selectMatch = sql.match(/^SELECT \* FROM (\w+)(?: WHERE (.+))?(?: ORDER BY (.+))?$/i);
+    if (!selectMatch) throw new Error(`Unsupported SQL: ${sql}`);
+    const [, table, whereClause, orderClause] = selectMatch;
+    let rows = Array.from(this.getTable(table).values());
+    if (whereClause) {
+      const conditions = whereClause.split(' AND ').map((c) => c.trim());
+      rows = rows.filter((row) => {
+        let paramIndex = 0;
+        for (const condition of conditions) {
+          const [col] = condition.split('=').map((s) => s.trim());
+          const expected = params[paramIndex++];
+          if (String(row[col]) !== String(expected)) return false;
+        }
+        return true;
+      });
+    }
+    if (orderClause) {
+      const [col, dir] = orderClause.split(' ').map((s) => s.trim());
+      const multiplier = dir?.toUpperCase() === 'DESC' ? -1 : 1;
+      rows = [...rows].sort((a, b) => {
+        const av = a[col] as string | number;
+        const bv = b[col] as string | number;
+        if (av === bv) return 0;
+        return (av < bv ? -1 : 1) * multiplier;
+      });
+    }
+    return rows;
+  }
+
+  private getTable(name: string): Map<string, Record<string, unknown>> {
+    if (!this.tables.has(name)) this.tables.set(name, new Map());
+    return this.tables.get(name)!;
+  }
+
+  clearAll(): void {
+    this.tables.clear();
+  }
+}
+
+beforeAll(() => {
+  openDatabaseAsyncMock.mockImplementation(
+    async () => new FakeSQLiteDatabase() as unknown as SQLite.SQLiteDatabase
+  );
+});
+
+beforeEach(async () => {
+  // SqliteStorage caches a single database instance per module; clear its
+  // tables between tests so each test starts from an empty store.
+  const calls = openDatabaseAsyncMock.mock.results;
+  if (calls.length > 0) {
+    const db = (await calls[0].value) as FakeSQLiteDatabase;
+    db.clearAll();
+  }
+});
 
 describe('V3-02 InMemory repositories', () => {
   test('household CRUD works without restrictions', async () => {
@@ -243,5 +395,399 @@ describe('V3-02 multi-group support', () => {
 
     const households = await householdRepo.getAll();
     expect(households).toHaveLength(5);
+  });
+});
+
+describe('V3-02 SQLite repositories (mocked expo-sqlite driver)', () => {
+  test('user CRUD round-trip and idempotent seed', async () => {
+    const repo = new SqliteUserRepository();
+
+    const created = await repo.create({ email: 'alex@example.com', displayName: 'Alex' });
+    expect(created.id).toBeTruthy();
+
+    const fetched = await repo.getById(created.id);
+    expect(fetched?.email).toBe('alex@example.com');
+    expect(fetched?.displayName).toBe('Alex');
+    expect(await repo.getByEmail('alex@example.com')).toEqual(fetched);
+
+    const updated = await repo.update(created.id, { displayName: 'Alexandre' });
+    expect(updated.displayName).toBe('Alexandre');
+    expect((await repo.getById(created.id))?.displayName).toBe('Alexandre');
+    expect(await repo.getAll()).toHaveLength(1);
+
+    // seed is an idempotent upsert with known ids
+    const demoUser = {
+      id: 'demo-user-alex',
+      email: 'demo@chorescore.app',
+      displayName: 'Alex',
+      createdAt: '2026-01-01T00:00:00.000Z',
+    };
+    await repo.seed([demoUser]);
+    await repo.seed([demoUser]);
+    expect(await repo.getById('demo-user-alex')).not.toBeNull();
+    expect(await repo.getAll()).toHaveLength(2);
+  });
+
+  test('household CRUD round-trip preserves unit and compensation config', async () => {
+    const repo = new SqliteHouseholdRepository();
+
+    const created = await repo.create({
+      name: 'Appartement',
+      ownerId: 'user-1',
+      contributionUnit: 'points',
+      crossLedgerCompensationEnabled: true,
+      contributionToMoneyRate: {
+        contributionValue: 10,
+        contributionUnit: 'points',
+        moneyAmountMinor: 1500,
+        currency: 'CHF',
+      },
+    });
+
+    const fetched = await repo.getById(created.id);
+    expect(fetched?.name).toBe('Appartement');
+    expect(fetched?.contributionUnit).toBe('points');
+    expect(fetched?.crossLedgerCompensationEnabled).toBe(true);
+    expect(fetched?.contributionToMoneyRate?.moneyAmountMinor).toBe(1500);
+
+    const updated = await repo.update(created.id, { contributionUnit: 'minutes' });
+    expect(updated.contributionUnit).toBe('minutes');
+    expect((await repo.getById(created.id))?.contributionUnit).toBe('minutes');
+    expect(await repo.getAll()).toHaveLength(1);
+  });
+
+  test('membership CRUD round-trip and unique user-household lookup', async () => {
+    const repo = new SqliteMembershipRepository();
+
+    const created = await repo.create({ userId: 'user-1', householdId: 'h-1', role: 'OWNER' });
+    expect(created.joinedAt).toBeTruthy();
+    expect(await repo.getByUser('user-1')).toHaveLength(1);
+    expect(await repo.getByHousehold('h-1')).toHaveLength(1);
+
+    const pair = await repo.getByUserAndHousehold('user-1', 'h-1');
+    expect(pair?.role).toBe('OWNER');
+
+    await repo.delete(created.id);
+    expect(await repo.getByUser('user-1')).toHaveLength(0);
+  });
+
+  test('member CRUD round-trip', async () => {
+    const repo = new SqliteMemberRepository();
+
+    const created = await repo.create({ householdId: 'h-1', name: 'Alex', userId: 'user-1' });
+    expect(created.joinedAt).toBeTruthy();
+    expect(await repo.getById(created.id)).toEqual(created);
+
+    const byHousehold = await repo.getByHousehold('h-1');
+    expect(byHousehold).toHaveLength(1);
+    expect(byHousehold[0].name).toBe('Alex');
+  });
+
+  test('contribution entry round-trip preserves unit, value and beneficiaries', async () => {
+    const repo = new SqliteContributionEntryRepository();
+
+    const created = await repo.create({
+      householdId: 'h-1',
+      label: 'Vaisselle',
+      performedByMemberId: 'm-alex',
+      beneficiaryMemberIds: ['m-alex', 'm-sam'],
+      value: 15,
+      unit: 'minutes',
+      persistentTaskId: null,
+      occurredAt: '2026-09-16T12:00:00.000Z',
+      createdBy: 'user-alex',
+    });
+
+    const fetched = await repo.getById(created.id);
+    expect(fetched?.label).toBe('Vaisselle');
+    expect(fetched?.value).toBe(15);
+    expect(fetched?.unit).toBe('minutes');
+    expect(fetched?.beneficiaryMemberIds).toEqual(['m-alex', 'm-sam']);
+
+    const updated = await repo.update(created.id, { value: 20 });
+    expect(updated.value).toBe(20);
+    expect((await repo.getById(created.id))?.value).toBe(20);
+    expect(await repo.getByHousehold('h-1')).toHaveLength(1);
+
+    await repo.delete(created.id);
+    expect(await repo.getByHousehold('h-1')).toHaveLength(0);
+  });
+
+  test('persistent task round-trip', async () => {
+    const repo = new SqlitePersistentTaskRepository();
+
+    const created = await repo.create({
+      householdId: 'h-1',
+      name: 'Vaisselle',
+      defaultValue: 15,
+      defaultUnit: 'minutes',
+    });
+    expect(await repo.getById(created.id)).toEqual(created);
+    expect(await repo.getByHousehold('h-1')).toHaveLength(1);
+
+    await repo.delete(created.id);
+    expect(await repo.getByHousehold('h-1')).toHaveLength(0);
+  });
+
+  test('todo round-trip tracks status and completion', async () => {
+    const repo = new SqliteTodoRepository();
+
+    const created = await repo.create({
+      householdId: 'h-1',
+      title: 'Sortir les poubelles',
+      assigneeMemberId: 'm-sam',
+      beneficiaryMemberIds: ['m-alex', 'm-sam'],
+      dueAt: null,
+      reminderAt: null,
+      notes: '',
+      persistentTaskId: null,
+      status: 'todo',
+    });
+
+    const completed = await repo.update(created.id, {
+      status: 'completed',
+      completedAt: '2026-09-16T13:00:00.000Z',
+    });
+    expect(completed.status).toBe('completed');
+    expect(completed.completedAt).toBe('2026-09-16T13:00:00.000Z');
+
+    const fetched = await repo.getById(created.id);
+    expect(fetched?.status).toBe('completed');
+    expect(fetched?.completedAt).toBe('2026-09-16T13:00:00.000Z');
+  });
+
+  test('expense round-trip preserves integer minor units and split mode', async () => {
+    const repo = new SqliteExpenseEntryRepository();
+
+    const created = await repo.create({
+      householdId: 'h-1',
+      title: 'Courses Migros',
+      amountMinor: 4250,
+      currency: 'CHF',
+      paidByMemberId: 'm-alex',
+      participantMemberIds: ['m-alex', 'm-sam'],
+      splitMode: 'equal',
+      occurredAt: '2026-09-16T12:00:00.000Z',
+      createdBy: 'user-alex',
+    });
+
+    const fetched = await repo.getById(created.id);
+    expect(fetched?.amountMinor).toBe(4250);
+    expect(fetched?.currency).toBe('CHF');
+    expect(fetched?.participantMemberIds).toEqual(['m-alex', 'm-sam']);
+    expect(fetched?.splitMode).toBe('equal');
+
+    const updated = await repo.update(created.id, {
+      splitMode: 'custom',
+      customShares: [{ memberId: 'm-alex', amountMinor: 4250 }],
+    });
+    expect(updated.splitMode).toBe('custom');
+    expect(updated.customShares).toEqual([{ memberId: 'm-alex', amountMinor: 4250 }]);
+  });
+
+  test('settlement round-trip preserves immutable rate snapshot', async () => {
+    const repo = new SqliteSettlementRepository();
+
+    const created = await repo.create({
+      householdId: 'h-1',
+      contributionCreditorMemberId: 'm-alex',
+      counterpartyMemberId: 'm-sam',
+      contributionValue: 15,
+      contributionUnit: 'minutes',
+      moneyAmountMinor: 500,
+      currency: 'CHF',
+      rateSnapshot: {
+        contributionValue: 60,
+        contributionUnit: 'minutes',
+        moneyAmountMinor: 2000,
+        currency: 'CHF',
+      },
+      occurredAt: '2026-09-16T13:00:00.000Z',
+      createdBy: 'user-alex',
+    });
+
+    const fetched = await repo.getById(created.id);
+    expect(fetched?.rateSnapshot).toEqual({
+      contributionValue: 60,
+      contributionUnit: 'minutes',
+      moneyAmountMinor: 2000,
+      currency: 'CHF',
+    });
+    expect(fetched?.moneyAmountMinor).toBe(500);
+    expect(await repo.getByHousehold('h-1')).toHaveLength(1);
+  });
+
+  test('seed is an idempotent upsert across repositories', async () => {
+    const userRepo = new SqliteUserRepository();
+    const householdRepo = new SqliteHouseholdRepository();
+    const membershipRepo = new SqliteMembershipRepository();
+    const memberRepo = new SqliteMemberRepository();
+
+    const demoUser = {
+      id: 'demo-user-alex',
+      email: 'demo@chorescore.app',
+      displayName: 'Alex',
+      createdAt: '2026-01-01T00:00:00.000Z',
+    };
+    await userRepo.seed([demoUser]);
+    await userRepo.seed([demoUser]);
+    expect(await userRepo.getAll()).toHaveLength(1);
+
+    const demoHousehold = {
+      id: DEMO_HOUSEHOLD_ID,
+      name: 'Appartement',
+      ownerId: 'demo-user-alex',
+      contributionUnit: 'minutes' as const,
+      crossLedgerCompensationEnabled: false,
+      contributionToMoneyRate: null,
+      createdAt: '2026-01-01T00:00:00.000Z',
+    };
+    await householdRepo.seed([demoHousehold]);
+    await householdRepo.seed([demoHousehold]);
+    expect(await householdRepo.getAll()).toHaveLength(1);
+
+    const demoMembership = {
+      id: 'membership-demo-alex',
+      userId: 'demo-user-alex',
+      householdId: DEMO_HOUSEHOLD_ID,
+      role: 'OWNER' as const,
+      joinedAt: '2026-01-01T00:00:00.000Z',
+    };
+    await membershipRepo.seed([demoMembership]);
+    await membershipRepo.seed([demoMembership]);
+    expect(await membershipRepo.getByUser('demo-user-alex')).toHaveLength(1);
+
+    const demoMember = {
+      id: DEMO_ALEX_MEMBER_ID,
+      householdId: DEMO_HOUSEHOLD_ID,
+      name: 'Alex',
+      userId: 'demo-user-alex',
+      joinedAt: '2026-01-01T00:00:00.000Z',
+    };
+    await memberRepo.seed([demoMember]);
+    await memberRepo.seed([demoMember]);
+    expect(await memberRepo.getByHousehold(DEMO_HOUSEHOLD_ID)).toHaveLength(1);
+  });
+});
+
+describe('V3-02 RepositoryFactory selection', () => {
+  test('in-memory fallback is selected in the test environment', async () => {
+    const repos = await createRepositories();
+    expect(repos.users).toBeInstanceOf(InMemoryUserRepository);
+    expect(repos.memberships).toBeInstanceOf(InMemoryMembershipRepository);
+    expect(repos.households).toBeInstanceOf(InMemoryHouseholdRepository);
+    expect(repos.members).toBeInstanceOf(InMemoryMemberRepository);
+    expect(repos.contributions).toBeInstanceOf(InMemoryContributionEntryRepository);
+    expect(repos.tasks).toBeInstanceOf(InMemoryPersistentTaskRepository);
+    expect(repos.todos).toBeInstanceOf(InMemoryTodoRepository);
+    expect(repos.expenses).toBeInstanceOf(InMemoryExpenseEntryRepository);
+    expect(repos.settlements).toBeInstanceOf(InMemorySettlementRepository);
+  });
+
+  test('business data written through factory-selected repos can be read back', async () => {
+    const repos = await createRepositories();
+
+    const household = await repos.households.create({
+      name: 'Colocation',
+      ownerId: 'user-1',
+      contributionUnit: 'minutes',
+      crossLedgerCompensationEnabled: false,
+      contributionToMoneyRate: null,
+    });
+    await repos.memberships.create({ userId: 'user-1', householdId: household.id, role: 'OWNER' });
+    await repos.members.create({ householdId: household.id, name: 'Alex', userId: 'user-1' });
+    await repos.contributions.create({
+      householdId: household.id,
+      label: 'Vaisselle',
+      performedByMemberId: 'm-1',
+      beneficiaryMemberIds: ['m-1'],
+      value: 15,
+      unit: 'minutes',
+      persistentTaskId: null,
+      occurredAt: '2026-09-16T12:00:00.000Z',
+      createdBy: 'user-1',
+    });
+
+    const fetched = await repos.households.getById(household.id);
+    expect(fetched?.name).toBe('Colocation');
+    expect(await repos.memberships.getByUser('user-1')).toHaveLength(1);
+    expect(await repos.contributions.getByHousehold(household.id)).toHaveLength(1);
+  });
+});
+
+describe('V3-02 demo fixture consistency', () => {
+  const DEMO_USER: AuthUser = {
+    userId: 'demo-user-alex',
+    email: 'demo@chorescore.app',
+    displayName: 'Alex',
+    provider: 'local',
+  };
+
+  test('after demo sign-in the root groups list resolves the Appartement group', async () => {
+    const repos = await createRepositories();
+    await ensureDemoFixture(repos, DEMO_USER);
+
+    const households = await loadHouseholdsForUser(repos, DEMO_USER.userId);
+    expect(households).toHaveLength(1);
+    expect(households[0].id).toBe(DEMO_HOUSEHOLD_ID);
+    expect(households[0].name).toBe('Appartement');
+
+    // The household is reachable through the canonical id used by memberships.
+    expect(await repos.households.getById(DEMO_HOUSEHOLD_ID)).not.toBeNull();
+  });
+
+  test('a second sign-in does not duplicate the demo user or memberships', async () => {
+    const repos = await createRepositories();
+    await ensureDemoFixture(repos, DEMO_USER);
+    await ensureDemoFixture(repos, DEMO_USER);
+
+    const users = await repos.users.getAll();
+    expect(users.filter((u) => u.id === DEMO_USER.userId)).toHaveLength(1);
+    expect(users.filter((u) => u.id === DEMO_SAM_USER_ID)).toHaveLength(1);
+    expect(await repos.memberships.getByUser(DEMO_USER.userId)).toHaveLength(1);
+    expect(await repos.members.getByHousehold(DEMO_HOUSEHOLD_ID)).toHaveLength(2);
+
+    // Fixture content is not duplicated either.
+    expect(await repos.contributions.getByHousehold(DEMO_HOUSEHOLD_ID)).toHaveLength(2);
+    expect(await repos.todos.getByHousehold(DEMO_HOUSEHOLD_ID)).toHaveLength(1);
+  });
+
+  test('fixture data is readable through the same repositories that wrote it', async () => {
+    const repos = await createRepositories();
+    await ensureDemoFixture(repos, DEMO_USER);
+
+    const members = await repos.members.getByHousehold(DEMO_HOUSEHOLD_ID);
+    expect(members.map((m) => m.id).sort()).toEqual([DEMO_ALEX_MEMBER_ID, DEMO_SAM_MEMBER_ID]);
+
+    const entries = await repos.contributions.getByHousehold(DEMO_HOUSEHOLD_ID);
+    expect(entries.map((e) => e.label).sort()).toEqual(['Courses Migros', 'Vaisselle du soir']);
+
+    const todos = await repos.todos.getByHousehold(DEMO_HOUSEHOLD_ID);
+    expect(todos[0].title).toBe('Sortir les poubelles');
+  });
+
+  test('demo fixture converges through the SQLite-backed repositories', async () => {
+    const repos = {
+      users: new SqliteUserRepository(),
+      memberships: new SqliteMembershipRepository(),
+      households: new SqliteHouseholdRepository(),
+      members: new SqliteMemberRepository(),
+      contributions: new SqliteContributionEntryRepository(),
+      tasks: new SqlitePersistentTaskRepository(),
+      todos: new SqliteTodoRepository(),
+      expenses: new SqliteExpenseEntryRepository(),
+      settlements: new SqliteSettlementRepository(),
+    };
+
+    await ensureDemoFixture(repos, DEMO_USER);
+    const households = await loadHouseholdsForUser(repos, DEMO_USER.userId);
+    expect(households).toHaveLength(1);
+    expect(households[0].name).toBe('Appartement');
+
+    // A second sign-in converges to the same state (no duplicates).
+    await ensureDemoFixture(repos, DEMO_USER);
+    expect(await repos.users.getAll()).toHaveLength(2);
+    expect(await repos.memberships.getByUser(DEMO_USER.userId)).toHaveLength(1);
+    expect(await repos.contributions.getByHousehold(DEMO_HOUSEHOLD_ID)).toHaveLength(2);
   });
 });
