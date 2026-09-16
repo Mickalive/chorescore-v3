@@ -91,7 +91,7 @@ jobs:
         with:
           pattern: model-probe-*
           path: ${{ runner.temp }}/probes
-          merge-multiple: true
+          merge-multiple: false
       - id: select
         run: bash .github/scripts/select-models.sh '${{ runner.temp }}/probes'
 
