@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "cycle": "35136264945",
+  "decision": "continue",
+  "reason": "Auditor decision is accept on V3-01. The four must-fix settlement precondition and replay defects from the previous repair cycle are resolved: money precondition now checks counterparty receivable (positive balance >= settlement amount), sequence accumulation detects over-settlement across applied settlements, ledger replay enforces rate consistency via validateCrossLedgerSettlement, and precondition tests exercise correct semantics with genuine accumulation and replay-rejection coverage. All 42 tests pass with npm run check green. V3-01 criterion is complete. Next coherent criterion is V3-02: application structure, V3 design and local-first foundation.",
+  "progressEvidence": [
+    "V3-01 accepted: domain, dual ledgers, and invariants complete",
+    "contribution ledger zero-sum preserved (performer credit, beneficiary shares, self-share cancellation)",
+    "expense ledger integer minor-unit math preserved (equal-split, custom split, per-currency)",
+    "crossLedgerSettlement: rate snapshot, structural validation, settlement preconditions all correct",
+    "settlement preconditions: counterparty receivable check correct, sequence accumulation working",
+    "ledger replay rejects rate-inconsistent settlements in both contribution and expense paths",
+    "precondition tests encode correct baseline semantics and exercise accumulation and replay rejection",
+    "no chrono, Premium, paywall, billing, or Firebase types introduced",
+    "npm run check green: typecheck + 42 jest tests, 3 suites"
+  ],
+  "mustFixFindings": [],
+  "nextTask": "V3-02 — Structure application, design V3 et socle local-first. Migrate selectively the Expo/Router/AppContext/ports/adapters skeleton from V2. Build the root Groups screen (unlimited, no Premium badge or creation limits). Install the three-tab navigation: Ajouter, Balances, À faire. Install the V3 visual language: graphite/off-white/metallic palette, premium typography, compact transactional density. Remove all Premium/paywall/chrono behavioral traces. Install the local-first foundation: expo-sqlite indexed storage, local repositories, UI reading local state without mandatory cloud queries on screen/tab changes. The design must be recognized as premium and adult, not template/generic. All work must be driven from V2 reference as read-only, preserving accepted domain invariants."
+}

@@ -1,27 +1,28 @@
 {
   "schemaVersion": 1,
   "milestone": "v3-rc",
-  "lastCycle": "35126096695",
+  "lastCycle": "35136264945",
   "activeCriteria": [
-    "V3-01"
+    "V3-02"
   ],
   "pendingArtifact": null,
   "progressSummary": "Audited V3-01 requires repair; WIP baseline preserved when a safe delta existed.",
   "criteria": [
     {
       "id": "V3-01",
-      "status": "in_progress",
+      "status": "complete",
       "evidence": [
         "initial-v3-domain-entities",
         "contribution-ledger-zero-sum",
         "expense-ledger-integer-rounding",
         "cross-ledger-rate-snapshot",
-        "baseline-ci-35113857194-green"
+        "baseline-ci-35113857194-green",
+        "audit-accepted-35136264945"
       ]
     },
     {
       "id": "V3-02",
-      "status": "pending",
+      "status": "in_progress",
       "evidence": []
     },
     {
@@ -55,44 +56,11 @@
       "evidence": []
     }
   ],
-  "openFindings": [
-    {
-      "path": "src/domain/calculations/settlementPreconditions.ts",
-      "problem": "checkMoneyDebtSufficient and the money check inside validateSettlementPreconditions invert the counterparty balance sign. Per the entity doc (CrossLedgerSettlement consumes the creditor's contribution credit to reduce that member's money debt toward the counterparty) and the accepted baseline test 'a settlement updates both ledgers without breaking either zero-sum invariant' (ledgers.test.ts), the counterparty is the member OWED money, i.e. has a POSITIVE money balance, and the settlement reduces the creditor's debt (creditor balance moves up) and the counterparty's receivable (balance moves down). The check computes availableDebt = -counterpartyMoneyBalance and requires it >= moneyAmountMinor, i.e. it requires the counterparty to OWE money. Valid settlements are therefore rejected and semantically invalid ones (counterparty owing money) are accepted. The error message is nonsensical ('Counterparty b owes -1500 CHF minor units').",
-      "evidence": "Independent execution against the compiled domain: with a +15 min credit, a owing b (a -1500, b +1500), a valid settlement of 15 min / 500 CHF returns valid=false with error 'Counterparty b owes -1500 CHF minor units, but settlement requires 500'; checkMoneyDebtSufficient(1500, 500) returns {sufficient:false, availableDebt:-1500}. The same scenario is accepted and applied by the baseline ledger test (a -1500 -> -1000, b +1500 -> +1000).",
-      "mustFix": true,
-      "requiredFix": "Invert the money precondition: the counterparty must have a positive receivable at least equal to the settlement amount (e.g. sufficient = counterpartyMoneyBalance >= moneyAmountMinor - 1e-9, exposing availableReceivable = counterpartyMoneyBalance), and fix the error message accordingly. The accepted baseline scenario (counterparty +1500, settlement 500) must pass; a settlement exceeding the counterparty's receivable must fail.",
-      "verification": "Re-run validateSettlementPreconditions on the accepted baseline scenario from ledgers.test.ts (b paid 3000 for [a,b], a owes b) -> must be valid; a settlement larger than the counterparty's receivable -> must be invalid; property/randomized tests over settlement preconditions with correct semantics."
-    },
-    {
-      "path": "src/domain/calculations/settlementPreconditions.ts",
-      "problem": "validateSettlementSequence does not accumulate previously applied settlements: the appliedSettlements array is pushed but never read, and validateSettlementPreconditions always computes contribution/money balances from raw contributions/expenses with an empty settlements list. The documented purpose ('check preconditions with previously applied settlements included', 'catch malformed sequences') is not implemented, so a sequence of settlements that collectively overshoots available balances passes validation.",
-      "evidence": "Independent execution: a has 15 min contribution credit; s1 consumes 15 min / 500 CHF and s2 consumes 15 min / 500 CHF. validateSettlementSequence([s1, s2], ...) returns valid=true with no errors, although 30 min are consumed against 15 available. The existing test 'settlement sequence catches over-settlement across multiple settlements' passes only because its first settlement already fails the inverted money check, not because accumulation works.",
-      "mustFix": true,
-      "requiredFix": "Thread previously applied settlements into the balance computation inside the sequence loop (e.g. pass appliedSettlements to calculateContributionBalances/calculateFinancialBalances, or add a priorSettlements parameter to validateSettlementPreconditions) so each subsequent settlement is checked against balances that include all earlier settlements.",
-      "verification": "A sequence where s1 consumes all available credit and s2 overshoots must return valid=false; a sequence of individually valid, non-overlapping settlements must return valid=true."
-    },
-    {
-      "path": "src/domain/calculations/contributionLedger.ts",
-      "problem": "Ledger replay is not robust against malformed settlements: validateSettlement in contributionLedger.ts and validateSettlementMoney in expenseLedger.ts validate only structure (distinct members, positive contribution value, positive integer money amount, unit/currency match with the rate snapshot) but never check that moneyAmountMinor matches the snapshotted rate quote. A settlement whose money amount contradicts its rate is silently replayed into both ledgers and applies the wrong money amount, violating the task objective 'make replay robust against malformed settlements' and the auditability requirement (settlement must match its immutable rate snapshot).",
-      "evidence": "Independent execution: a settlement with rate 60 min = 2000 CHF, contributionValue 15, moneyAmountMinor 499 (expected 500) is rejected by validateCrossLedgerSettlement ('amount 499 does not match snapshotted rate (500)') but is accepted by calculateContributionBalances (balances a=15, b=-15) and calculateFinancialBalances (a=-1001, b=1001), applying the wrong amount.",
-      "mustFix": true,
-      "requiredFix": "Use the full structural validation (validateCrossLedgerSettlement from crossLedgerSettlement.ts, which imports only from validation.ts — no circular dependency) in both replay paths, replacing the weaker inline validateSettlement/validateSettlementMoney checks.",
-      "verification": "Replaying a rate-inconsistent settlement through calculateContributionBalances and calculateFinancialBalances must throw; replay of a rate-consistent settlement must still produce the correct balances and zero-sum ledgers."
-    },
-    {
-      "path": "__tests__/domain/validation-preconditions-periods.test.ts",
-      "problem": "The new precondition tests encode the inverted settlement semantics and pass for the wrong reasons, masking the defects above. 'valid settlement passes all preconditions' uses a counterparty with NEGATIVE money balance (b owes money), contradicting the accepted baseline semantics where the counterparty is OWED money (positive balance). 'settlement sequence catches over-settlement across multiple settlements' passes only because its first settlement fails the inverted money check immediately, so it never exercises sequence accumulation. No test covers replay rejection of rate-inconsistent settlements.",
-      "evidence": "Test file lines 147-168 ('valid settlement' scenario: b -1500, i.e. b owes money) and lines 203-237 (sequence test: s1 fails the inverted money check because b has +1500, so the test passes without accumulation). Independent execution shows the same scenarios behave as described.",
-      "mustFix": true,
-      "requiredFix": "Rewrite the tests with the correct semantics: the valid-settlement scenario must use the accepted baseline setup (counterparty owed money, e.g. b paid 3000 for [a,b]); add a genuine accumulation test (s1 consumes all available credit, s2 overshoots -> invalid); add replay-rejection tests for rate-inconsistent settlements in both ledger calculations.",
-      "verification": "Updated tests pass with the fixed code and fail against the current code (they must actually exercise accumulation and the correct money-precondition sign)."
-    }
-  ],
+  "openFindings": [],
   "factoryHealth": {
     "stalled": false,
     "consecutiveNoProgress": 0,
-    "lastProductSha": "bc08923768e4d0e61f73553762a9ab277c9a1980",
+    "lastProductSha": "9a278bb1028466c024a7b98dfd3f3762b9af042f",
     "reason": null
   }
 }
