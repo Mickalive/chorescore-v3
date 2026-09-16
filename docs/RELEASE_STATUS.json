@@ -1,9 +1,9 @@
 {
   "schemaVersion": 1,
   "milestone": "v3-rc",
-  "lastCycle": "35140323070",
+  "lastCycle": "35146343615",
   "activeCriteria": [
-    "V3-02"
+    "V3-03"
   ],
   "pendingArtifact": null,
   "progressSummary": "Audited V3-02 requires repair; WIP baseline preserved when a safe delta existed.",
@@ -22,12 +22,14 @@
     },
     {
       "id": "V3-02",
-      "status": "in_progress",
-      "evidence": []
+      "status": "complete",
+      "evidence": [
+        "audit-accepted-35146343615"
+      ]
     },
     {
       "id": "V3-03",
-      "status": "pending",
+      "status": "in_progress",
       "evidence": []
     },
     {
@@ -56,28 +58,11 @@
       "evidence": []
     }
   ],
-  "openFindings": [
-    {
-      "path": "src/features/app/AppContext.tsx",
-      "problem": "Regression introduced by the repair: ensureDemoFixture creates the demo household via repos.households.create() (line 146), which assigns a generated id (e.g. 'household-1-<ts>'), but every subsequent fixture record (memberships lines 157-190, members lines 192-229, tasks/entries/todos lines 231-283) and signIn (line 299) still reference the constant DEMO_HOUSEHOLD_ID 'h-core'. loadHouseholds (lines 309-322) resolves each membership's householdId via households.getById(m.householdId) -> null for 'h-core', so the root Groups screen shows 'Aucun groupe' after demo sign-in and the demo group 'Appartement' is unreachable. The previous baseline seeded the household with id 'h-core' (repos.households.seed([{ id: DEMO_HOUSEHOLD_ID, ... }])) and the fixture was consistent; the repair comment 'For in-memory, set the known ID by updating the created record' has no corresponding code. In the SQLite path the demo user is also created via repos.users.create() (lines 121-141) with a generated id, so 'demo-user-alex' never exists and a duplicate user row is inserted on every sign-in. Additionally reposReady (line 73) is set but never consumed: a sign-in that occurs before repository initialization completes skips ensureDemoFixture and loadHouseholds with no retry, and repos falls back to '{} as AllRepositories' (lines 355-368).",
-      "evidence": "Scratch jest test in a temp copy mirroring the exact ensureDemoFixture + loadHouseholds logic with in-memory repositories: expect(loaded.length).toBe(1) FAILED with Received: 0 (household 'h-core' not reachable from the user's memberships). git diff --cached shows the seed([{ id: DEMO_HOUSEHOLD_ID, ... }]) call replaced by await repos.households.create({...}) with no id assignment. AppContext.tsx lines 144-155 (create), 157-190 (memberships with DEMO_HOUSEHOLD_ID), 299 (setCurrentHouseholdId(DEMO_HOUSEHOLD_ID)), 315 (getById(m.householdId)).",
-      "mustFix": true,
-      "requiredFix": "Keep the demo fixture internally consistent: either seed/create the demo household (and demo user) under the canonical ids (DEMO_HOUSEHOLD_ID 'h-core', 'demo-user-alex') or use the id returned by create() consistently for memberships, members, tasks, entries, todos and currentHouseholdId. Also gate sign-in/loadHouseholds on repository readiness (consume reposReady) or retry the fixture once repos are initialized, so an early sign-in cannot permanently skip the fixture.",
-      "verification": "After demo sign-in the root Groups list shows the 'Appartement' group; tapping it opens the tabs rendering that group's members/entries; a second sign-in does not duplicate the demo user; sign-in before repo init still converges to the same state."
-    },
-    {
-      "path": "__tests__/infrastructure/repositories.test.ts",
-      "problem": "The required fix for the AppContext wiring finding explicitly demands 'repository tests cover the SQLite-backed repositories', but the candidate adds no such tests. The suite still covers only InMemory repositories; SqliteRepositories (781 lines) and the new RepositoryFactory (selection logic, in-memory fallback) have zero test coverage, so the persistence layer that the repair is supposed to deliver is unverified.",
-      "evidence": "grep for 'Sqlite|RepositoryFactory|createRepositories' across __tests__ returns no matches; repositories.test.ts imports only InMemory* repositories (lines 9-19).",
-      "mustFix": true,
-      "requiredFix": "Add tests covering the SQLite-backed repositories (e.g. CRUD round-trips against a mocked/in-memory expo-sqlite driver or the factory's fallback selection), verifying that business data written through the repositories can be read back and that the in-memory fallback is selected in the test environment.",
-      "verification": "npm test green with the new SQLite repository tests included; the suite exercises the SQLite-backed repository contracts, not only the in-memory ones."
-    }
-  ],
+  "openFindings": [],
   "factoryHealth": {
     "stalled": false,
     "consecutiveNoProgress": 0,
-    "lastProductSha": "bc74feba99d040257ea1278df3da54fc8cc3f2a0",
+    "lastProductSha": "500aa21746fc8aea08ad9181127ca32bf523cd4c",
     "reason": null
   }
 }

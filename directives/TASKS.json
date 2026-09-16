@@ -3,21 +3,21 @@
   "milestone": "v3-rc",
   "builder": {
     "enabled": true,
-    "criterionId": "V3-02",
-    "objective": "REPAIR V3-02: Keep the demo fixture internally consistent: either seed/create the demo household (and demo user) under the canonical ids (DEMO_HOUSEHOLD_ID 'h-core', 'demo-user-alex') or use the id returned by create() consistently for memberships, members, tasks, entries, todos and currentHouseholdId. Also gate sign-in/loadHouseholds on repository readiness (consume reposReady) or retry the fixture once repos are initialized, so an early sign-in cannot permanently skip the fixture.; Add tests covering the SQLite-backed repositories (e.g. CRUD round-trips against a mocked/in-memory expo-sqlite driver or the factory's fallback selection), verifying that business data written through the repositories can be read back and that the in-memory fallback is selected in the test environment.",
-    "scope": "Repair only the audited must-fix findings on the preserved V3 baseline; do not rebuild accepted work.",
+    "criterionId": "V3-03",
+    "objective": "Implement V3-03 — Ajouter contribution ou dépense et historique unifié. L'onglet Ajouter propose un switch Contribution|Dépense. Contribution conserve saisie libre, PersistentTask, Fait par/Fait pour, date, édition/suppression/partage sans chrono. Dépense couvre titre libre, montant/devise, payé par/pour, split égal/custom, date/note/catégorie. L'historique compact unifié est directement sous le formulaire. Les mutations sont optimistes et transactionnelles en local, l'historique est paginable/cacheable, et toutes mutations recalculent correctement les ledgers/vues dérivées.",
+    "scope": "Work only on V3-03 and directly necessary migrations/repairs. Preserve every completed V3 criterion.",
     "acceptance": [
-      "app Expo démarre et exporte Android",
-      "racine groupes sans restriction ni plan",
-      "trois onglets exacts",
-      "design system V3 cohérent et non générique",
-      "aucune UX Premium/paywall/chrono",
-      "données métier nombreuses dans un stockage local indexé plutôt que gros tableaux JSON",
-      "navigation courante rendue depuis le local sans fetch cloud obligatoire",
-      "ports/adapters préservent le domaine provider-agnostic"
+      "contribution Minutes ou Points sans chrono",
+      "dépense égal/custom exacte",
+      "historique compact mixte et filtrable",
+      "édition/suppression replay correct",
+      "groupes expenses-only et contribution-only fonctionnels",
+      "write local optimiste avant round-trip réseau",
+      "historique ancien paginé/cursor-based sans full download"
     ],
     "previousCriteriaPreserved": [
-      "V3-01: accepted and must not regress"
+      "V3-01: accepted and must not regress",
+      "V3-02: accepted and must not regress"
     ]
   }
 }

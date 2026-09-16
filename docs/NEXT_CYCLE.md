@@ -1,11 +1,29 @@
 # Next cycle
 
-Active criterion: **V3-02 — REPAIR: demo fixture regression + SQLite repository tests**.
+Active criterion: **V3-03 — Ajouter + historique unifié** (V3-02 accepted in cycle 35146343615).
 
-Two remaining must-fix findings on the preserved WIP baseline:
+## Objective
 
-1. **Demo fixture regression** (`src/features/app/AppContext.tsx`): `ensureDemoFixture` creates the demo household via `create()` (generated id) but all subsequent fixture records and `signIn`/`loadHouseholds` reference constant `DEMO_HOUSEHOLD_ID 'h-core'` → root Groups list empty after sign-in. Fix: seed/create under consistent canonical ids; consume `reposReady` or retry fixture after repo init. Verify: root Groups shows "Appartement" after demo sign-in; second sign-in doesn't duplicate demo user.
+Build the `Contribution | Dépense` switch in the same product:
 
-2. **No SQLite-backed repository tests** (`__tests__/infrastructure/repositories.test.ts`): `SqliteRepositories` (781 lines) and `RepositoryFactory` have zero test coverage. Fix: add tests covering CRUD round-trips and factory fallback selection. Verify: `npm test` green with new SQLite tests included.
+1. **Contribution** — free label + PersistentTask + Fait par / Fait pour + date + edit/delete/share, no chrono, Minutes or Points per group unit.
+2. **Dépense** — free title, amount/currency, paid by/for, equal/custom split, date/note/category.
+3. **Historique** — unified compact list directly under the form, filterable (Tout / Contributions / Dépenses / Compensations).
 
-Preserve: V3-01 domain untouched, all previously accepted V3-02 work (expo-sqlite ~57.0.3, bare '>' fix, tabLabel, assets/icon.png, openHousehold fix, RepositoryFactory wiring). Re-run `npm run check` and trusted verification.
+## Frugal obligations (roadmap-assigned, not optional polish)
+
+- Mutations optimistic and transactional in local storage, updating ledgers/materialized views correctly.
+- History paginated/cursor-based and cached — never reloaded integrally, no full download.
+- Groups expenses-only and contribution-only both functional.
+- Writes bounded and local-first; no network round-trip required to render the tab.
+
+## Preserve
+
+- V3-01 domain untouched (zero-sum ledgers, integer minor units, rate snapshot, Minutes/Points distinct).
+- All accepted V3-02 work: expo-sqlite local-first base, RepositoryFactory, demo fixture, three-tab shell, V3 design system, no Premium/paywall/chrono.
+
+## Verification
+
+- `npm run check` green (typecheck + tests).
+- Trusted verification: Expo export Android, prebuild, native debug build.
+- Required evidence for V3-03: tests, audit, reference-scenarios.
