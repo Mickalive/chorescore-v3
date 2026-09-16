@@ -14,9 +14,16 @@ for ((attempt=1; attempt<=max_attempts; attempt++)); do
   status=${PIPESTATUS[0]}
   set -e
   (( status == 0 )) && exit 0
-  if ! grep -Eqi 'network_error|network error|server error|temporarily unavailable|service unavailable|bad gateway|gateway timeout|too many requests|connection (reset|closed|refused)|ECONNRESET|ECONNREFUSED|ETIMEDOUT|timed out|timeout|rate[_ -]?limit|HTTP[^0-9]*(429|500|502|503|504)' "$log_file"; then
-    exit "$status"
+
+  retryable=false
+  # GNU timeout exits 124 when the agent exceeds the allotted attempt time.
+  # A hung model is an infrastructure/model failure, not a product verdict, so retry it.
+  (( status == 124 )) && retryable=true
+  if grep -Eqi 'network_error|network error|server error|temporarily unavailable|service unavailable|bad gateway|gateway timeout|too many requests|connection (reset|closed|refused)|ECONNRESET|ECONNREFUSED|ETIMEDOUT|timed out|timeout|rate[_ -]?limit|HTTP[^0-9]*(429|500|502|503|504)' "$log_file"; then
+    retryable=true
   fi
+
+  [[ "$retryable" == true ]] || exit "$status"
   (( attempt < max_attempts )) || exit 75
   sleep "$retry_delay"
 done
