@@ -37,11 +37,13 @@ for p in "${changed[@]}"; do
   esac
 done
 
+# An agent timeout/provider failure must not kill the autonomous factory. Preserve any delta;
+# if there is no delta, emit a verification-only candidate so Auditor/Director can classify
+# the cycle and the trusted relaunch logic can continue autonomously.
 if (( agent_rc != 0 )) && (( count == 0 )); then
-  echo "::error::Builder exited $agent_rc and produced no candidate delta"
-  exit "$agent_rc"
+  echo "::warning::Builder exited $agent_rc and produced no candidate delta; continuing as verification-only cycle"
 fi
-(( agent_rc == 0 )) || echo "::warning::Builder exited $agent_rc after producing $count changed files; preserving candidate for audit"
+(( agent_rc == 0 )) || (( count == 0 )) || echo "::warning::Builder exited $agent_rc after producing $count changed files; preserving candidate for audit"
 (( verify_rc == 0 )) || echo "::warning::Trusted verification exited $verify_rc; Auditor must classify repair"
 
 has=false; verify_only=true; : > "$out/candidate.patch"
