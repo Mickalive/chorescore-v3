@@ -16,8 +16,10 @@ work="${RUNNER_TEMP:?}/v3-prepare"; rm -rf "$work"; git worktree add --detach "$
 human_paths=(
   MAIN_PROMPT.md
   AGENTS.md
+  .gitignore
   governance/RELEASE_DEFINITION.json
   docs/V3_CONSTITUTION.md
+  docs/V3_BACKEND_FRUGAL.md
   docs/V2_TO_V3_MIGRATION.md
   docs/ROADMAP.md
   docs/agent-workflow.md
@@ -53,7 +55,8 @@ builder=$(jq -r '.builder.enabled' "$tasks")
 if [[ "$final" == true ]]; then
   jq -e '.builder.enabled==false' "$tasks" >/dev/null
 elif [[ "$pending" == true ]]; then
-  jq -e '.builder.enabled==false and .builder.criterionId==null and (.activeCriteria|length)==0' "$tasks" "$status" >/dev/null 2>&1 || true
+  jq -e '.builder.enabled==false' "$tasks" >/dev/null
+  jq -e '(.activeCriteria|length)==0' "$status" >/dev/null
 elif [[ "$stalled" == true ]]; then
   jq -e '.builder.enabled==false' "$tasks" >/dev/null
 else
