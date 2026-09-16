@@ -5,33 +5,29 @@ import {
   MoneyBalance,
   MoneyTransfer,
 } from '../entities';
+import {
+  normalizeCurrency,
+  validateExpenseAmount,
+  validateExpenseCurrency,
+  validateExpenseParticipants,
+  requireNonEmptyString,
+  requireNoDuplicates,
+  requireNonNegativeInteger,
+  requirePositiveInteger,
+} from './validation';
 
 function add(map: Map<string, number>, memberId: string, delta: number): void {
   map.set(memberId, (map.get(memberId) ?? 0) + delta);
 }
 
-export function normalizeCurrency(currency: string): string {
-  const normalized = currency.trim().toUpperCase();
-  if (!/^[A-Z]{3}$/.test(normalized)) {
-    throw new Error(`Invalid currency '${currency}'. Expected a 3-letter code.`);
-  }
-  return normalized;
-}
-
 function validateExpenseBase(entry: ExpenseEntry): void {
-  if (!Number.isInteger(entry.amountMinor) || entry.amountMinor <= 0) {
-    throw new Error(`Expense ${entry.id} must have a positive integer amountMinor`);
-  }
-  normalizeCurrency(entry.currency);
-  if (!entry.paidByMemberId) {
-    throw new Error(`Expense ${entry.id} must have a payer`);
-  }
-  if (entry.participantMemberIds.length === 0) {
-    throw new Error(`Expense ${entry.id} must have at least one participant`);
-  }
-  if (new Set(entry.participantMemberIds).size !== entry.participantMemberIds.length) {
-    throw new Error(`Expense ${entry.id} contains duplicate participants`);
-  }
+  validateExpenseAmount(entry.amountMinor, entry.id);
+  validateExpenseCurrency(entry.currency);
+  validateExpenseParticipants(
+    entry.paidByMemberId,
+    entry.participantMemberIds,
+    entry.id
+  );
 }
 
 /**

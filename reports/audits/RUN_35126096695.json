@@ -1,0 +1,63 @@
+{
+  "schemaVersion": 1,
+  "cycle": "35126096695",
+  "role": "builder",
+  "decision": "repair",
+  "summary": "V3-01 candidate consolidates shared validation (validation.ts), adds period/view helpers (periods.ts), settlement preconditions (settlementPreconditions.ts), randomized property tests and replay tests. Trusted verification passed (exit 0, 42 tests green) and the working zero-sum contribution/expense math is preserved. However, independent execution demonstrates three must-fix defects in the new settlement code: (1) checkMoneyDebtSufficient inverts the money-balance sign — the counterparty of a settlement is the member OWED money (positive balance per the entity doc and the accepted baseline test in ledgers.test.ts), but the check requires a negative balance, so valid settlements are rejected and semantically invalid ones accepted; (2) validateSettlementSequence never includes previously applied settlements in the balance computation (appliedSettlements is dead code), so over-settlement across a sequence is not detected (two settlements consuming 30 min with only 15 available pass as valid); (3) ledger replay (calculateContributionBalances/calculateFinancialBalances) accepts settlements whose moneyAmountMinor contradicts the snapshotted rate (499 vs 500), so replay is not robust against malformed settlements as the task requires. The new tests encode the inverted semantics and pass for the wrong reasons, masking these bugs. Period helpers are views-only and preserve perpetual balances, but use lexicographic ISO string comparison that misclassifies non-canonical offset timestamps (non-must-fix robustness note). No chrono, Premium, paywall, billing or Firebase types introduced. Decision: repair — keep the coherent delta as baseline WIP and fix the settlement precondition/replay logic and tests.",
+  "checks": [
+    "npm run check green (typecheck + 42 jest tests) — confirmed locally and by trusted verification exit 0",
+    "contribution ledger zero-sum for valid randomized cases — property tests pass; math preserved from baseline",
+    "money ledger exactly zero-sum per currency with integer minor units — property tests pass; equal-split remainder deterministic",
+    "Minutes and Points never silently mixed — unit-filtered balances verified in tests",
+    "cross-ledger settlement validates snapshotted rate — validateCrossLedgerSettlement rejects rate-inconsistent amounts (verified)",
+    "cross-ledger settlement cannot overshoot available opposing balances — FAILS: money precondition sign inverted; sequence accumulation dead code",
+    "replay robust against malformed settlements — FAILS: ledger replay accepts rate-inconsistent settlements",
+    "edit/delete semantics replay-equivalent — expense delete/edit tests pass",
+    "period filters are views only; all-time balance source-of-truth compatible — verified; no reset of perpetual balances",
+    "no chrono, Premium, paywall or billing behavior introduced — grep clean in domain and domain tests",
+    "no Firebase/Firestore types in domain — grep clean",
+    "independent execution of compiled domain code confirms findings 1-3 (see evidence)"
+  ],
+  "findings": [
+    {
+      "path": "src/domain/calculations/settlementPreconditions.ts",
+      "problem": "checkMoneyDebtSufficient and the money check inside validateSettlementPreconditions invert the counterparty balance sign. Per the entity doc (CrossLedgerSettlement consumes the creditor's contribution credit to reduce that member's money debt toward the counterparty) and the accepted baseline test 'a settlement updates both ledgers without breaking either zero-sum invariant' (ledgers.test.ts), the counterparty is the member OWED money, i.e. has a POSITIVE money balance, and the settlement reduces the creditor's debt (creditor balance moves up) and the counterparty's receivable (balance moves down). The check computes availableDebt = -counterpartyMoneyBalance and requires it >= moneyAmountMinor, i.e. it requires the counterparty to OWE money. Valid settlements are therefore rejected and semantically invalid ones (counterparty owing money) are accepted. The error message is nonsensical ('Counterparty b owes -1500 CHF minor units').",
+      "evidence": "Independent execution against the compiled domain: with a +15 min credit, a owing b (a -1500, b +1500), a valid settlement of 15 min / 500 CHF returns valid=false with error 'Counterparty b owes -1500 CHF minor units, but settlement requires 500'; checkMoneyDebtSufficient(1500, 500) returns {sufficient:false, availableDebt:-1500}. The same scenario is accepted and applied by the baseline ledger test (a -1500 -> -1000, b +1500 -> +1000).",
+      "mustFix": true,
+      "requiredFix": "Invert the money precondition: the counterparty must have a positive receivable at least equal to the settlement amount (e.g. sufficient = counterpartyMoneyBalance >= moneyAmountMinor - 1e-9, exposing availableReceivable = counterpartyMoneyBalance), and fix the error message accordingly. The accepted baseline scenario (counterparty +1500, settlement 500) must pass; a settlement exceeding the counterparty's receivable must fail.",
+      "verification": "Re-run validateSettlementPreconditions on the accepted baseline scenario from ledgers.test.ts (b paid 3000 for [a,b], a owes b) -> must be valid; a settlement larger than the counterparty's receivable -> must be invalid; property/randomized tests over settlement preconditions with correct semantics."
+    },
+    {
+      "path": "src/domain/calculations/settlementPreconditions.ts",
+      "problem": "validateSettlementSequence does not accumulate previously applied settlements: the appliedSettlements array is pushed but never read, and validateSettlementPreconditions always computes contribution/money balances from raw contributions/expenses with an empty settlements list. The documented purpose ('check preconditions with previously applied settlements included', 'catch malformed sequences') is not implemented, so a sequence of settlements that collectively overshoots available balances passes validation.",
+      "evidence": "Independent execution: a has 15 min contribution credit; s1 consumes 15 min / 500 CHF and s2 consumes 15 min / 500 CHF. validateSettlementSequence([s1, s2], ...) returns valid=true with no errors, although 30 min are consumed against 15 available. The existing test 'settlement sequence catches over-settlement across multiple settlements' passes only because its first settlement already fails the inverted money check, not because accumulation works.",
+      "mustFix": true,
+      "requiredFix": "Thread previously applied settlements into the balance computation inside the sequence loop (e.g. pass appliedSettlements to calculateContributionBalances/calculateFinancialBalances, or add a priorSettlements parameter to validateSettlementPreconditions) so each subsequent settlement is checked against balances that include all earlier settlements.",
+      "verification": "A sequence where s1 consumes all available credit and s2 overshoots must return valid=false; a sequence of individually valid, non-overlapping settlements must return valid=true."
+    },
+    {
+      "path": "src/domain/calculations/contributionLedger.ts",
+      "problem": "Ledger replay is not robust against malformed settlements: validateSettlement in contributionLedger.ts and validateSettlementMoney in expenseLedger.ts validate only structure (distinct members, positive contribution value, positive integer money amount, unit/currency match with the rate snapshot) but never check that moneyAmountMinor matches the snapshotted rate quote. A settlement whose money amount contradicts its rate is silently replayed into both ledgers and applies the wrong money amount, violating the task objective 'make replay robust against malformed settlements' and the auditability requirement (settlement must match its immutable rate snapshot).",
+      "evidence": "Independent execution: a settlement with rate 60 min = 2000 CHF, contributionValue 15, moneyAmountMinor 499 (expected 500) is rejected by validateCrossLedgerSettlement ('amount 499 does not match snapshotted rate (500)') but is accepted by calculateContributionBalances (balances a=15, b=-15) and calculateFinancialBalances (a=-1001, b=1001), applying the wrong amount.",
+      "mustFix": true,
+      "requiredFix": "Use the full structural validation (validateCrossLedgerSettlement from crossLedgerSettlement.ts, which imports only from validation.ts — no circular dependency) in both replay paths, replacing the weaker inline validateSettlement/validateSettlementMoney checks.",
+      "verification": "Replaying a rate-inconsistent settlement through calculateContributionBalances and calculateFinancialBalances must throw; replay of a rate-consistent settlement must still produce the correct balances and zero-sum ledgers."
+    },
+    {
+      "path": "__tests__/domain/validation-preconditions-periods.test.ts",
+      "problem": "The new precondition tests encode the inverted settlement semantics and pass for the wrong reasons, masking the defects above. 'valid settlement passes all preconditions' uses a counterparty with NEGATIVE money balance (b owes money), contradicting the accepted baseline semantics where the counterparty is OWED money (positive balance). 'settlement sequence catches over-settlement across multiple settlements' passes only because its first settlement fails the inverted money check immediately, so it never exercises sequence accumulation. No test covers replay rejection of rate-inconsistent settlements.",
+      "evidence": "Test file lines 147-168 ('valid settlement' scenario: b -1500, i.e. b owes money) and lines 203-237 (sequence test: s1 fails the inverted money check because b has +1500, so the test passes without accumulation). Independent execution shows the same scenarios behave as described.",
+      "mustFix": true,
+      "requiredFix": "Rewrite the tests with the correct semantics: the valid-settlement scenario must use the accepted baseline setup (counterparty owed money, e.g. b paid 3000 for [a,b]); add a genuine accumulation test (s1 consumes all available credit, s2 overshoots -> invalid); add replay-rejection tests for rate-inconsistent settlements in both ledger calculations.",
+      "verification": "Updated tests pass with the fixed code and fail against the current code (they must actually exercise accumulation and the correct money-precondition sign)."
+    },
+    {
+      "path": "src/domain/calculations/periods.ts",
+      "problem": "isInPeriod/filterByPeriod compare ISO timestamps lexicographically as strings. This is correct for canonical UTC toISOString() values (the format produced by the domain and used in all tests) but misclassifies entries carrying timezone offsets: an entry at 2026-09-14T04:30:00Z expressed as '2026-09-13T23:30:00-05:00' is excluded from the week although its actual UTC time is within the week boundary.",
+      "evidence": "Independent execution: week boundary for 2026-09-16 is 2026-09-14T00:00:00.000Z; entry '2026-09-13T23:30:00-05:00' (actual UTC 2026-09-14T04:30:00Z, within the week) returns isInPeriod=false while the numeric UTC comparison returns true.",
+      "mustFix": false,
+      "requiredFix": "Optional robustness improvement: compare parsed Date values (or normalize all timestamps to UTC ISO before comparison) instead of raw string comparison, and/or document that occurredAt must be stored in canonical UTC ISO format.",
+      "verification": "Period filtering with mixed-offset timestamps matches numeric UTC comparison; existing canonical-format tests remain green."
+    }
+  ]
+}

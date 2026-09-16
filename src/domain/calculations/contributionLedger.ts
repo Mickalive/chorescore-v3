@@ -5,6 +5,11 @@ import {
   ContributionUnit,
   CrossLedgerSettlement,
 } from '../entities';
+import {
+  validateContributionValue,
+  validateContributionMemberIds,
+  validateContributionUnit,
+} from './validation';
 
 const EPSILON = 1e-9;
 
@@ -13,21 +18,16 @@ function add(map: Map<string, number>, memberId: string, delta: number): void {
 }
 
 function validateContribution(entry: ContributionEntry): void {
-  if (!Number.isFinite(entry.value) || entry.value <= 0) {
-    throw new Error(`Contribution ${entry.id} must have a finite value > 0`);
-  }
-  if (!entry.performedByMemberId) {
-    throw new Error(`Contribution ${entry.id} must have a performer`);
-  }
-  if (entry.beneficiaryMemberIds.length === 0) {
-    throw new Error(`Contribution ${entry.id} must have at least one beneficiary`);
-  }
-  if (new Set(entry.beneficiaryMemberIds).size !== entry.beneficiaryMemberIds.length) {
-    throw new Error(`Contribution ${entry.id} contains duplicate beneficiaries`);
-  }
+  validateContributionValue(entry.value, entry.id);
+  validateContributionMemberIds(
+    entry.performedByMemberId,
+    entry.beneficiaryMemberIds,
+    entry.id
+  );
 }
 
 function validateSettlement(settlement: CrossLedgerSettlement): void {
+  // Structural validation only; balance sufficiency is checked elsewhere
   if (settlement.contributionCreditorMemberId === settlement.counterpartyMemberId) {
     throw new Error(`Settlement ${settlement.id} cannot target the same member`);
   }
