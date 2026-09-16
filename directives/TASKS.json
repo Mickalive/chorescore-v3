@@ -4,16 +4,19 @@
   "builder": {
     "enabled": true,
     "criterionId": "V3-03",
-    "objective": "Implement V3-03 — Ajouter contribution ou dépense et historique unifié. L'onglet Ajouter propose un switch Contribution|Dépense. Contribution conserve saisie libre, PersistentTask, Fait par/Fait pour, date, édition/suppression/partage sans chrono. Dépense couvre titre libre, montant/devise, payé par/pour, split égal/custom, date/note/catégorie. L'historique compact unifié est directement sous le formulaire. Les mutations sont optimistes et transactionnelles en local, l'historique est paginable/cacheable, et toutes mutations recalculent correctement les ledgers/vues dérivées.",
-    "scope": "Work only on V3-03 and directly necessary migrations/repairs. Preserve every completed V3 criterion.",
+    "objective": "REPAIR V3-03: Implement a single merged cursor-based pagination across the unified stream (e.g., page by occurredAt over both repos with one cursor and dedupe/merge deterministically, or fetch per-type pages keyed to the merged cursor), remove the hard 150-entry cap so every loaded page is visible, and add tests covering the two-repo merged pagination path (no duplicates, no skipped entries, older pages reachable).; Add PersistentTask shortcuts to the contribution form (prefill label/value/beneficiaries from the selected PersistentTask), a date/heure selector for occurredAt, and a share action for entries (via the existing share port, honest adapter), keeping the form compact and chrono-free.",
+    "scope": "Repair only the audited must-fix findings on the preserved V3 baseline; do not rebuild accepted work.",
     "acceptance": [
-      "contribution Minutes ou Points sans chrono",
-      "dépense égal/custom exacte",
-      "historique compact mixte et filtrable",
-      "édition/suppression replay correct",
-      "groupes expenses-only et contribution-only fonctionnels",
-      "write local optimiste avant round-trip réseau",
-      "historique ancien paginé/cursor-based sans full download"
+      "unified history pagination has no duplicate ids, no gaps, older pages reachable",
+      "merged history view not hard-capped at 150 entries — all loaded pages visible",
+      "tests cover two-repo merged pagination path",
+      "PersistentTask selectable and prefills label/value/beneficiaries",
+      "date/heure selector changes occurredAt and persists",
+      "share action present and wired to share port",
+      "no leading-space category labels",
+      "single effect per mount/filter-change (no redundant double-fetch)",
+      "custom split sum validated inline before submit",
+      "edit/delete mutations wrapped in try/catch with user-facing error"
     ],
     "previousCriteriaPreserved": [
       "V3-01: accepted and must not regress",
