@@ -1,0 +1,15 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "default_agent": "v3-builder",
+  "subagent_depth": 1,
+  "enabled_providers": ["opencode"],
+  "share": "disabled",
+  "autoupdate": false,
+  "instructions": ["MAIN_PROMPT.md", "AGENTS.md", "docs/agent-workflow.md"],
+  "permission": {
+    "*": "deny",
+    "read": {"*":"allow", ".env":"deny", ".env.*":"deny", "**/.env":"deny", "**/.env.*":"deny", "**/*.key":"deny", "**/*.pem":"deny", "**/*.p8":"deny", "**/*.p12":"deny", "**/*.jks":"deny", "**/*.keystore":"deny", "**/*service-account*.json":"deny"},
+    "glob":"allow", "grep":"allow", "list":"allow", "question":"allow",
+    "task":"deny", "webfetch":"deny", "websearch":"deny", "external_directory":"deny"
+  }
+}

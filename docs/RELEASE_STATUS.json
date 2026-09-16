@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "milestone": "v3-rc",
+  "lastCycle": null,
+  "activeCriteria": ["V3-01"],
+  "pendingArtifact": null,
+  "progressSummary": "V3-01 in progress. Initial generic entities, contribution ledger, expense ledger, cross-ledger settlement math and fixed domain tests exist; baseline CI is green.",
+  "criteria": [
+    {"id":"V3-01","status":"in_progress","evidence":["initial-v3-domain-entities","contribution-ledger-zero-sum","expense-ledger-integer-rounding","cross-ledger-rate-snapshot","baseline-ci-35113857194-green"]},
+    {"id":"V3-02","status":"pending","evidence":[]},
+    {"id":"V3-03","status":"pending","evidence":[]},
+    {"id":"V3-04","status":"pending","evidence":[]},
+    {"id":"V3-05","status":"pending","evidence":[]},
+    {"id":"V3-06","status":"pending","evidence":[]},
+    {"id":"V3-07","status":"pending","evidence":[]},
+    {"id":"V3-08","status":"pending","evidence":[]}
+  ],
+  "openFindings": [],
+  "factoryHealth": {
+    "stalled": false,
+    "consecutiveNoProgress": 0,
+    "lastProductSha": "bcb68d8205ea66a913ccc8c8faa14d3676b89e0b",
+    "reason": null
+  }
+}

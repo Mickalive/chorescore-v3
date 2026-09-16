@@ -1,0 +1,162 @@
+name: ChoreScore V3 Finalizer
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '7,17,27,37,47,57 * * * *'
+
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  group: chorescore-v3-finalizer
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      should_run: ${{ steps.state.outputs.should_run }}
+      accepted_sha: ${{ steps.state.outputs.accepted_sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: main
+      - id: state
+        run: |
+          set -euo pipefail
+          if ! git ls-remote --exit-code --heads origin refs/heads/lab/chorescore-v3 >/dev/null 2>&1; then
+            echo 'should_run=false' >> "$GITHUB_OUTPUT"
+            echo "accepted_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          git fetch origin +refs/heads/lab/chorescore-v3:refs/remotes/origin/lab/chorescore-v3
+          sha=$(git rev-parse refs/remotes/origin/lab/chorescore-v3)
+          pending=$(git show "$sha:docs/RELEASE_STATUS.json" | jq -r '.pendingArtifact=="V3-08-RELEASE"')
+          echo "should_run=$pending" >> "$GITHUB_OUTPUT"
+          echo "accepted_sha=$sha" >> "$GITHUB_OUTPUT"
+
+  release:
+    needs: prepare
+    if: needs.prepare.outputs.should_run == 'true'
+    runs-on: ubuntu-latest
+    outputs:
+      apk_sha: ${{ steps.digest.outputs.apk_sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ needs.prepare.outputs.accepted_sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Trusted product and privacy gates
+        run: |
+          set -euo pipefail
+          test -s package-lock.json
+          npm ci --ignore-scripts --no-audit --no-fund
+          npm run check
+          jq -e '.scripts["privacy:check"]' package.json >/dev/null
+          npm run privacy:check
+          test -f app.json -o -f app.config.js -o -f app.config.ts
+          npx --no-install expo install --check
+          npx --no-install expo export --platform android --output-dir "$RUNNER_TEMP/v3-final-android-export"
+          npx --no-install expo export --platform ios --output-dir "$RUNNER_TEMP/v3-final-ios-export"
+          npx --no-install expo prebuild --platform android --no-install
+          (cd android && ./gradlew :app:assembleRelease --no-daemon)
+          jq -e '.scripts["e2e:android"]' package.json >/dev/null
+      - id: digest
+        name: Locate and hash APK
+        run: |
+          set -euo pipefail
+          apk=$(find android/app/build/outputs/apk/release -type f -name '*.apk' | head -1)
+          test -s "$apk"
+          echo "apk=$apk" >> "$GITHUB_OUTPUT"
+          echo "apk_sha=$(sha256sum "$apk" | awk '{print $1}')" >> "$GITHUB_OUTPUT"
+      - name: Android API 35 install, launch and golden path
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          profile: pixel_6
+          script: |
+            set -euo pipefail
+            apk=$(find android/app/build/outputs/apk/release -type f -name '*.apk' | head -1)
+            adb install -r "$apk"
+            npm run e2e:android
+      - uses: actions/upload-artifact@v4
+        with:
+          name: chorescore-v3-android-release
+          path: android/app/build/outputs/apk/release/*.apk
+          retention-days: 30
+
+  finalize-success:
+    needs: [prepare, release]
+    if: needs.release.result == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: lab/chorescore-v3
+      - name: Attest V3 RC complete
+        env:
+          GH_TOKEN: ${{ github.token }}
+          APK_SHA: ${{ needs.release.outputs.apk_sha }}
+        run: |
+          set -euo pipefail
+          cycle='${{ github.run_id }}'
+          tmp=$(mktemp)
+          jq --arg cycle "$cycle" --arg apk "$APK_SHA" '
+            (.criteria[] | select(.id=="V3-08") | .status)="complete" |
+            (.criteria[] | select(.id=="V3-08") | .evidence) += ["finalizer-run-"+$cycle,"android-release-apk-sha256-"+$apk,"android-api35-install-launch-e2e-green","ios-export-readiness-green"] |
+            .pendingArtifact=null | .activeCriteria=[] | .openFindings=[] | .lastCycle=$cycle |
+            .progressSummary="V3 RC complete: trusted finalizer built the release APK, installed/launched it on Android API 35, passed the automated golden path and verified iOS export readiness." |
+            .factoryHealth.stalled=false | .factoryHealth.consecutiveNoProgress=0 | .factoryHealth.reason=null
+          ' docs/RELEASE_STATUS.json > "$tmp"; mv "$tmp" docs/RELEASE_STATUS.json
+          tmp=$(mktemp); jq '.builder.enabled=false | .builder.criterionId=null | .builder.objective="V3 RC complete." | .builder.scope="No further Builder work." | .builder.acceptance=[]' directives/TASKS.json > "$tmp"; mv "$tmp" directives/TASKS.json
+          git config user.name chorescore-v3-finalizer
+          git config user.email chorescore-v3-finalizer@users.noreply.github.com
+          git add docs/RELEASE_STATUS.json directives/TASKS.json
+          git commit -m "release $cycle: attest ChoreScore V3 RC"
+          auth=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)
+          git -c "http.extraheader=AUTHORIZATION: basic $auth" push origin HEAD:refs/heads/lab/chorescore-v3
+
+  reopen-on-failure:
+    needs: [prepare, release]
+    if: always() && needs.prepare.outputs.should_run == 'true' && needs.release.result == 'failure'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: lab/chorescore-v3
+      - name: Reopen V3-08 repair cycle
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          run='${{ github.run_id }}'
+          tmp=$(mktemp)
+          jq --arg run "$run" '
+            (.criteria[] | select(.id=="V3-08") | .status)="in_progress" |
+            .pendingArtifact=null | .activeCriteria=["V3-08"] |
+            .openFindings=[{path:"release",problem:"Trusted V3 finalizer failed",evidence:("GitHub Actions finalizer run "+$run),mustFix:true,requiredFix:"Inspect the exact trusted finalizer failure and repair only the concrete mobile/runtime/E2E blocker while preserving V3-01..V3-07.",verification:"Trusted V3 finalizer must pass APK build, install/launch and golden path."}] |
+            .progressSummary=("V3-08 reopened after trusted finalizer failure in run "+$run) |
+            .factoryHealth.stalled=false | .factoryHealth.consecutiveNoProgress=0 | .factoryHealth.reason=null
+          ' docs/RELEASE_STATUS.json > "$tmp"; mv "$tmp" docs/RELEASE_STATUS.json
+          tmp=$(mktemp)
+          jq --arg run "$run" '.builder.enabled=true | .builder.criterionId="V3-08" | .builder.objective=("REPAIR V3-08 trusted finalizer failure from Actions run "+$run+". Inspect the exact failed release logs, fix only the concrete APK/runtime/E2E/readiness blocker, and preserve all accepted criteria.") | .builder.scope="Target the trusted release failure and directly necessary product/config/test/scripts repairs. Protected control-plane files remain trusted-shell owned."' directives/TASKS.json > "$tmp"; mv "$tmp" directives/TASKS.json
+          git config user.name chorescore-v3-finalizer
+          git config user.email chorescore-v3-finalizer@users.noreply.github.com
+          git add docs/RELEASE_STATUS.json directives/TASKS.json
+          git commit -m "release $run: reopen V3-08 repair"
+          auth=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)
+          git -c "http.extraheader=AUTHORIZATION: basic $auth" push origin HEAD:refs/heads/lab/chorescore-v3
+          gh workflow run chorescore-v3-factory.yml --repo '${{ github.repository }}' --ref main

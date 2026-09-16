@@ -1,0 +1,70 @@
+{
+  "schemaVersion": 1,
+  "milestone": "v3-rc",
+  "criteria": [
+    {
+      "id": "V3-01",
+      "priority": 10,
+      "title": "Domaine, doubles ledgers et invariants",
+      "outcome": "Domaine V3 générique avec ContributionEntry Minutes|Points, ExpenseEntry en unités monétaires mineures entières, CrossLedgerSettlement auditable avec snapshot de taux, calculs à somme nulle, devises séparées, changement d'unité non rétroactif, édition/suppression par replay et tests d'invariants/propriété. Les fondations V2 utiles sont migrables sans chrono ni entitlements restrictifs.",
+      "acceptance": ["typecheck et tests verts", "ledger contribution somme nulle", "ledger argent somme nulle par devise et arrondis exacts", "settlement explicite avec snapshot immuable", "Minutes et Points jamais silencieusement convertis", "tests aléatoires/propriété couvrant invariants et replay"],
+      "requiredEvidence": ["tests", "audit"]
+    },
+    {
+      "id": "V3-02",
+      "priority": 20,
+      "title": "Structure application et langage visuel V3",
+      "outcome": "Socle Expo/React Native/Expo Router fonctionnel avec AppContext/ports/adapters migrés sélectivement, racine Groupes illimités, navigation trois onglets Ajouter/Balances/À faire et design system précis, adulte, graphite/off-white/métallique. Toute UX Premium, pricing, paywall, chrono et direction chaude V2 disparaît.",
+      "acceptance": ["app Expo démarre et exporte Android", "racine groupes sans restriction ni plan", "trois onglets exacts", "design system V3 cohérent et non générique", "aucune UX Premium/paywall/chrono"],
+      "requiredEvidence": ["tests", "audit", "visual-evidence"]
+    },
+    {
+      "id": "V3-03",
+      "priority": 30,
+      "title": "Ajouter contribution ou dépense et historique unifié",
+      "outcome": "L'onglet Ajouter propose un switch Contribution|Dépense. Contribution conserve saisie libre, PersistentTask, Fait par/Fait pour, date, édition/suppression/partage sans chrono. Dépense couvre titre libre, montant/devise, payé par/pour, split égal/custom, date/note/catégorie. L'historique compact unifié est directement sous le formulaire et toutes mutations recalculent les ledgers.",
+      "acceptance": ["contribution Minutes ou Points sans chrono", "dépense égal/custom exacte", "historique compact mixte et filtrable", "édition/suppression replay correct", "groupes expenses-only et contribution-only fonctionnels"],
+      "requiredEvidence": ["tests", "audit", "reference-scenarios"]
+    },
+    {
+      "id": "V3-04",
+      "priority": 40,
+      "title": "Balances, périodes et compensation explicite",
+      "outcome": "Balances montre séparément contribution et argent, balance perpétuelle et vues semaine/mois/année/depuis le début sans reset automatique, suggestions pair-à-pair et historique. La compensation argent/contribution est désactivée par défaut, utilise seulement un taux défini par le groupe et produit un CrossLedgerSettlement immuable avec avant/après.",
+      "acceptance": ["deux blocs de ledger distincts", "périodes sont des vues et non resets", "suggestions de règlement cohérentes", "compensation off par défaut", "taux groupe explicite et snapshot historique", "aucune conversion implicite ou cross-currency"],
+      "requiredEvidence": ["tests", "audit", "reference-scenarios"]
+    },
+    {
+      "id": "V3-05",
+      "priority": 50,
+      "title": "À faire et conversion atomique",
+      "outcome": "À faire migre l'expérience Todo V2 sans Premium ni chrono : titre, assigné, bénéficiaires, échéance, rappel, note, PersistentTask. La complétion confirme performer, valeur et bénéficiaires puis crée atomiquement exactement une ContributionEntry avec l'unité du groupe et met à jour ledger/historique.",
+      "acceptance": ["création et suppression todo gratuites", "complétion mini-form claire", "exactement une ContributionEntry atomique", "rappel/calendrier honnêtes derrière ports", "aucune donnée détruite ni chrono"],
+      "requiredEvidence": ["tests", "audit"]
+    },
+    {
+      "id": "V3-06",
+      "priority": 60,
+      "title": "Groupes, invitations, identité et persistance",
+      "outcome": "Multi-groupes illimités, identité stable, isolation tenant, options groupe Minutes|Points et compensation, invitation réelle par lien/partage/deep-link quand disponible, acceptation simple, persistance/sync/offline robustes. Les abstractions V2 utiles sont migrées sans billing/entitlement comportemental.",
+      "acceptance": ["groupes illimités", "invitation create/share/accept testable", "identité stable et isolation groupe", "changement d'unité ne réinterprète pas l'historique", "persistance et conflits gérés", "aucune restriction de plan"],
+      "requiredEvidence": ["tests", "audit"]
+    },
+    {
+      "id": "V3-07",
+      "priority": 70,
+      "title": "Data product et privacy plane",
+      "outcome": "Architecture analytics V2 préservée et étendue aux contributions, dépenses, settlements et usage : consent policy, taxonomie/classifier versionné downstream, pipeline, suppression cellules rares, query budget, differential privacy si pertinente, PrivacyReleaseGate, buyer contracts et audit log. Aucun ID opérationnel, nom/email/device id, texte libre ou historique individuellement ré-identifiable ne sort.",
+      "acceptance": ["Operational Store et Research Analytics Plane séparés", "analytics désactivable sans casser le produit", "taxonomie/classification versionnée", "aucun texte libre/ID opérationnel dans sorties", "privacy release gate et anti-reconstruction", "événements V3 couvrent contributions dépenses settlements usage"],
+      "requiredEvidence": ["tests", "audit", "documentation", "privacy-release-gate"]
+    },
+    {
+      "id": "V3-08",
+      "priority": 80,
+      "title": "Finition, accessibilité et release mobile",
+      "outcome": "Tous les états obligatoires sont traités, accessibilité/large text/localisation/offline/erreurs sont audités, l'UI V3 est cohérente et dense, les scénarios E2E couvrent création groupe, invitation, contribution, dépense, balances, compensation, todo, edit/delete. Android produit un APK installable lancé sans Metro et traverse le golden path ; readiness iOS est vérifiée.",
+      "acceptance": ["tests et privacy gate verts", "audit visuel V3", "accessibilité et grands textes", "offline et erreurs persistence", "Android export/prebuild/release APK", "installation lancement sans Metro", "golden path E2E automatisé", "iOS readiness documentée"],
+      "requiredEvidence": ["artifact", "runtime-smoke", "e2e-golden-path", "visual-evidence", "audit"]
+    }
+  ]
+}

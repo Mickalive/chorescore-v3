@@ -1,0 +1,21 @@
+name: Setup pinned OpenCode
+description: Install the reviewed OpenCode version used by the V3 factory
+runs:
+  using: composite
+  steps:
+    - name: Download and verify pinned installer
+      shell: bash
+      env:
+        OPENCODE_INSTALL_COMMIT: 03bba464d46f3eddf74195919b1344aa937f7b11
+        OPENCODE_INSTALL_BLOB: b0716d532082c6f7a59348fbda53915bacd86db8
+        OPENCODE_VERSION: 1.18.21
+      run: |
+        set -euo pipefail
+        installer="${RUNNER_TEMP:?}/opencode-install"
+        curl --proto '=https' --tlsv1.2 -fsSLo "$installer" "https://raw.githubusercontent.com/anomalyco/opencode/${OPENCODE_INSTALL_COMMIT}/install"
+        actual_blob=$(git hash-object "$installer")
+        [[ "$actual_blob" == "$OPENCODE_INSTALL_BLOB" ]] || { echo "::error::OpenCode installer integrity check failed"; exit 1; }
+        bash "$installer" --version "$OPENCODE_VERSION" --no-modify-path
+        installed=$($HOME/.opencode/bin/opencode --version)
+        [[ "$installed" == "$OPENCODE_VERSION" ]] || { echo "::error::Expected OpenCode $OPENCODE_VERSION, got $installed"; exit 1; }
+        echo "$HOME/.opencode/bin" >> "$GITHUB_PATH"

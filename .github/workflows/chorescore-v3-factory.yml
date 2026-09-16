@@ -1,0 +1,195 @@
+name: ChoreScore V3 Factory
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '*/5 * * * *'
+  push:
+    branches: [main]
+    paths:
+      - 'MAIN_PROMPT.md'
+      - 'AGENTS.md'
+      - 'governance/**'
+      - 'directives/**'
+      - 'docs/V3_CONSTITUTION.md'
+      - 'docs/V2_TO_V3_MIGRATION.md'
+      - 'docs/ROADMAP.md'
+      - 'docs/agent-workflow.md'
+      - '.opencode/**'
+      - '.github/actions/**'
+      - '.github/scripts/**'
+      - '.github/workflows/chorescore-v3-factory.yml'
+      - 'opencode.json'
+
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  group: chorescore-v3-factory
+  cancel-in-progress: false
+
+env:
+  OPENCODE_MAX_ATTEMPTS: '3'
+  OPENCODE_RETRY_DELAY_SECONDS: '300'
+  OPENCODE_ATTEMPT_TIMEOUT_SECONDS: '3000'
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      accepted_sha: ${{ steps.prepare.outputs.accepted_sha }}
+      builder_enabled: ${{ steps.prepare.outputs.builder_enabled }}
+      pending_artifact: ${{ steps.prepare.outputs.pending_artifact }}
+      final: ${{ steps.prepare.outputs.final }}
+      stalled: ${{ steps.prepare.outputs.stalled }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: main
+      - id: prepare
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash .github/scripts/prepare-v3.sh
+
+  probe-models:
+    needs: prepare
+    if: needs.prepare.outputs.final != 'true' && needs.prepare.outputs.pending_artifact != 'true' && needs.prepare.outputs.stalled != 'true' && needs.prepare.outputs.builder_enabled == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        model: [mimo-v2.5-free, hy3-free, big-pickle, muse-spark-1.2-contributor-free, nemotron-3-ultra-free, nemotron-3.5-lightning-free, deepseek-v4-flash-free, north-mini-code-free, laguna-s-2.1-free, ling-3.0-flash-free, ling-3.0-tiny-free, x-preview-f-free]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ needs.prepare.outputs.accepted_sha }}
+      - uses: ./.github/actions/setup-opencode
+      - run: bash .github/scripts/probe-model.sh '${{ matrix.model }}'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: model-probe-${{ matrix.model }}
+          path: ${{ runner.temp }}/model-probe-${{ matrix.model }}/probe.json
+          retention-days: 2
+
+  select-models:
+    needs: [prepare, probe-models]
+    if: needs.probe-models.result == 'success'
+    runs-on: ubuntu-latest
+    outputs:
+      builder_model: ${{ steps.select.outputs.builder_model }}
+      auditor_model: ${{ steps.select.outputs.auditor_model }}
+      director_model: ${{ steps.select.outputs.director_model }}
+      healthy_count: ${{ steps.select.outputs.healthy_count }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.accepted_sha }}
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: model-probe-*
+          path: ${{ runner.temp }}/probes
+          merge-multiple: true
+      - id: select
+        run: bash .github/scripts/select-models.sh '${{ runner.temp }}/probes'
+
+  builder:
+    needs: [prepare, select-models]
+    if: needs.select-models.result == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ needs.prepare.outputs.accepted_sha }}
+      - uses: ./.github/actions/setup-opencode
+      - name: Build candidate
+        env:
+          CYCLE_KEY: ${{ github.run_id }}
+          OX_MODEL: ${{ needs.select-models.outputs.builder_model }}
+          GH_TOKEN: ${{ github.token }}
+        run: bash .github/scripts/candidate.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: candidate-builder
+          path: ${{ runner.temp }}/candidate-builder
+          retention-days: 7
+
+  auditor:
+    needs: [prepare, select-models, builder]
+    if: needs.builder.result == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ needs.prepare.outputs.accepted_sha }}
+      - uses: ./.github/actions/setup-opencode
+      - uses: actions/download-artifact@v4
+        with:
+          name: candidate-builder
+          path: ${{ runner.temp }}/candidate-builder
+      - name: Audit candidate
+        env:
+          CYCLE_KEY: ${{ github.run_id }}
+          ACCEPTED_SHA: ${{ needs.prepare.outputs.accepted_sha }}
+          OX_MODEL: ${{ needs.select-models.outputs.auditor_model }}
+        run: bash .github/scripts/audit.sh '${{ runner.temp }}/candidate-builder'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: audit-builder
+          path: ${{ runner.temp }}/audit-builder
+          retention-days: 14
+
+  director:
+    needs: [prepare, select-models, builder, auditor]
+    if: needs.auditor.result == 'success'
+    runs-on: ubuntu-latest
+    outputs:
+      continue: ${{ steps.direct.outputs.continue }}
+      pending_artifact: ${{ steps.direct.outputs.pending_artifact }}
+      stalled: ${{ steps.direct.outputs.stalled }}
+      accepted_sha: ${{ steps.direct.outputs.accepted_sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ needs.prepare.outputs.accepted_sha }}
+      - uses: ./.github/actions/setup-opencode
+      - uses: actions/download-artifact@v4
+        with:
+          name: candidate-builder
+          path: /tmp/factory/candidate-builder
+      - uses: actions/download-artifact@v4
+        with:
+          name: audit-builder
+          path: /tmp/factory/audit-builder
+      - id: direct
+        env:
+          CYCLE_KEY: ${{ github.run_id }}
+          ACCEPTED_SHA: ${{ needs.prepare.outputs.accepted_sha }}
+          OX_MODEL: ${{ needs.select-models.outputs.director_model }}
+          GH_TOKEN: ${{ github.token }}
+        run: bash .github/scripts/integrate-director.sh
+
+  relaunch:
+    needs: director
+    if: needs.director.result == 'success' && needs.director.outputs.continue == 'true' && needs.director.outputs.stalled != 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Dispatch next V3 cycle
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run chorescore-v3-factory.yml --repo '${{ github.repository }}' --ref main
+
+  release-handoff:
+    needs: director
+    if: needs.director.result == 'success' && needs.director.outputs.pending_artifact == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Dispatch trusted V3 finalizer
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run chorescore-v3-finalize.yml --repo '${{ github.repository }}' --ref main

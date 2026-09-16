@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "milestone": "v3-rc",
+  "builder": {
+    "enabled": true,
+    "criterionId": "V3-01",
+    "objective": "Finish V3-01 from the existing V3 domain baseline. Consolidate shared validation, make replay robust against malformed settlements, add period/view helpers without resetting perpetual balances, add preconditions preventing invalid/over-settlement, and add randomized/property-style invariant tests. Preserve the working zero-sum contribution and expense math already present; do not rebuild it from scratch.",
+    "scope": "Domain entities/calculations/tests and directly necessary package/config work only. Use V2 read-only reference when helpful, but V3 semantics win. No UI tranche yet except changes strictly required by domain contracts.",
+    "acceptance": [
+      "npm run check green",
+      "contribution ledger sum is zero for valid randomized cases",
+      "money ledger sum is exactly zero per currency with integer minor units",
+      "historical Minutes and Points never silently mix or reinterpret",
+      "cross-ledger settlement validates snapshotted rate and cannot overshoot available opposing balances",
+      "edit/delete semantics are replay-equivalent",
+      "period filters are views only and all-time balance remains source-of-truth compatible",
+      "no chrono, Premium, paywall or billing behavior introduced"
+    ],
+    "previousCriteriaPreserved": []
+  }
+}
