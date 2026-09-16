@@ -1,0 +1,70 @@
+{
+  "name": "chorescore-v3",
+  "version": "0.1.0",
+  "private": true,
+  "main": "expo-router/entry",
+  "scripts": {
+    "start": "expo start",
+    "android": "expo run:android",
+    "ios": "expo run:ios",
+    "web": "expo start --web",
+    "check": "npm run typecheck && npm run test",
+    "typecheck": "tsc --noEmit",
+    "test": "jest --passWithNoTests",
+    "test:watch": "jest --watch",
+    "test:coverage": "jest --coverage",
+    "lint": "expo lint",
+    "prebuild": "expo prebuild",
+    "prebuild:android": "expo prebuild --platform android",
+    "export": "expo export",
+    "export:android": "expo export --platform android"
+  },
+  "dependencies": {
+    "@react-native-async-storage/async-storage": "2.2.0",
+    "expo": "~57.0.19",
+    "expo-constants": "~57.0.16",
+    "expo-file-system": "~57.0.6",
+    "expo-font": "~57.0.2",
+    "expo-linking": "~57.0.9",
+    "expo-router": "~57.0.18",
+    "expo-sharing": "~57.0.17",
+    "expo-splash-screen": "~57.0.8",
+    "expo-status-bar": "~57.0.1",
+    "react": "19.2.3",
+    "react-dom": "19.2.3",
+    "react-native": "0.86.3",
+    "react-native-safe-area-context": "~5.7.0",
+    "react-native-screens": "~4.26.0",
+    "react-native-view-shot": "5.1.0",
+    "react-native-web": "~0.21.2",
+    "react-native-worklets": "0.10.4"
+  },
+  "devDependencies": {
+    "@babel/runtime": "^7.20.0",
+    "@expo/metro-runtime": "~57.0.14",
+    "@types/jest": "^29.5.14",
+    "@types/react": "~19.2.4",
+    "jest": "^29.7.0",
+    "jest-expo": "~57.0.2",
+    "typescript": "~5.7.0"
+  },
+  "overrides": {
+    "react-native-reanimated": "4.5.5"
+  },
+  "jest": {
+    "preset": "jest-expo",
+    "transformIgnorePatterns": [
+      "node_modules/(?!((jest-)?react-native|@react-native(-community)?)|expo(nent)?|@expo(nent)?/.*|@expo-google-fonts/.*|react-navigation|@react-navigation/.*|@sentry/react-native|native-base|react-native-svg)"
+    ],
+    "moduleFileExtensions": ["ts", "tsx", "js", "jsx", "json"],
+    "testMatch": ["**/__tests__/**/*.{ts,tsx,js,jsx}", "**/*.{test,spec}.{ts,tsx,js,jsx}"]
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "expo": {
+    "install": {
+      "exclude": ["react-native-worklets", "typescript"]
+    }
+  }
+}
