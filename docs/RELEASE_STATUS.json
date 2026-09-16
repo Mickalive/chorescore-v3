@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "milestone": "v3-rc",
-  "lastCycle": "35153706191",
+  "lastCycle": "35158693615",
   "activeCriteria": [
     "V3-03"
   ],
@@ -60,26 +60,42 @@
   ],
   "openFindings": [
     {
-      "path": "app/(tabs)/add.tsx (loadHistory + activityEntries merge)",
-      "problem": "Unified history pagination is incorrect. loadHistory fetches contributions and expenses with the same cursor then advances the cursor to the NEWER of the two repo cursors; the stream with the older cursor re-fetches entries already shown on the previous page, producing duplicate rows in the merged history whenever both ledgers are active and both have more than PAGE_SIZE entries. Additionally, the merged view is hard-capped at PAGE_SIZE*10=150 entries (paginateActivityLog limit), so after loading more pages the view still shows only the 150 newest entries: older loaded history is unreachable while 'Charger plus' keeps appearing. This breaks the acceptance criteria 'historique compact mixte et filtrable' and 'historique ancien paginé/cursor-based sans full download'.",
-      "evidence": "Simulation of the exact loadHistory logic with 20 interleaved contributions + 20 expenses (PAGE_SIZE=15): page 2 re-fetches c5 already shown in page 1 (merged count 41, unique 40, duplicate c5). Simulation of the merge cap: 600 loaded entries -> view shows 150, oldest visible c225, hasMore still true. The pagination tests only cover single-repo pagination and the pure paginateActivityLog function; the two-repo merged cursor path used by the screen is untested.",
+      "path": "src/infrastructure/repositories/InMemoryRepositories.ts + src/infrastructure/repositories/SqliteRepositories.ts (getByHouseholdPaginated) + app/(tabs)/add.tsx (merged pagination path)",
+      "problem": "The cursor is exclusive on occurredAt alone ('occurredAt < cursor') with ORDER BY occurredAt DESC and no secondary sort key. When more than PAGE_SIZE entries share the exact same occurredAt, the first page returns PAGE_SIZE of them and the cursor becomes that timestamp; the next page excludes ALL entries with that timestamp, so the remaining entries with the identical timestamp are permanently unreachable. This violates the active criterion 'no skipped entries / no gaps' in the two-repo merged pagination path. The new merged-pagination tests only use distinct timestamps (1 hour apart), so the equal-timestamp boundary case is untested.",
+      "evidence": "Independent simulation: 20 contributions sharing one timestamp + 5 older entries, PAGE_SIZE=15 -> page1=15 (cursor=T), page2=5 older, page3=0; 5 entries with timestamp T are unreachable through any cursor. SqliteRepositories.ts lines 393-399 and 773-779 use the same 'AND occurredAt < ?' exclusive cursor with 'ORDER BY occurredAt DESC' and no tie-break key. The candidate's own test 'entries with identical occurredAt are tie-broken deterministically' shows equal timestamps are a supported scenario, but it only exercises the pure merge function with 2 entries, not pagination across a page boundary.",
       "mustFix": true,
-      "requiredFix": "Implement a single merged cursor-based pagination across the unified stream (e.g., page by occurredAt over both repos with one cursor and dedupe/merge deterministically, or fetch per-type pages keyed to the merged cursor), remove the hard 150-entry cap so every loaded page is visible, and add tests covering the two-repo merged pagination path (no duplicates, no skipped entries, older pages reachable).",
-      "verification": "Add a test that seeds >PAGE_SIZE interleaved contributions and expenses, loads 3+ pages through the screen's loadHistory logic, and asserts the merged list has no duplicate ids, no gaps, and that the oldest loaded entry is visible; re-run npm run check."
+      "requiredFix": "Make the cursor stable for equal timestamps: use a composite cursor (occurredAt + id) with a deterministic secondary sort key (e.g., ORDER BY occurredAt DESC, id DESC and cursor predicate (occurredAt < c.occurredAt OR (occurredAt = c.occurredAt AND id < c.id))) in both InMemory and SQLite repositories, and add a test seeding >PAGE_SIZE entries with one identical occurredAt plus older entries, asserting every seeded id is reachable exactly once across pages.",
+      "verification": "Seed PAGE_SIZE+5 entries with the same occurredAt plus older entries, page through until hasMore=false, assert every seeded id is reachable exactly once; re-run npm run check."
     },
     {
-      "path": "app/(tabs)/add.tsx (contribution form)",
-      "problem": "The contribution form does not conserve PersistentTask shortcuts, date/heure selection or the share action required by constitution §5A ('Conserver: libellé libre; PersistentTask / raccourcis de tâches; Fait par; Fait pour; date/heure; modification; suppression; partage') and by the V3-03 outcome ('Contribution conserve saisie libre, PersistentTask, Fait par/Fait pour, date, édition/suppression/partage sans chrono'). persistentTaskId is always null (no PersistentTask UI, even though the demo fixture seeds a 'Vaisselle' PersistentTask), occurredAt is always todayLocal() (no date picker), and history actions expose only Edit/Suppr (no share).",
-      "evidence": "add.tsx: cForm.persistentTaskId initialized null and never set by any UI control; occurredAt initialized todayLocal() and never changed by any control; historyActions renders only 'Edit' and 'Suppr' TouchableOpacity. demoFixture.ts seeds a PersistentTask 'Vaisselle' (line 80-90) that the Add screen never surfaces. NEXT_CYCLE.md objective 1 lists 'free label + PersistentTask + Fait par / Fait pour + date + edit/delete/share'.",
+      "path": "app/(tabs)/add.tsx (loadHistory + activityEntries merge)",
+      "problem": "loadHistory(true) has no in-flight guard: two rapid taps on 'Charger plus' issue two concurrent fetches with the same cursor state, both append the same page to the accumulated arrays, and paginateActivityLog does not dedupe, so the merged view renders duplicate rows with duplicate ids. This violates the acceptance criterion 'no duplicate ids' for the unified history pagination.",
+      "evidence": "Independent simulation of two concurrent loadHistory(true) calls with the same cursor on 40 interleaved contributions + 40 expenses: merged list = 90 entries, unique ids = 60, 30 duplicates. The Button 'Charger plus' is not disabled while a load is in flight and the merge (useMemo -> paginateActivityLog with limit 10_000) contains no dedupe by id.",
       "mustFix": true,
-      "requiredFix": "Add PersistentTask shortcuts to the contribution form (prefill label/value/beneficiaries from the selected PersistentTask), a date/heure selector for occurredAt, and a share action for entries (via the existing share port, honest adapter), keeping the form compact and chrono-free.",
-      "verification": "Manual/reference-scenario check that a PersistentTask can be selected and prefills the form, that occurredAt can be changed and is persisted, and that a share action is present and wired to the share port; keep npm run check green."
+      "requiredFix": "Guard loadHistory against concurrent execution (in-flight ref that skips or queues a second call) or dedupe by entry id in the merge step, and add a test that two concurrent load-more calls do not duplicate entries.",
+      "verification": "Fire two loadHistory(true) calls concurrently and assert the merged list has no duplicate ids; re-run npm run check."
+    },
+    {
+      "path": "app/(tabs)/add.tsx (handleShare + history row display)",
+      "problem": "The share message formats the contribution value with the CURRENT household unit (householdUnit === 'minutes' ? 'min' : 'pts') instead of the entry's stored unit field. After a group switches Minutes<->Points (a supported V3 feature, constitution §5A), an old minutes entry would be shared as '15 pts' — a silent unit reinterpretation of history, violating §18 ('conserver la provenance/unité de chaque écriture historique', 'ne jamais silencieusement réinterpréter l'historique'). The history row display has the same pre-existing issue (uses unitLabel for all contributions).",
+      "evidence": "handleShare: message = `${e.label} - ${e.value} ${householdUnit === 'minutes' ? 'min' : 'pts'} par ...`; ContributionEntry carries a per-entry `unit` field (entities/index.ts) that is ignored here. History row: `${(entry.entry as ContributionEntry).value} ${unitLabel}` uses the current household unit for every contribution.",
+      "mustFix": true,
+      "requiredFix": "Use the entry's stored unit (e.unit) in the share message and in the history row display instead of the current household unit, so historical entries keep their original unit label.",
+      "verification": "Create a contribution with unit 'minutes', set the household unit to 'points', share the entry and assert the message shows 'min'; re-run npm run check."
+    },
+    {
+      "path": "app/(tabs)/add.tsx (expense form + submitExpense)",
+      "problem": "The inline custom-split sum validation displays an error but does not block submit: the Button disabled condition is only !title || !amountRaw || isSubmitting, and submitExpense persists the expense without any write-time validation (both repositories insert directly; allocateExpense is only invoked later at balance-computation time). An invalid custom-split expense can therefore be written into the ledger and later makes calculateFinancialBalances/allocateExpense throw (V3-04 balances, settlement preconditions). The acceptance criterion 'custom split sum validated inline before submit' is not fully met.",
+      "evidence": "Inline validation block renders 'Total parts != montant' but the submit Button (lines 1034-1041) remains enabled; SqliteRepositories.create (lines 799-825) and InMemoryExpenseEntryRepository.create (lines 372-379) insert without calling allocateExpense; expenseLedger.allocateExpense throws on sum mismatch only when balances are computed (lines 68-73).",
+      "mustFix": true,
+      "requiredFix": "Block the submit when the custom split sum differs from amountMinor (disable the button or early-return in submitExpense with the inline error), so an invalid custom-split expense can never be persisted.",
+      "verification": "Enter custom shares that do not sum to the amount: inline error shown and submit disabled / no write occurs; re-run npm run check."
     }
   ],
   "factoryHealth": {
     "stalled": false,
     "consecutiveNoProgress": 0,
-    "lastProductSha": "69e113eae716f8f46813025daa5e1b2cb0701fa8",
+    "lastProductSha": "b4b95710d43c177c1ecd5704c6f8c70157c2b60e",
     "reason": null
   }
 }
