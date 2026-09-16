@@ -1,0 +1,113 @@
+{
+  "schemaVersion": 1,
+  "cycle": "35138202361",
+  "role": "builder",
+  "decision": "repair",
+  "summary": "Trusted verification failed (exit 1); candidate retained as WIP for repair. V3-02 candidate builds the Expo/Expo Router skeleton (root Groups screen, three tabs Ajouter/Balances/A faire), the graphite/off-white/metallic design system, provider-agnostic ports with honest local adapters, in-memory repositories, and a complete but unwired expo-sqlite layer (SqliteStorage with indexes + SqliteRepositories). No Premium/paywall/chrono behavior and no warm V2 palette were introduced; V3-01 domain code and its 3 test suites are untouched and green (70 tests total pass independently). However, the trusted verification FAILED with exit code 1: package.json pins expo-sqlite@~57.0.4 which does not exist (npm ETARGET; latest SDK 57 is 57.0.3), and package-lock.json was not regenerated (no expo-sqlite entry at all). Independent reproduction with the version corrected to ~57.0.3 exposes three additional must-fix defects: (1) typecheck fails on app/index.tsx:181 (TS1382, bare '>' in JSX text) and app/(tabs)/add.tsx:80,91 (variant 'tabLabel' not in Text's Variant union); (2) expo prebuild --platform android fails with ENOENT ./assets/icon.png because app.json references an icon that does not exist (no assets directory); (3) the local-first foundation is not wired: AppContext instantiates only InMemoryRepositories, so all business data lives in memory and is lost on restart, and the SqliteRepositories/SqliteStorage code is dead code — the V3-02 acceptance 'données métier nombreuses dans un stockage local indexé' is not met by the running app. Additionally the root Groups screen cannot open the selected group: openHousehold(id) ignores the id and always pushes /(tabs) while currentHouseholdId stays pinned to the demo household, so tapping any group shows the demo data. Non-must-fix scope notes: expense-mode submit in Ajouter is a no-op (V3-03), Balances period filter is decorative with unit hardcoded 'minutes' and full-history replay per open (V3-04), todo completion hardcodes 15 min and is non-atomic (V3-05), loadHouseholds does local N+1 reads (V3-06). Decision: repair — keep the coherent delta as WIP baseline and fix the six must-fix findings.",
+  "checks": [
+    "trusted verification exit code 1 (TRUSTED_35138202361.md): npm error ETARGET — No matching version found for expo-sqlite@~57.0.4; npm install aborted before typecheck/tests",
+    "npm registry: expo-sqlite SDK 57 dist-tag = 57.0.3 (57.0.4 does not exist); expo-secure-store@57.0.2 exists",
+    "candidate package-lock.json contains zero expo-sqlite entries — lockfile stale relative to package.json (only package.json was modified, lockfile untouched)",
+    "independent reproduction in /tmp/opencode/audit35138202361 with expo-sqlite corrected to ~57.0.3: npm install succeeds (862 packages)",
+    "typecheck (tsc --noEmit) with corrected version fails: app/index.tsx(181,66) TS1382 Unexpected token '>' in JSX text; app/(tabs)/add.tsx(80,13) and (91,13) TS2322 'tabLabel' not assignable to Text Variant",
+    "after fixing the three typecheck errors in the temp copy: typecheck green, 70 tests / 6 suites green (3 domain suites from accepted V3-01 + 3 new V3-02 suites), expo export --platform android succeeds",
+    "expo prebuild --platform android --no-install fails with ENOENT ./assets/icon.png — app.json references ./assets/icon.png but no assets directory exists in the candidate",
+    "grep: SqliteRepositories/SqliteStorage referenced only inside themselves — never imported by AppContext or any screen; AppContext wires InMemoryRepositories only, so the running app persists nothing (data lost on restart)",
+    "app/index.tsx openHousehold(id) ignores id: always router.push('/(tabs)'); currentHouseholdId is pinned to DEMO_HOUSEHOLD_ID at sign-in and only set to loaded[0] when null, so tapping any group card opens the demo household's data",
+    "grep clean for behavioral chrono/premium/paywall/billing/subscription/entitlement in product code (only comments and governance files mention the words)",
+    "V3-01 regression: git diff --cached shows zero changes under src/domain and __tests__/domain; domain tests (ledgers, property-invariants, validation-preconditions-periods) all green in independent run",
+    "design system: palette #F5F5F7/#171719/#68686D/#D1D1D6, forest green #2D6A4F and wine red #9B2226 balance states, subtle shadows — matches V3 constitution; no warm V2 tokens",
+    "ports/adapters: provider-agnostic interfaces; local adapters honest about availability (sync/notifications/calendar/analytics report unavailable, share lazy-loads expo-sharing)",
+    "trusted verification: FAIL exit 1; see reports/audits/TRUSTED_35138202361.md"
+  ],
+  "findings": [
+    {
+      "path": "package.json",
+      "problem": "expo-sqlite pinned to ~57.0.4 which does not exist on npm (SDK 57 latest is 57.0.3). This is the direct cause of the trusted verification failure (exit code 1, npm error ETARGET) and blocks npm install, typecheck, tests and any Expo build. package-lock.json was not regenerated and contains no expo-sqlite entry, so the lockfile is inconsistent with package.json.",
+      "evidence": "TRUSTED_35138202361.md: 'npm error notarget No matching version found for expo-sqlite@~57.0.4' / 'Trusted verification exit code: 1'. npm view expo-sqlite dist-tags: sdk-57 = 57.0.3. grep -c expo-sqlite package-lock.json = 0. Independent install with ~57.0.3 succeeds.",
+      "mustFix": true,
+      "requiredFix": "Set \"expo-sqlite\": \"~57.0.3\" (or \"57.0.3\") in dependencies and regenerate package-lock.json (npm install) so the lockfile contains the resolved expo-sqlite entry.",
+      "verification": "npm install completes without ETARGET; npm run typecheck and npm test green; trusted verification exit code 0."
+    },
+    {
+      "path": "app/index.tsx",
+      "problem": "Line 181 renders a bare '>' character inside JSX text (<Text ...>></Text>), which TypeScript rejects with TS1382 'Unexpected token. Did you mean `{'>'}` or `&gt;`?'. The typecheck gate fails, so the candidate cannot pass 'typecheck et tests verts'.",
+      "evidence": "Independent tsc --noEmit run: 'app/index.tsx(181,66): error TS1382: Unexpected token. Did you mean `{'>'}` or `&gt;`?'",
+      "mustFix": true,
+      "requiredFix": "Replace the bare '>' with {'>'} or &gt; in the chevron Text element.",
+      "verification": "npm run typecheck reports no errors for app/index.tsx."
+    },
+    {
+      "path": "app/(tabs)/add.tsx",
+      "problem": "Lines 80 and 91 pass variant=\"tabLabel\" to the Text component, but Text's Variant union ('screenTitle' | 'sectionTitle' | 'body' | 'bodyBold' | 'caption' | 'metric' | 'metricUnit' | 'balance') does not include 'tabLabel', producing TS2322. The typecheck gate fails.",
+      "evidence": "Independent tsc --noEmit run: 'app/(tabs)/add.tsx(80,13): error TS2322: Type \"tabLabel\" is not assignable to type Variant | undefined' (same at line 91). typography.tabLabel exists in theme.ts but Text.tsx does not expose it.",
+      "mustFix": true,
+      "requiredFix": "Add 'tabLabel' to the Variant union in src/ui/components/Text.tsx (or use an existing variant in add.tsx).",
+      "verification": "npm run typecheck reports no errors for app/(tabs)/add.tsx."
+    },
+    {
+      "path": "app.json",
+      "problem": "app.json references \"./assets/icon.png\" but the candidate contains no assets directory at all. expo prebuild --platform android fails with ENOENT ./assets/icon.png, blocking the Android native build path that the trusted verification pipeline requires for an Expo app.",
+      "evidence": "Independent run: 'npx expo prebuild --platform android --no-install' -> 'Error: [android.dangerous]: withAndroidDangerousBaseMod: ENOENT: no such file or directory, open ./assets/icon.png'. ls assets -> No such file or directory.",
+      "mustFix": true,
+      "requiredFix": "Add a real icon asset at assets/icon.png (and any other assets referenced by app.json, e.g. adaptive icon foreground if declared) so prebuild/export can resolve all configured images.",
+      "verification": "expo prebuild --platform android completes without ENOENT; expo export --platform android succeeds."
+    },
+    {
+      "path": "src/features/app/AppContext.tsx",
+      "problem": "The local-first foundation is not wired into the running app. AppContext instantiates only InMemoryRepositories; SqliteStorage (indexed schema) and SqliteRepositories are dead code never imported anywhere. All business data (users, households, memberships, members, contributions, tasks, todos, expenses, settlements) lives in in-memory Maps and is lost on app restart. The V3-02 acceptance 'données métier nombreuses dans un stockage local indexé plutôt que gros tableaux JSON' and the objective 'Le stockage métier devient local-first et indexé, de préférence via expo-sqlite' are not met by the delivered app.",
+      "evidence": "grep for SqliteRepositories/SqliteStorage across src/ and app/: matches only inside SqliteRepositories.ts and SqliteStorage.ts themselves. AppContext.tsx imports only InMemoryRepositories (lines 17-27) and builds reposRef from them (lines 89-99).",
+      "mustFix": true,
+      "requiredFix": "Wire the SqliteRepositories into AppContext (e.g. a repository factory that uses expo-sqlite on device with an in-memory fallback for tests), so business data is actually persisted in the indexed local store and survives restarts, while the UI keeps reading local state without any cloud dependency.",
+      "verification": "App restart retains created groups/entries; repository tests cover the SQLite-backed repositories; navigation renders from local storage with no network call."
+    },
+    {
+      "path": "app/index.tsx",
+      "problem": "The root Groups screen cannot open the selected group. openHousehold(id) ignores its argument and always pushes '/(tabs)', while currentHouseholdId is pinned to DEMO_HOUSEHOLD_ID at sign-in and only reassigned to loaded[0] when null. Tapping any group card therefore opens the demo household's data, and a newly created group can never be opened.",
+      "evidence": "app/index.tsx lines 39-41: 'const openHousehold = (id: string) => { router.push(`/(tabs)`); }'. AppContext signIn sets currentHouseholdId(DEMO_HOUSEHOLD_ID); loadHouseholds only sets it when null (lines 271-273).",
+      "mustFix": true,
+      "requiredFix": "Set currentHouseholdId to the tapped group's id before navigating (e.g. await setCurrentHouseholdId(id) then router.push('/(tabs)')), so the tabs render the selected group's data.",
+      "verification": "Tapping each group card in the root list opens that group's data in the tabs (verified via local repository contents)."
+    },
+    {
+      "path": "app/(tabs)/add.tsx",
+      "problem": "Non-must-fix scope note: in expense mode the submit handler creates nothing — handleSubmit only has a contribution branch, so the 'Ajouter depense' button is a silent no-op. The full expense flow belongs to V3-03, but the switch currently offers a dead interaction.",
+      "evidence": "handleSubmit (lines 42-65): the only create call is inside 'if (mode === contribution)'; expense mode falls through to reset/loadData.",
+      "mustFix": false,
+      "requiredFix": "V3-03: implement the expense branch (title, amountMinor integer, currency, paidBy, participants, split) or disable the Dépense mode until then.",
+      "verification": "Not required for V3-02 acceptance; verify in V3-03."
+    },
+    {
+      "path": "app/(tabs)/balances.tsx",
+      "problem": "Non-must-fix scope note: the period selector is decorative (period state is never used to filter entries), the contribution unit is hardcoded 'minutes' regardless of the group's unit, the money ledger is a static placeholder, and every open replays the full contribution history plus all settlements from scratch. Materialized balances, period views and the money ledger are V3-04 scope.",
+      "evidence": "period is set by the selector (lines 69-84) but loadBalances (lines 27-39) never references it; calculateContributionBalances(entries, 'minutes', ...) hardcodes the unit; the Argent card renders a fixed empty text.",
+      "mustFix": false,
+      "requiredFix": "V3-04: implement period views, group-unit-aware balances, the money ledger and delta-updated materialized balances instead of full-history replay.",
+      "verification": "Not required for V3-02 acceptance; verify in V3-04."
+    },
+    {
+      "path": "app/(tabs)/todos.tsx",
+      "problem": "Non-must-fix scope note: completion hardcodes value 15 and unit 'minutes' regardless of the group unit, and performs two separate repository writes (todo update then contribution create) without a transaction. Atomic completion with unit confirmation is V3-05 scope.",
+      "evidence": "handleComplete lines 55-78: value: 15, unit: 'minutes' with comment 'Default value; V3-05 will add confirmation dialog'; two sequential await calls without batch/transaction.",
+      "mustFix": false,
+      "requiredFix": "V3-05: confirm performer/value/beneficiaries in the group's unit and create exactly one ContributionEntry atomically with the todo completion.",
+      "verification": "Not required for V3-02 acceptance; verify in V3-05."
+    },
+    {
+      "path": "src/features/app/AppContext.tsx",
+      "problem": "Non-must-fix scope note: loadHouseholds performs one getById per membership (local N+1). Harmless with in-memory repositories today, but it will become a repeated-query pattern once SQLite is wired; the frugal backend doctrine forbids N+1 repository access patterns.",
+      "evidence": "loadHouseholds (lines 262-274): 'for (const m of memberships) { const h = await reposRef.current.households.getById(m.householdId); ... }'.",
+      "mustFix": false,
+      "requiredFix": "V3-06: load households in one indexed query (e.g. WHERE id IN (...)) or a compact root representation.",
+      "verification": "Not required for V3-02 acceptance; verify in V3-06."
+    },
+    {
+      "path": ".",
+      "problem": "Trusted product verification failed",
+      "evidence": "Authoritative verification log: reports/audits/TRUSTED_35138202361.md (exit 1)",
+      "mustFix": true,
+      "requiredFix": "Resolve the concrete failing trusted check without discarding already-correct candidate work, then rerun the full gate.",
+      "verification": "Full trusted V3 verification must return exit code 0."
+    }
+  ]
+}

@@ -1,0 +1,34 @@
+{
+  "expo": {
+    "name": "ChoreScore",
+    "slug": "chorescore-v3",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "scheme": "chorescore",
+    "splash": {
+      "backgroundColor": "#F5F5F7"
+    },
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "app.chorescore.v3"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#F5F5F7"
+      },
+      "package": "app.chorescore.v3"
+    },
+    "web": {
+      "bundler": "metro"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-font"
+    ]
+  }
+}
