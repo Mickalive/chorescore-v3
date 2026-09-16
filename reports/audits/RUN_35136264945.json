@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 1,
+  "cycle": "35136264945",
+  "role": "builder",
+  "decision": "accept",
+  "summary": "REPAIR V3-01 accepted. All four audited must-fix findings from cycle 35126096695 are resolved in the preserved WIP baseline: (1) checkMoneyDebtSufficient now requires a positive counterparty receivable (availableReceivable = counterpartyMoneyBalance, sufficient = balance >= moneyAmountMinor - 1e-9) with a corrected 'receivable' error message; the accepted baseline scenario (b paid 3000 for [a,b], b +1500, settlement 500) passes and an overshoot fails. (2) validateSettlementPreconditions gained a priorSettlements parameter threaded into calculateContributionBalances/calculateFinancialBalances, and validateSettlementSequence passes appliedSettlements so each subsequent settlement is checked against balances including all earlier ones; a sequence where s1 consumes all credit and s2 overshoots is rejected with a Settlement[1] error, while a non-overlapping sequence passes. (3) Both replay paths (contributionLedger.ts, expenseLedger.ts) now use the full validateCrossLedgerSettlement (crossLedgerSettlement.ts imports only from validation.ts — no circular dependency), replacing the weaker inline validateSettlement/validateSettlementMoney; rate-inconsistent settlements throw in both ledger calculations. (4) Tests were rewritten with correct semantics: valid-settlement baseline uses b paid 3000 for [a,b]; a genuine accumulation test (s1 consumes all credit, s2 overshoots -> invalid) and a non-overlapping success test pin the sequence semantics; replay-rejection tests cover both ledgers; property test uses positive receivable semantics. Trusted verification exit code 0 (typecheck + 48 tests, 3 suites) reproduced independently. Independent auditor checks (9 scenarios: baseline pass, overshoot fail, exact-boundary pass, checkMoneyDebtSufficient semantics, accumulation rejection, non-overlapping acceptance, replay rejection in both ledgers, rate-consistent replay correctness + zero-sum, randomized money zero-sum) all passed. No chrono/Premium/paywall/billing/Firebase regression in the delta. No must-fix finding remains.",
+  "checks": [
+    "trusted verification exit code 0 (TRUSTED_35136264945.md): npm run typecheck && npm run test green, 3 suites / 48 tests",
+    "npm run check reproduced green independently (typecheck + 48 tests, 3 suites)",
+    "candidate delta limited to the 5 audited files (2 test files, contributionLedger.ts, expenseLedger.ts, settlementPreconditions.ts); no governance/workflow/state/report files modified by the builder",
+    "checkMoneyDebtSufficient(1500, 500) -> {sufficient:true, availableReceivable:1500}; (1500,1501) -> insufficient; (-100,100) -> insufficient; (0,1) -> insufficient",
+    "accepted baseline scenario (b paid 3000 for [a,b], b +1500 receivable, settlement 15 min / 500 CHF) -> validateSettlementPreconditions valid=true, no errors",
+    "settlement exceeding counterparty receivable (rate-consistent 30 min / 1000 CHF against 500 receivable) -> valid=false with 'receivable' error; exact boundary (500 against 500) -> valid=true",
+    "validateSettlementSequence: s1 consumes all 15 min credit, s2 overshoots -> valid=false with Settlement[1] error; non-overlapping s1 15/500 + s2 10/333 against 30 min credit -> valid=true",
+    "replay rejection: calculateContributionBalances and calculateFinancialBalances both throw /does not match snapshotted rate/ for moneyAmountMinor 499 under rate 60 min = 2000 CHF",
+    "rate-consistent replay: contribution a=15/b=-15 zero-sum; financial a=-1000/b=1000 zero-sum",
+    "import graph: crossLedgerSettlement.ts imports only from entities + validation.ts; contributionLedger/expenseLedger import crossLedgerSettlement; no circular dependency",
+    "grep clean for chrono|premium|paywall|billing|subscription|entitlement|firebase|firestore in src/domain and __tests__/domain",
+    "no tests removed: pristine 42 tests -> candidate 48 tests (6 added: overshoot fail, non-overlapping success, 4 replay tests); baseline ledgers.test.ts untouched and green",
+    "new tests discriminate the fixes: baseline/overshoot/edge-case tests fail against pristine inverted money check; accumulation test fails against a money-fixed-but-no-accumulation variant; replay tests fail against pristine inline validators"
+  ],
+  "findings": [
+    {
+      "path": "__tests__/domain/validation-preconditions-periods.test.ts",
+      "problem": "Non-must-fix observation: the 'settlement exceeding counterparty receivable fails' test uses settlement({ moneyAmountMinor: 501 }), which is also rate-inconsistent (15 min at rate 60:2000 quotes 500) and contribution-insufficient (no contributions, creditor a has 0 credit). The failure is therefore over-determined: the receivable error is present and asserted, so the test does exercise the money check, but it does not isolate it as cleanly as a rate-consistent overshoot would.",
+      "evidence": "Independent check with a rate-consistent overshoot (settlement({contributionValue:30, moneyAmountMinor:1000}) against a 500 receivable, with sufficient contribution credit) confirms the money check fires correctly with the 'receivable' error; the candidate test's assertion targets the 'receivable' string which only the money check produces, so it is not a false positive.",
+      "mustFix": false,
+      "requiredFix": "Optional hardening for a future cycle: use a rate-consistent overshoot (e.g. 30 min / 1000 CHF against a 500 receivable) with sufficient contribution credit so the test isolates the money precondition.",
+      "verification": "Not required for acceptance; behavior verified independently with a rate-consistent overshoot."
+    }
+  ]
+}

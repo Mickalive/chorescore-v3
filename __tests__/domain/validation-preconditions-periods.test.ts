@@ -144,16 +144,20 @@ describe('Shared validation', () => {
 // ── Settlement precondition tests ─────────────────────────────
 
 describe('Settlement preconditions', () => {
-  test('valid settlement passes all preconditions', () => {
+  test('valid settlement passes all preconditions (accepted baseline: b paid 3000 for [a,b])', () => {
+    // Accepted baseline: a performed contribution (a +30, b -30 contribution),
+    // b paid 3000 for [a,b] (a -1500, b +1500 money).
+    // Settlement: a consumes 15 min contribution credit in exchange for 500 CHF
+    // money relief. Counterparty b has +1500 receivable >= 500.
     const contributions = [
       contribution({ value: 60 }), // a +30 / b -30
     ];
     const expenses = [
       expense({
         amountMinor: 3000,
-        paidByMemberId: 'a',
+        paidByMemberId: 'b',
         participantMemberIds: ['a', 'b'],
-      }), // a +3000 -1500 = +1500, b -1500
+      }), // a -1500 / b +1500
     ];
 
     const result = validateSettlementPreconditions(
@@ -183,24 +187,51 @@ describe('Settlement preconditions', () => {
     expect(result.errors.some((e) => e.includes('Contribution creditor'))).toBe(true);
   });
 
-  test('settlement with insufficient money debt fails', () => {
+  test('settlement with insufficient money receivable fails', () => {
+    // b has no expenses, so b has 0 receivable — cannot absorb a 500 CHF settlement.
     const contributions = [
       contribution({ value: 100 }), // a +50 / b -50
     ];
-    // No expenses, so nobody owes money
 
     const result = validateSettlementPreconditions(
-      settlement(), // Needs money debt, but nobody owes
+      settlement(), // Needs money receivable from b, but b has 0
       contributions,
       [],
       members
     );
 
     expect(result.valid).toBe(false);
-    expect(result.errors.some((e) => e.includes('owes'))).toBe(true);
+    expect(result.errors.some((e) => e.includes('receivable'))).toBe(true);
   });
 
-  test('settlement sequence catches over-settlement across multiple settlements', () => {
+  test('settlement exceeding counterparty receivable fails', () => {
+    // b paid 1000 for [a,b] => b has +500 receivable.
+    // Settlement tries to consume 15 min / 500 CHF, but that equals the
+    // full receivable — only barely passes. Settle 501 -> must fail.
+    const expenses = [
+      expense({
+        amountMinor: 1000,
+        paidByMemberId: 'b',
+        participantMemberIds: ['a', 'b'],
+      }), // b +500
+    ];
+
+    const result = validateSettlementPreconditions(
+      settlement({ moneyAmountMinor: 501 }),
+      [],
+      expenses,
+      members
+    );
+
+    expect(result.valid).toBe(false);
+    expect(result.errors.some((e) => e.includes('receivable'))).toBe(true);
+  });
+
+  test('settlement sequence catches over-settlement via accumulation', () => {
+    // Setup: a has 15 min contribution credit, b has +1500 CHF receivable.
+    // s1 consumes 15 min / 500 CHF — consumes all contribution credit.
+    // s2 consumes 10 min / 333 CHF — overshoots contribution (only 0 left).
+    // The sequence must fail because s2 overshoots after s1 consumed everything.
     const contributions = [
       contribution({ value: 30 }), // a +15 / b -15
     ];
@@ -212,21 +243,15 @@ describe('Settlement preconditions', () => {
       }), // a -1500 / b +1500
     ];
 
-    const s1 = settlement({ contributionValue: 10, moneyAmountMinor: 333 });
+    const s1 = settlement({ contributionValue: 15, moneyAmountMinor: 500 });
     const s2 = settlement({
       id: 'settlement-2',
       contributionValue: 10,
       moneyAmountMinor: 333,
     });
-    const s3 = settlement({
-      id: 'settlement-3',
-      contributionValue: 10,
-      moneyAmountMinor: 334,
-    });
 
-    // Total: 30 minutes consumed, a only has 15
     const result = validateSettlementSequence(
-      [s1, s2, s3],
+      [s1, s2],
       contributions,
       expenses,
       members
@@ -234,6 +259,40 @@ describe('Settlement preconditions', () => {
 
     expect(result.valid).toBe(false);
     expect(result.errors.length).toBeGreaterThan(0);
+    // The error must mention the second settlement
+    expect(result.errors.some((e) => e.includes('Settlement[1]'))).toBe(true);
+  });
+
+  test('settlement sequence succeeds for non-overlapping settlements', () => {
+    // a has 30 min credit, b has +1500 receivable.
+    // s1 consumes 15 min / 500 CHF, s2 consumes 10 min / 333 CHF. Total 25 < 30.
+    const contributions = [
+      contribution({ value: 60 }), // a +30 / b -30
+    ];
+    const expenses = [
+      expense({
+        amountMinor: 3000,
+        paidByMemberId: 'b',
+        participantMemberIds: ['a', 'b'],
+      }), // a -1500 / b +1500
+    ];
+
+    const s1 = settlement({ contributionValue: 15, moneyAmountMinor: 500 });
+    const s2 = settlement({
+      id: 'settlement-2',
+      contributionValue: 10,
+      moneyAmountMinor: 333,
+    });
+
+    const result = validateSettlementSequence(
+      [s1, s2],
+      contributions,
+      expenses,
+      members
+    );
+
+    expect(result.valid).toBe(true);
+    expect(result.errors).toHaveLength(0);
   });
 
   test('checkContributionSufficient handles edge cases', () => {
@@ -243,11 +302,86 @@ describe('Settlement preconditions', () => {
     expect(checkContributionSufficient(0, 1, 'a').sufficient).toBe(false);
   });
 
-  test('checkMoneyDebtSufficient handles edge cases', () => {
-    expect(checkMoneyDebtSufficient(-100, 100, 'a').sufficient).toBe(true);
-    expect(checkMoneyDebtSufficient(-100, 100.0000000001, 'a').sufficient).toBe(true); // Within epsilon
-    expect(checkMoneyDebtSufficient(-100, 101, 'a').sufficient).toBe(false);
+  test('checkMoneyDebtSufficient handles edge cases with positive receivable', () => {
+    expect(checkMoneyDebtSufficient(100, 100, 'a').sufficient).toBe(true);
+    expect(checkMoneyDebtSufficient(100, 100.0000000001, 'a').sufficient).toBe(true); // Within epsilon
+    expect(checkMoneyDebtSufficient(100, 101, 'a').sufficient).toBe(false);
     expect(checkMoneyDebtSufficient(0, 1, 'a').sufficient).toBe(false);
+    expect(checkMoneyDebtSufficient(-100, 100, 'a').sufficient).toBe(false); // Negative balance = no receivable
+  });
+});
+
+// ── Replay rejection tests ────────────────────────────────────
+
+describe('Replay rejection of rate-inconsistent settlements', () => {
+  test('contribution ledger rejects rate-inconsistent settlement during replay', () => {
+    // Settlement claims rate 60 min = 2000 CHF, but moneyAmountMinor is 499
+    // instead of the correct 500. validateCrossLedgerSettlement must reject.
+    const badSettlement = settlement({ moneyAmountMinor: 499 });
+
+    expect(() =>
+      calculateContributionBalances(
+        [contribution({ value: 60 })],
+        'minutes',
+        [badSettlement],
+        members
+      )
+    ).toThrow(/does not match snapshotted rate/);
+  });
+
+  test('financial ledger rejects rate-inconsistent settlement during replay', () => {
+    const badSettlement = settlement({ moneyAmountMinor: 499 });
+
+    expect(() =>
+      calculateFinancialBalances(
+        [
+          expense({
+            amountMinor: 3000,
+            paidByMemberId: 'b',
+            participantMemberIds: ['a', 'b'],
+          }),
+        ],
+        'CHF',
+        [badSettlement],
+        members
+      )
+    ).toThrow(/does not match snapshotted rate/);
+  });
+
+  test('contribution ledger replays rate-consistent settlement correctly', () => {
+    const goodSettlement = settlement(); // 15 min / 500 CHF at rate 60:2000
+    const balances = calculateContributionBalances(
+      [contribution({ value: 60 })],
+      'minutes',
+      [goodSettlement],
+      members
+    );
+
+    // a had +30, settlement consumes 15 -> a has +15
+    expect(balances.get('a')).toBe(15);
+    expect(balances.get('b')).toBe(-15);
+    expect(contributionLedgerIsZeroSum(balances)).toBe(true);
+  });
+
+  test('financial ledger replays rate-consistent settlement correctly', () => {
+    const goodSettlement = settlement(); // 15 min / 500 CHF at rate 60:2000
+    const balances = calculateFinancialBalances(
+      [
+        expense({
+          amountMinor: 3000,
+          paidByMemberId: 'b',
+          participantMemberIds: ['a', 'b'],
+        }),
+      ],
+      'CHF',
+      [goodSettlement],
+      members
+    );
+
+    // b had +1500, settlement deducts 500 -> b has +1000
+    expect(balances.get('a')).toBe(-1000);
+    expect(balances.get('b')).toBe(1000);
+    expect(financialLedgerIsZeroSum(balances)).toBe(true);
   });
 });
 

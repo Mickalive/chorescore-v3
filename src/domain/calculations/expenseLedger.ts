@@ -10,11 +10,8 @@ import {
   validateExpenseAmount,
   validateExpenseCurrency,
   validateExpenseParticipants,
-  requireNonEmptyString,
-  requireNoDuplicates,
-  requireNonNegativeInteger,
-  requirePositiveInteger,
 } from './validation';
+import { validateCrossLedgerSettlement } from './crossLedgerSettlement';
 
 function add(map: Map<string, number>, memberId: string, delta: number): void {
   map.set(memberId, (map.get(memberId) ?? 0) + delta);
@@ -78,18 +75,6 @@ export function allocateExpense(entry: ExpenseEntry): ExpenseParticipantShare[] 
   return shares.map((share) => ({ ...share }));
 }
 
-function validateSettlementMoney(settlement: CrossLedgerSettlement): void {
-  if (settlement.contributionCreditorMemberId === settlement.counterpartyMemberId) {
-    throw new Error(`Settlement ${settlement.id} cannot target the same member`);
-  }
-  if (!Number.isInteger(settlement.moneyAmountMinor) || settlement.moneyAmountMinor <= 0) {
-    throw new Error(`Settlement ${settlement.id} must contain a positive integer money amount`);
-  }
-  if (normalizeCurrency(settlement.rateSnapshot.currency) !== normalizeCurrency(settlement.currency)) {
-    throw new Error(`Settlement ${settlement.id} rate currency does not match settlement currency`);
-  }
-}
-
 /**
  * Compute one currency ledger. Expenses and cross-ledger settlements are
  * replayed as immutable accounting entries.
@@ -118,7 +103,7 @@ export function calculateFinancialBalances(
 
   for (const settlement of settlements) {
     if (normalizeCurrency(settlement.currency) !== normalizedCurrency) continue;
-    validateSettlementMoney(settlement);
+    validateCrossLedgerSettlement(settlement);
 
     // The contribution creditor spends contribution credit in exchange for
     // relief from money debt: their money balance moves upward toward zero.

@@ -8,8 +8,8 @@ import {
 import {
   validateContributionValue,
   validateContributionMemberIds,
-  validateContributionUnit,
 } from './validation';
+import { validateCrossLedgerSettlement } from './crossLedgerSettlement';
 
 const EPSILON = 1e-9;
 
@@ -24,25 +24,6 @@ function validateContribution(entry: ContributionEntry): void {
     entry.beneficiaryMemberIds,
     entry.id
   );
-}
-
-function validateSettlement(settlement: CrossLedgerSettlement): void {
-  // Structural validation only; balance sufficiency is checked elsewhere
-  if (settlement.contributionCreditorMemberId === settlement.counterpartyMemberId) {
-    throw new Error(`Settlement ${settlement.id} cannot target the same member`);
-  }
-  if (!Number.isFinite(settlement.contributionValue) || settlement.contributionValue <= 0) {
-    throw new Error(`Settlement ${settlement.id} must consume a positive contribution value`);
-  }
-  if (!Number.isInteger(settlement.moneyAmountMinor) || settlement.moneyAmountMinor <= 0) {
-    throw new Error(`Settlement ${settlement.id} must contain a positive integer money amount`);
-  }
-  if (settlement.rateSnapshot.contributionUnit !== settlement.contributionUnit) {
-    throw new Error(`Settlement ${settlement.id} rate unit does not match settlement unit`);
-  }
-  if (settlement.rateSnapshot.currency.toUpperCase() !== settlement.currency.toUpperCase()) {
-    throw new Error(`Settlement ${settlement.id} rate currency does not match settlement currency`);
-  }
 }
 
 /**
@@ -75,7 +56,7 @@ export function calculateContributionBalances(
 
   for (const settlement of settlements) {
     if (settlement.contributionUnit !== unit) continue;
-    validateSettlement(settlement);
+    validateCrossLedgerSettlement(settlement);
 
     add(balances, settlement.contributionCreditorMemberId, -settlement.contributionValue);
     add(balances, settlement.counterpartyMemberId, settlement.contributionValue);

@@ -361,12 +361,14 @@ describe('Property: cross-ledger settlement invariants', () => {
     }
   });
 
-  test('settlement cannot overshoot available money debt', () => {
+  test('settlement cannot overshoot available money receivable', () => {
     const rng = mulberry32(44);
     const memberIds = ['a', 'b'];
 
     for (let i = 0; i < 20; i++) {
-      // Create an expense where 'b' owes some money
+      // Create an expense where 'b' paid for [a, b] so 'b' has a positive
+      // receivable (is owed money). This is the counterparty who absorbs a
+      // cross-ledger settlement.
       const expenses: ExpenseEntry[] = [
         {
           id: `expense-${i}`,
@@ -374,7 +376,7 @@ describe('Property: cross-ledger settlement invariants', () => {
           title: 'Expense',
           amountMinor: 1000,
           currency: 'CHF',
-          paidByMemberId: 'a',
+          paidByMemberId: 'b',
           participantMemberIds: ['a', 'b'],
           splitMode: 'equal',
           occurredAt: new Date().toISOString(),
@@ -383,15 +385,15 @@ describe('Property: cross-ledger settlement invariants', () => {
       ];
 
       const moneyBalances = calculateFinancialBalances(expenses, 'CHF', [], memberIds);
-      const debtB = -(moneyBalances.get('b') ?? 0); // Positive number representing debt
+      const receivableB = moneyBalances.get('b') ?? 0; // Positive: b is owed money
 
-      // Try to settle more than the debt
+      // Try to settle more than the receivable
       const overage = Math.floor(rng() * 500) + 1;
-      const settlementAmount = debtB + overage;
+      const settlementAmount = receivableB + overage;
 
-      const check = checkMoneyDebtSufficient(moneyBalances.get('b') ?? 0, settlementAmount, 'b');
+      const check = checkMoneyDebtSufficient(receivableB, settlementAmount, 'b');
       expect(check.sufficient).toBe(false);
-      expect(check.availableDebt).toBe(debtB);
+      expect(check.availableReceivable).toBe(receivableB);
     }
   });
 });

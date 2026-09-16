@@ -3,9 +3,9 @@
  *
  * Before applying a cross-ledger settlement, callers should verify that
  * the contribution creditor actually has sufficient contribution credit
- * and that the counterparty has sufficient money debt. These preconditions
- * prevent over-settlement and make the ledger robust against malformed
- * or adversarial settlement records.
+ * and that the counterparty has sufficient money receivable (positive
+ * balance). These preconditions prevent over-settlement and make the
+ * ledger robust against malformed or adversarial settlement records.
  *
  * All functions are pure and side-effect-free.
  */
@@ -48,24 +48,26 @@ export function checkContributionSufficient(
 }
 
 /**
- * Check whether the counterparty has enough negative money balance (i.e.
- * owes enough money) to absorb the settlement money amount.
+ * Check whether the counterparty has enough positive money receivable
+ * (positive balance) to absorb the settlement money amount. The settlement
+ * reduces the counterparty's receivable; they must have at least as much
+ * as the settlement amount.
  *
- * @param counterpartyMoneyBalance  The counterparty's money balance (should be < 0).
- * @param moneyAmountMinor          The money amount the settlement will add to counterparty.
+ * @param counterpartyMoneyBalance  The counterparty's money balance (should be > 0).
+ * @param moneyAmountMinor          The money amount the settlement will deduct from counterparty.
  * @param counterpartyId            Member ID for error messages.
  */
 export function checkMoneyDebtSufficient(
   counterpartyMoneyBalance: number,
   moneyAmountMinor: number,
   counterpartyId: string
-): { sufficient: boolean; availableDebt: number } {
-  // Counterparty's money balance is negative (they owe money).
-  // The settlement adds to their balance (reduces their debt).
-  // They are "sufficient" if they currently owe at least as much as the settlement.
-  const availableDebt = -counterpartyMoneyBalance; // Convert to positive
-  const sufficient = availableDebt >= moneyAmountMinor - 1e-9;
-  return { sufficient, availableDebt };
+): { sufficient: boolean; availableReceivable: number } {
+  // Counterparty's money balance is positive (they are owed money / have a receivable).
+  // The settlement deducts from their balance (reduces their receivable).
+  // They are "sufficient" if their receivable is at least as large as the settlement.
+  const availableReceivable = counterpartyMoneyBalance;
+  const sufficient = availableReceivable >= moneyAmountMinor - 1e-9;
+  return { sufficient, availableReceivable };
 }
 
 /**
@@ -76,6 +78,7 @@ export function checkMoneyDebtSufficient(
  * @param contributions          All contribution entries (for balance calculation).
  * @param expenses               All expense entries (for money balance calculation).
  * @param allMemberIds           All member IDs in the household.
+ * @param priorSettlements       Settlements already applied before this one (for accumulation).
  * @param validateStructure      Whether to run structural validation (default true).
  */
 export function validateSettlementPreconditions(
@@ -83,6 +86,7 @@ export function validateSettlementPreconditions(
   contributions: ContributionEntry[],
   expenses: ExpenseEntry[],
   allMemberIds: string[],
+  priorSettlements: CrossLedgerSettlement[] = [],
   validateStructure: boolean = true
 ): SettlementPreconditionResult {
   const errors: string[] = [];
@@ -97,10 +101,11 @@ export function validateSettlementPreconditions(
   }
 
   // 2. Check contribution creditor has sufficient contribution credit
+  //    Include prior settlements so accumulated consumption is accounted for.
   const contributionBalances = calculateContributionBalances(
     contributions,
     settlement.contributionUnit,
-    [],
+    priorSettlements,
     allMemberIds
   );
   const creditorContribution = contributionBalances.get(settlement.contributionCreditorMemberId) ?? 0;
@@ -115,11 +120,12 @@ export function validateSettlementPreconditions(
     );
   }
 
-  // 3. Check counterparty has sufficient money debt
+  // 3. Check counterparty has sufficient money receivable
+  //    Include prior settlements so accumulated consumption is accounted for.
   const moneyBalances = calculateFinancialBalances(
     expenses,
     settlement.currency,
-    [],
+    priorSettlements,
     allMemberIds
   );
   const counterpartyMoney = moneyBalances.get(settlement.counterpartyMemberId) ?? 0;
@@ -130,7 +136,7 @@ export function validateSettlementPreconditions(
   );
   if (!moneyCheck.sufficient) {
     errors.push(
-      `Counterparty ${settlement.counterpartyMemberId} owes ${moneyCheck.availableDebt} ${settlement.currency} minor units, but settlement requires ${settlement.moneyAmountMinor}`
+      `Counterparty ${settlement.counterpartyMemberId} has ${moneyCheck.availableReceivable} ${settlement.currency} minor units receivable, but settlement requires ${settlement.moneyAmountMinor}`
     );
   }
 
@@ -168,11 +174,14 @@ export function validateSettlementSequence(
     }
 
     // Then check preconditions with previously applied settlements included
+    // so each subsequent settlement is checked against balances that reflect
+    // all earlier settlements.
     const result = validateSettlementPreconditions(
       settlement,
       contributions,
       expenses,
       allMemberIds,
+      appliedSettlements,
       false // Already validated structure
     );
 
