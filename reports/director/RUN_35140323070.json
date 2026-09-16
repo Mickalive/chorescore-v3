@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 1,
+  "cycle": "35140323070",
+  "decision": "continue",
+  "reason": "Auditor decision is repair on V3-02. The repair correctly resolved 5 of the 6 previous must-fix findings: (1) expo-sqlite pinned to ~57.0.3 and lockfile regenerated; (2) bare '>' in app/index.tsx fixed; (3) 'tabLabel' added to Text Variant union; (4) assets/icon.png created; (5) openHousehold now calls setCurrentHouseholdId(id) before navigation. SQLite wiring was partially delivered: RepositoryFactory created with device/fallback selection and AppContext wired through createRepositories(). However, the repair introduced one deterministic regression and left one verification gap. REGRESSION: ensureDemoFixture creates the demo household via repos.households.create() which assigns a generated id, but every subsequent fixture record (memberships, members, tasks, entries, todos) and signIn/loadHouseholds still reference the constant DEMO_HOUSEHOLD_ID 'h-core' — loadHouseholds resolves getById('h-core') → null, so the root Groups screen shows an empty list after demo sign-in. Empirically confirmed via jest test. VERIFICATION GAP: the required fix explicitly demands repository tests cover SQLite-backed repositories, but zero such tests exist — SqliteRepositories (781 lines) and RepositoryFactory have no test coverage. Two must-fix findings remain; the delta is coherent and fixable. Trusted verification passed (exit code 0: npm install, typecheck green, 70 tests green, expo export/prebuild/Android build all succeed). V3-01 remains accepted and untouched.",
+  "progressEvidence": [
+    "Trusted verification PASSED: exit code 0 — npm install (862 packages), typecheck green, 70 tests / 6 suites green, expo export --platform android succeeded, expo prebuild succeeded, Android debug build BUILD SUCCESSFUL",
+    "5 of 6 previous must-fix findings resolved: package.json expo-sqlite ~57.0.3, bare '>' fixed, tabLabel added to Text Variant union, assets/icon.png created, openHousehold sets currentHouseholdId before navigation",
+    "SQLite wiring partially delivered: RepositoryFactory.ts created (device/fallback selection), AppContext builds repos through createRepositories()",
+    "V3-01 domain untouched: zero changes under src/domain or __tests__/domain; all 3 domain suites green",
+    "No chrono/Premium/paywall/billing/subscription/entitlement behavior in product code",
+    "No warm V2 palette — theme uses #F5F5F7/#171719/#68686D/#D1D1D6, forest green #2D6A4F, wine red #9B2226",
+    "Three tabs exactly (Ajouter/Balances/A faire); root Groups screen without plan badges or restrictions",
+    "Ports/adapters provider-agnostic; local adapters honest about availability",
+    "Delta retained as WIP baseline for repair"
+  ],
+  "mustFixFindings": [
+    {
+      "id": "MF-7",
+      "path": "src/features/app/AppContext.tsx",
+      "summary": "Regression introduced by the repair: ensureDemoFixture creates the demo household via repos.households.create() (line 146) which assigns a generated id, but every subsequent fixture record (memberships, members, tasks, entries, todos) and signIn/loadHouseholds still reference DEMO_HOUSEHOLD_ID 'h-core'. loadHouseholds resolves getById('h-core') → null, so the root Groups screen shows 'Aucun groupe' after demo sign-in and the demo group is unreachable. Empirically confirmed via jest test mirroring the exact fixture + loadHouseholds logic (loaded.length = 0, expected 1). Additionally reposReady (line 73) is set but never consumed — a sign-in before repository init completes skips the fixture permanently. In the SQLite path, demo user is also created via create() with generated id so 'demo-user-alex' never exists and duplicate user rows accumulate on each sign-in.",
+      "requiredFix": "Keep the demo fixture internally consistent: seed/create the demo household and demo user under the canonical ids (DEMO_HOUSEHOLD_ID 'h-core', 'demo-user-alex') or use the id returned by create() consistently for all subsequent records and currentHouseholdId. Consume reposReady or retry the fixture once repos are initialized so an early sign-in cannot permanently skip it."
+    },
+    {
+      "id": "MF-8",
+      "path": "__tests__/infrastructure/repositories.test.ts",
+      "summary": "The required fix for the SQLite wiring finding explicitly demands 'repository tests cover the SQLite-backed repositories', but the candidate adds no such tests. SqliteRepositories (781 lines) and RepositoryFactory have zero test coverage — only InMemory repositories are tested.",
+      "requiredFix": "Add tests covering SQLite-backed repositories (CRUD round-trips against mocked expo-sqlite driver or the factory's fallback selection), verifying data written through the repositories can be read back and that the in-memory fallback is selected in the test environment."
+    }
+  ],
+  "nextTask": "Repair V3-02 must-fix findings. Two remaining: (1) fix the demo fixture regression in AppContext.tsx — ensure ensureDemoFixture creates/uses the demo household and user under consistent canonical ids (DEMO_HOUSEHOLD_ID 'h-core', 'demo-user-alex') and consume reposReady so sign-in converges correctly; (2) add SQLite-backed repository tests covering CRUD round-trips and the RepositoryFactory fallback selection logic. Preserve V3-01 domain untouched and all previously accepted V3-02 work (expo-sqlite ~57.0.3, bare '>', tabLabel, assets, openHousehold fix). Re-run npm run check and verify trusted verification passes."
+}

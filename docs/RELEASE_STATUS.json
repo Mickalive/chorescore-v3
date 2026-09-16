@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "milestone": "v3-rc",
-  "lastCycle": "35138202361",
+  "lastCycle": "35140323070",
   "activeCriteria": [
     "V3-02"
   ],
@@ -58,66 +58,26 @@
   ],
   "openFindings": [
     {
-      "path": "package.json",
-      "problem": "expo-sqlite pinned to ~57.0.4 which does not exist on npm (SDK 57 latest is 57.0.3). This is the direct cause of the trusted verification failure (exit code 1, npm error ETARGET) and blocks npm install, typecheck, tests and any Expo build. package-lock.json was not regenerated and contains no expo-sqlite entry, so the lockfile is inconsistent with package.json.",
-      "evidence": "TRUSTED_35138202361.md: 'npm error notarget No matching version found for expo-sqlite@~57.0.4' / 'Trusted verification exit code: 1'. npm view expo-sqlite dist-tags: sdk-57 = 57.0.3. grep -c expo-sqlite package-lock.json = 0. Independent install with ~57.0.3 succeeds.",
-      "mustFix": true,
-      "requiredFix": "Set \"expo-sqlite\": \"~57.0.3\" (or \"57.0.3\") in dependencies and regenerate package-lock.json (npm install) so the lockfile contains the resolved expo-sqlite entry.",
-      "verification": "npm install completes without ETARGET; npm run typecheck and npm test green; trusted verification exit code 0."
-    },
-    {
-      "path": "app/index.tsx",
-      "problem": "Line 181 renders a bare '>' character inside JSX text (<Text ...>></Text>), which TypeScript rejects with TS1382 'Unexpected token. Did you mean `{'>'}` or `&gt;`?'. The typecheck gate fails, so the candidate cannot pass 'typecheck et tests verts'.",
-      "evidence": "Independent tsc --noEmit run: 'app/index.tsx(181,66): error TS1382: Unexpected token. Did you mean `{'>'}` or `&gt;`?'",
-      "mustFix": true,
-      "requiredFix": "Replace the bare '>' with {'>'} or &gt; in the chevron Text element.",
-      "verification": "npm run typecheck reports no errors for app/index.tsx."
-    },
-    {
-      "path": "app/(tabs)/add.tsx",
-      "problem": "Lines 80 and 91 pass variant=\"tabLabel\" to the Text component, but Text's Variant union ('screenTitle' | 'sectionTitle' | 'body' | 'bodyBold' | 'caption' | 'metric' | 'metricUnit' | 'balance') does not include 'tabLabel', producing TS2322. The typecheck gate fails.",
-      "evidence": "Independent tsc --noEmit run: 'app/(tabs)/add.tsx(80,13): error TS2322: Type \"tabLabel\" is not assignable to type Variant | undefined' (same at line 91). typography.tabLabel exists in theme.ts but Text.tsx does not expose it.",
-      "mustFix": true,
-      "requiredFix": "Add 'tabLabel' to the Variant union in src/ui/components/Text.tsx (or use an existing variant in add.tsx).",
-      "verification": "npm run typecheck reports no errors for app/(tabs)/add.tsx."
-    },
-    {
-      "path": "app.json",
-      "problem": "app.json references \"./assets/icon.png\" but the candidate contains no assets directory at all. expo prebuild --platform android fails with ENOENT ./assets/icon.png, blocking the Android native build path that the trusted verification pipeline requires for an Expo app.",
-      "evidence": "Independent run: 'npx expo prebuild --platform android --no-install' -> 'Error: [android.dangerous]: withAndroidDangerousBaseMod: ENOENT: no such file or directory, open ./assets/icon.png'. ls assets -> No such file or directory.",
-      "mustFix": true,
-      "requiredFix": "Add a real icon asset at assets/icon.png (and any other assets referenced by app.json, e.g. adaptive icon foreground if declared) so prebuild/export can resolve all configured images.",
-      "verification": "expo prebuild --platform android completes without ENOENT; expo export --platform android succeeds."
-    },
-    {
       "path": "src/features/app/AppContext.tsx",
-      "problem": "The local-first foundation is not wired into the running app. AppContext instantiates only InMemoryRepositories; SqliteStorage (indexed schema) and SqliteRepositories are dead code never imported anywhere. All business data (users, households, memberships, members, contributions, tasks, todos, expenses, settlements) lives in in-memory Maps and is lost on app restart. The V3-02 acceptance 'données métier nombreuses dans un stockage local indexé plutôt que gros tableaux JSON' and the objective 'Le stockage métier devient local-first et indexé, de préférence via expo-sqlite' are not met by the delivered app.",
-      "evidence": "grep for SqliteRepositories/SqliteStorage across src/ and app/: matches only inside SqliteRepositories.ts and SqliteStorage.ts themselves. AppContext.tsx imports only InMemoryRepositories (lines 17-27) and builds reposRef from them (lines 89-99).",
+      "problem": "Regression introduced by the repair: ensureDemoFixture creates the demo household via repos.households.create() (line 146), which assigns a generated id (e.g. 'household-1-<ts>'), but every subsequent fixture record (memberships lines 157-190, members lines 192-229, tasks/entries/todos lines 231-283) and signIn (line 299) still reference the constant DEMO_HOUSEHOLD_ID 'h-core'. loadHouseholds (lines 309-322) resolves each membership's householdId via households.getById(m.householdId) -> null for 'h-core', so the root Groups screen shows 'Aucun groupe' after demo sign-in and the demo group 'Appartement' is unreachable. The previous baseline seeded the household with id 'h-core' (repos.households.seed([{ id: DEMO_HOUSEHOLD_ID, ... }])) and the fixture was consistent; the repair comment 'For in-memory, set the known ID by updating the created record' has no corresponding code. In the SQLite path the demo user is also created via repos.users.create() (lines 121-141) with a generated id, so 'demo-user-alex' never exists and a duplicate user row is inserted on every sign-in. Additionally reposReady (line 73) is set but never consumed: a sign-in that occurs before repository initialization completes skips ensureDemoFixture and loadHouseholds with no retry, and repos falls back to '{} as AllRepositories' (lines 355-368).",
+      "evidence": "Scratch jest test in a temp copy mirroring the exact ensureDemoFixture + loadHouseholds logic with in-memory repositories: expect(loaded.length).toBe(1) FAILED with Received: 0 (household 'h-core' not reachable from the user's memberships). git diff --cached shows the seed([{ id: DEMO_HOUSEHOLD_ID, ... }]) call replaced by await repos.households.create({...}) with no id assignment. AppContext.tsx lines 144-155 (create), 157-190 (memberships with DEMO_HOUSEHOLD_ID), 299 (setCurrentHouseholdId(DEMO_HOUSEHOLD_ID)), 315 (getById(m.householdId)).",
       "mustFix": true,
-      "requiredFix": "Wire the SqliteRepositories into AppContext (e.g. a repository factory that uses expo-sqlite on device with an in-memory fallback for tests), so business data is actually persisted in the indexed local store and survives restarts, while the UI keeps reading local state without any cloud dependency.",
-      "verification": "App restart retains created groups/entries; repository tests cover the SQLite-backed repositories; navigation renders from local storage with no network call."
+      "requiredFix": "Keep the demo fixture internally consistent: either seed/create the demo household (and demo user) under the canonical ids (DEMO_HOUSEHOLD_ID 'h-core', 'demo-user-alex') or use the id returned by create() consistently for memberships, members, tasks, entries, todos and currentHouseholdId. Also gate sign-in/loadHouseholds on repository readiness (consume reposReady) or retry the fixture once repos are initialized, so an early sign-in cannot permanently skip the fixture.",
+      "verification": "After demo sign-in the root Groups list shows the 'Appartement' group; tapping it opens the tabs rendering that group's members/entries; a second sign-in does not duplicate the demo user; sign-in before repo init still converges to the same state."
     },
     {
-      "path": "app/index.tsx",
-      "problem": "The root Groups screen cannot open the selected group. openHousehold(id) ignores its argument and always pushes '/(tabs)', while currentHouseholdId is pinned to DEMO_HOUSEHOLD_ID at sign-in and only reassigned to loaded[0] when null. Tapping any group card therefore opens the demo household's data, and a newly created group can never be opened.",
-      "evidence": "app/index.tsx lines 39-41: 'const openHousehold = (id: string) => { router.push(`/(tabs)`); }'. AppContext signIn sets currentHouseholdId(DEMO_HOUSEHOLD_ID); loadHouseholds only sets it when null (lines 271-273).",
+      "path": "__tests__/infrastructure/repositories.test.ts",
+      "problem": "The required fix for the AppContext wiring finding explicitly demands 'repository tests cover the SQLite-backed repositories', but the candidate adds no such tests. The suite still covers only InMemory repositories; SqliteRepositories (781 lines) and the new RepositoryFactory (selection logic, in-memory fallback) have zero test coverage, so the persistence layer that the repair is supposed to deliver is unverified.",
+      "evidence": "grep for 'Sqlite|RepositoryFactory|createRepositories' across __tests__ returns no matches; repositories.test.ts imports only InMemory* repositories (lines 9-19).",
       "mustFix": true,
-      "requiredFix": "Set currentHouseholdId to the tapped group's id before navigating (e.g. await setCurrentHouseholdId(id) then router.push('/(tabs)')), so the tabs render the selected group's data.",
-      "verification": "Tapping each group card in the root list opens that group's data in the tabs (verified via local repository contents)."
-    },
-    {
-      "path": ".",
-      "problem": "Trusted product verification failed",
-      "evidence": "Authoritative verification log: reports/audits/TRUSTED_35138202361.md (exit 1)",
-      "mustFix": true,
-      "requiredFix": "Resolve the concrete failing trusted check without discarding already-correct candidate work, then rerun the full gate.",
-      "verification": "Full trusted V3 verification must return exit code 0."
+      "requiredFix": "Add tests covering the SQLite-backed repositories (e.g. CRUD round-trips against a mocked/in-memory expo-sqlite driver or the factory's fallback selection), verifying that business data written through the repositories can be read back and that the in-memory fallback is selected in the test environment.",
+      "verification": "npm test green with the new SQLite repository tests included; the suite exercises the SQLite-backed repository contracts, not only the in-memory ones."
     }
   ],
   "factoryHealth": {
     "stalled": false,
     "consecutiveNoProgress": 0,
-    "lastProductSha": "50762dc09fb478f3583c3b2f48ab7486be00b508",
+    "lastProductSha": "bc74feba99d040257ea1278df3da54fc8cc3f2a0",
     "reason": null
   }
 }
