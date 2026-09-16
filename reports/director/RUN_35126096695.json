@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "cycle": "35126096695",
+  "decision": "continue",
+  "reason": "Auditor decision is repair on V3-01. Four must-fix defects remain in the new settlement precondition and replay code: (1) checkMoneyDebtSufficient inverts the counterparty balance sign — valid settlements are rejected, semantically invalid ones accepted; (2) validateSettlementSequence never accumulates appliedSettlements — over-settlement across a sequence is not detected; (3) ledger replay (calculateContributionBalances/calculateFinancialBalances) accepts settlements whose moneyAmountMinor contradicts the snapshotted rate, so replay is not robust against malformed settlements; (4) the new precondition tests encode the inverted semantics and pass for the wrong reasons, masking defects 1-2, and no test covers replay rejection of rate-inconsistent settlements. The baseline zero-sum contribution and expense math is preserved. The coherent delta is retained as WIP baseline for repair.",
+  "progressEvidence": [
+    "npm run check green (typecheck + 42 jest tests, 3 suites)",
+    "contribution ledger zero-sum preserved from baseline",
+    "expense ledger integer minor-unit math preserved",
+    "crossLedgerSettlement structural validation correct (validateCrossLedgerSettlement rejects rate-inconsistent amounts)",
+    "period helpers are views-only, never reset perpetual balances",
+    "no chrono, Premium, paywall, billing or Firebase types introduced",
+    "delta retained as baseline WIP for settlement precondition repair"
+  ],
+  "mustFixFindings": [
+    "settlementPreconditions.ts: checkMoneyDebtSufficient requires counterparty to owe money (negative balance) but accepted baseline semantics require counterparty to have positive receivable (positive balance); fix: sufficient = counterpartyMoneyBalance >= moneyAmountMinor - 1e-9",
+    "settlementPreconditions.ts: validateSettlementSequence pushes appliedSettlements but never reads it; balances always recomputed from raw entries with empty settlements; fix: thread appliedSettlements into balance computation so each subsequent settlement checks remaining balances",
+    "contributionLedger.ts validateSettlement + expenseLedger.ts validateSettlementMoney: replay validators check structure only but never verify moneyAmountMinor matches snapshotted rate quote; fix: use validateCrossLedgerSettlement from crossLedgerSettlement.ts in both replay paths",
+    "validation-preconditions-periods.test.ts: valid-settlement test uses counterparty with negative balance (wrong semantics); sequence test passes because inverted money check rejects s1 immediately (never exercises accumulation); no replay-rejection test exists; fix: rewrite to accepted baseline scenario (counterparty +1500), genuine accumulation test, and replay rejection test"
+  ],
+  "nextTask": "Repair V3-01 settlement preconditions and replay validation. Fix the four must-fix findings: (1) invert checkMoneyDebtSufficient sign to check counterpartyMoneyBalance >= moneyAmountMinor, (2) thread appliedSettlements into validateSettlementSequence balance computation, (3) replace inline validateSettlement/validateSettlementMoney in ledger replay with validateCrossLedgerSettlement, (4) rewrite precondition tests with correct semantics, genuine accumulation, and replay-rejection coverage. Preserve the working zero-sum contribution/expense math. Re-run npm run check and verify all 42+ tests pass."
+}
