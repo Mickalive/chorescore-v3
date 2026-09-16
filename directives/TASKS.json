@@ -4,8 +4,8 @@
   "builder": {
     "enabled": true,
     "criterionId": "V3-02",
-    "objective": "Implement V3-02 — Structure application, langage visuel et socle local-first. Socle Expo/React Native/Expo Router fonctionnel avec AppContext/ports/adapters migrés sélectivement, racine Groupes illimités, navigation trois onglets Ajouter/Balances/À faire et design system précis, adulte, graphite/off-white/métallique. Le stockage métier devient local-first et indexé, de préférence via expo-sqlite, et l'UI lit le local sans dépendre d'une requête cloud pour afficher/changer d'onglet. Toute UX Premium, pricing, paywall, chrono et direction chaude V2 disparaît.",
-    "scope": "Work only on V3-02 and directly necessary migrations/repairs. Preserve every completed V3 criterion.",
+    "objective": "REPAIR V3-02: Set \"expo-sqlite\": \"~57.0.3\" (or \"57.0.3\") in dependencies and regenerate package-lock.json (npm install) so the lockfile contains the resolved expo-sqlite entry.; Replace the bare '>' with {'>'} or &gt; in the chevron Text element.; Add 'tabLabel' to the Variant union in src/ui/components/Text.tsx (or use an existing variant in add.tsx).; Add a real icon asset at assets/icon.png (and any other assets referenced by app.json, e.g. adaptive icon foreground if declared) so prebuild/export can resolve all configured images.; Wire the SqliteRepositories into AppContext (e.g. a repository factory that uses expo-sqlite on device with an in-memory fallback for tests), so business data is actually persisted in the indexed local store and survives restarts, while the UI keeps reading local state without any cloud dependency.; Set currentHouseholdId to the tapped group's id before navigating (e.g. await setCurrentHouseholdId(id) then router.push('/(tabs)')), so the tabs render the selected group's data.; Resolve the concrete failing trusted check without discarding already-correct candidate work, then rerun the full gate.",
+    "scope": "Repair only the audited must-fix findings on the preserved V3 baseline; do not rebuild accepted work.",
     "acceptance": [
       "app Expo démarre et exporte Android",
       "racine groupes sans restriction ni plan",

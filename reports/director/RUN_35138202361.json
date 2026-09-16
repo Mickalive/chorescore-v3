@@ -1,0 +1,55 @@
+{
+  "schemaVersion": 1,
+  "cycle": "35138202361",
+  "decision": "continue",
+  "reason": "Auditor decision is repair on V3-02. The candidate delta is coherent and preserves V3-01, but trusted verification failed (exit 1) due to expo-sqlite@~57.0.4 not existing on npm. Independent reproduction reveals six must-fix findings: (1) package.json pins nonexistent expo-sqlite version and lockfile was not regenerated; (2) app/index.tsx bare '>' in JSX text causes TS1382; (3) app/(tabs)/add.tsx uses variant='tabLabel' not in Text Variant union (TS2322); (4) app.json references assets/icon.png that does not exist, blocking Android prebuild; (5) SqliteStorage and SqliteRepositories are dead code never wired into AppContext — all business data stays in-memory and is lost on restart; (6) root Groups screen openHousehold(id) ignores the id argument and always opens the demo household. The delta is retained as WIP baseline for focused repair. V3-01 remains fully accepted and untouched.",
+  "progressEvidence": [
+    "V3-02 candidate built: Expo/Expo Router skeleton, root Groups screen, three tabs (Ajouter/Balances/A faire), V3 graphite/off-white/metallic design system, provider-agnostic ports with honest local adapters, in-memory + SQLite repository implementations",
+    "V3-01 domain untouched: zero changes under src/domain or __tests__/domain",
+    "70 tests / 6 suites green (3 V3-01 + 3 V3-02) when expo-sqlite version corrected and type errors fixed",
+    "expo export --platform android succeeds after typecheck fixes",
+    "No chrono/Premium/paywall/billing/subscription/entitlement behavior in product code",
+    "No warm V2 palette — theme uses #F5F5F7/#171719/#68686D/#D1D1D6, forest green #2D6A4F, wine red #9B2226",
+    "Ports/adapters provider-agnostic; local adapters honest about availability",
+    "Delta retained as WIP baseline for repair"
+  ],
+  "mustFixFindings": [
+    {
+      "id": "MF-1",
+      "path": "package.json",
+      "summary": "expo-sqlite pinned to ~57.0.4 which does not exist on npm (SDK 57 latest is 57.0.3). Lockfile not regenerated (contains zero expo-sqlite entries). Direct cause of trusted verification exit code 1.",
+      "requiredFix": "Set expo-sqlite to ~57.0.3 in dependencies and regenerate package-lock.json."
+    },
+    {
+      "id": "MF-2",
+      "path": "app/index.tsx:181",
+      "summary": "Bare '>' character in JSX text causes TS1382. Typecheck gate fails.",
+      "requiredFix": "Replace bare '>' with {'>'} or &gt;."
+    },
+    {
+      "id": "MF-3",
+      "path": "app/(tabs)/add.tsx:80,91",
+      "summary": "variant='tabLabel' not in Text Variant union (TS2322). Typecheck gate fails.",
+      "requiredFix": "Add 'tabLabel' to Variant union in Text.tsx or use an existing variant."
+    },
+    {
+      "id": "MF-4",
+      "path": "app.json / assets/",
+      "summary": "app.json references ./assets/icon.png but no assets directory exists. expo prebuild --platform android fails with ENOENT.",
+      "requiredFix": "Create assets/icon.png (and any other referenced assets) so prebuild can resolve all configured images."
+    },
+    {
+      "id": "MF-5",
+      "path": "src/features/app/AppContext.tsx",
+      "summary": "SqliteStorage and SqliteRepositories are dead code — never imported by AppContext or any screen. All business data lives in in-memory Maps and is lost on restart. V3-02 acceptance criterion 'données métier nombreuses dans un stockage local indexé' is not met.",
+      "requiredFix": "Wire SqliteRepositories into AppContext with an in-memory fallback for tests, so business data persists in the indexed local store."
+    },
+    {
+      "id": "MF-6",
+      "path": "app/index.tsx",
+      "summary": "openHousehold(id) ignores its argument and always pushes /(tabs). currentHouseholdId stays pinned to DEMO_HOUSEHOLD_ID. Tapping any group opens demo data; newly created groups can never be opened.",
+      "requiredFix": "Set currentHouseholdId to the tapped group's id before navigating."
+    }
+  ],
+  "nextTask": "Repair V3-02 must-fix findings. Fix all six: (1) pin expo-sqlite ~57.0.3 and regenerate lockfile, (2) fix bare '>' TS1382 in app/index.tsx:181, (3) fix variant='tabLabel' TS2322 by adding 'tabLabel' to Text Variant union, (4) create assets/icon.png for Android prebuild, (5) wire SqliteRepositories into AppContext with in-memory fallback, (6) fix openHousehold to set currentHouseholdId before navigation. Preserve V3-01 domain untouched. Re-run npm install, npm run check (typecheck + all tests) and verify expo export --platform android succeeds."
+}

@@ -1,12 +1,12 @@
 {
   "schemaVersion": 1,
   "milestone": "v3-rc",
-  "lastCycle": "35136264945",
+  "lastCycle": "35138202361",
   "activeCriteria": [
     "V3-02"
   ],
   "pendingArtifact": null,
-  "progressSummary": "Audited V3-01 requires repair; WIP baseline preserved when a safe delta existed.",
+  "progressSummary": "Audited V3-02 requires repair; WIP baseline preserved when a safe delta existed.",
   "criteria": [
     {
       "id": "V3-01",
@@ -56,11 +56,68 @@
       "evidence": []
     }
   ],
-  "openFindings": [],
+  "openFindings": [
+    {
+      "path": "package.json",
+      "problem": "expo-sqlite pinned to ~57.0.4 which does not exist on npm (SDK 57 latest is 57.0.3). This is the direct cause of the trusted verification failure (exit code 1, npm error ETARGET) and blocks npm install, typecheck, tests and any Expo build. package-lock.json was not regenerated and contains no expo-sqlite entry, so the lockfile is inconsistent with package.json.",
+      "evidence": "TRUSTED_35138202361.md: 'npm error notarget No matching version found for expo-sqlite@~57.0.4' / 'Trusted verification exit code: 1'. npm view expo-sqlite dist-tags: sdk-57 = 57.0.3. grep -c expo-sqlite package-lock.json = 0. Independent install with ~57.0.3 succeeds.",
+      "mustFix": true,
+      "requiredFix": "Set \"expo-sqlite\": \"~57.0.3\" (or \"57.0.3\") in dependencies and regenerate package-lock.json (npm install) so the lockfile contains the resolved expo-sqlite entry.",
+      "verification": "npm install completes without ETARGET; npm run typecheck and npm test green; trusted verification exit code 0."
+    },
+    {
+      "path": "app/index.tsx",
+      "problem": "Line 181 renders a bare '>' character inside JSX text (<Text ...>></Text>), which TypeScript rejects with TS1382 'Unexpected token. Did you mean `{'>'}` or `&gt;`?'. The typecheck gate fails, so the candidate cannot pass 'typecheck et tests verts'.",
+      "evidence": "Independent tsc --noEmit run: 'app/index.tsx(181,66): error TS1382: Unexpected token. Did you mean `{'>'}` or `&gt;`?'",
+      "mustFix": true,
+      "requiredFix": "Replace the bare '>' with {'>'} or &gt; in the chevron Text element.",
+      "verification": "npm run typecheck reports no errors for app/index.tsx."
+    },
+    {
+      "path": "app/(tabs)/add.tsx",
+      "problem": "Lines 80 and 91 pass variant=\"tabLabel\" to the Text component, but Text's Variant union ('screenTitle' | 'sectionTitle' | 'body' | 'bodyBold' | 'caption' | 'metric' | 'metricUnit' | 'balance') does not include 'tabLabel', producing TS2322. The typecheck gate fails.",
+      "evidence": "Independent tsc --noEmit run: 'app/(tabs)/add.tsx(80,13): error TS2322: Type \"tabLabel\" is not assignable to type Variant | undefined' (same at line 91). typography.tabLabel exists in theme.ts but Text.tsx does not expose it.",
+      "mustFix": true,
+      "requiredFix": "Add 'tabLabel' to the Variant union in src/ui/components/Text.tsx (or use an existing variant in add.tsx).",
+      "verification": "npm run typecheck reports no errors for app/(tabs)/add.tsx."
+    },
+    {
+      "path": "app.json",
+      "problem": "app.json references \"./assets/icon.png\" but the candidate contains no assets directory at all. expo prebuild --platform android fails with ENOENT ./assets/icon.png, blocking the Android native build path that the trusted verification pipeline requires for an Expo app.",
+      "evidence": "Independent run: 'npx expo prebuild --platform android --no-install' -> 'Error: [android.dangerous]: withAndroidDangerousBaseMod: ENOENT: no such file or directory, open ./assets/icon.png'. ls assets -> No such file or directory.",
+      "mustFix": true,
+      "requiredFix": "Add a real icon asset at assets/icon.png (and any other assets referenced by app.json, e.g. adaptive icon foreground if declared) so prebuild/export can resolve all configured images.",
+      "verification": "expo prebuild --platform android completes without ENOENT; expo export --platform android succeeds."
+    },
+    {
+      "path": "src/features/app/AppContext.tsx",
+      "problem": "The local-first foundation is not wired into the running app. AppContext instantiates only InMemoryRepositories; SqliteStorage (indexed schema) and SqliteRepositories are dead code never imported anywhere. All business data (users, households, memberships, members, contributions, tasks, todos, expenses, settlements) lives in in-memory Maps and is lost on app restart. The V3-02 acceptance 'données métier nombreuses dans un stockage local indexé plutôt que gros tableaux JSON' and the objective 'Le stockage métier devient local-first et indexé, de préférence via expo-sqlite' are not met by the delivered app.",
+      "evidence": "grep for SqliteRepositories/SqliteStorage across src/ and app/: matches only inside SqliteRepositories.ts and SqliteStorage.ts themselves. AppContext.tsx imports only InMemoryRepositories (lines 17-27) and builds reposRef from them (lines 89-99).",
+      "mustFix": true,
+      "requiredFix": "Wire the SqliteRepositories into AppContext (e.g. a repository factory that uses expo-sqlite on device with an in-memory fallback for tests), so business data is actually persisted in the indexed local store and survives restarts, while the UI keeps reading local state without any cloud dependency.",
+      "verification": "App restart retains created groups/entries; repository tests cover the SQLite-backed repositories; navigation renders from local storage with no network call."
+    },
+    {
+      "path": "app/index.tsx",
+      "problem": "The root Groups screen cannot open the selected group. openHousehold(id) ignores its argument and always pushes '/(tabs)', while currentHouseholdId is pinned to DEMO_HOUSEHOLD_ID at sign-in and only reassigned to loaded[0] when null. Tapping any group card therefore opens the demo household's data, and a newly created group can never be opened.",
+      "evidence": "app/index.tsx lines 39-41: 'const openHousehold = (id: string) => { router.push(`/(tabs)`); }'. AppContext signIn sets currentHouseholdId(DEMO_HOUSEHOLD_ID); loadHouseholds only sets it when null (lines 271-273).",
+      "mustFix": true,
+      "requiredFix": "Set currentHouseholdId to the tapped group's id before navigating (e.g. await setCurrentHouseholdId(id) then router.push('/(tabs)')), so the tabs render the selected group's data.",
+      "verification": "Tapping each group card in the root list opens that group's data in the tabs (verified via local repository contents)."
+    },
+    {
+      "path": ".",
+      "problem": "Trusted product verification failed",
+      "evidence": "Authoritative verification log: reports/audits/TRUSTED_35138202361.md (exit 1)",
+      "mustFix": true,
+      "requiredFix": "Resolve the concrete failing trusted check without discarding already-correct candidate work, then rerun the full gate.",
+      "verification": "Full trusted V3 verification must return exit code 0."
+    }
+  ],
   "factoryHealth": {
     "stalled": false,
     "consecutiveNoProgress": 0,
-    "lastProductSha": "9a278bb1028466c024a7b98dfd3f3762b9af042f",
+    "lastProductSha": "50762dc09fb478f3583c3b2f48ab7486be00b508",
     "reason": null
   }
 }
