@@ -9,12 +9,13 @@
  *   participants, equal/custom split, date, note, category.
  *
  * History: compact unified list directly below the form with
- *   cursor-based pagination. Mutations are optimistic and
- *   transactional in local SQLite; the local store is always
- *   the source of truth for the UI.
+ *   cursor-based pagination across both repos (separate cursors,
+ *   deterministic merge, no duplicates, no hard cap). Mutations are
+ *   optimistic and transactional in local SQLite; the local store is
+ *   always the source of truth for the UI.
  */
 
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   View,
   StyleSheet,
@@ -22,7 +23,6 @@ import {
   TouchableOpacity,
   ScrollView,
   Alert,
-  Platform,
 } from 'react-native';
 import { ScreenContainer } from '../../src/ui/components/ScreenContainer';
 import { Text } from '../../src/ui/components/Text';
@@ -38,8 +38,10 @@ import {
   ActivityEntry,
   ExpenseSplitMode,
   ExpenseParticipantShare,
+  PersistentTask,
 } from '../../src/domain/entities';
 import { paginateActivityLog, ActivityFilter } from '../../src/domain/calculations/activityLog';
+import { LocalSystemShareAdapter } from '../../src/infrastructure/local/LocalSystemShareAdapter';
 
 // ── Types ──────────────────────────────────────────────────────
 
@@ -73,7 +75,7 @@ const EXPENSE_CATEGORIES = [
   'Alimentation',
   'Transport',
   'Logement',
-  ' Loisirs',
+  'Loisirs',
   'Sante',
   'Autre',
 ];
@@ -100,6 +102,14 @@ function parseAmountToMinor(raw: string): number | null {
 
 function formatDateShort(iso: string): string {
   const d = new Date(iso);
+  const day = d.getDate().toString().padStart(2, '0');
+  const month = (d.getMonth() + 1).toString().padStart(2, '0');
+  const hours = d.getHours().toString().padStart(2, '0');
+  const minutes = d.getMinutes().toString().padStart(2, '0');
+  return `${day}/${month} ${hours}:${minutes}`;
+}
+
+function formatDateTimeShort(d: Date): string {
   const day = d.getDate().toString().padStart(2, '0');
   const month = (d.getMonth() + 1).toString().padStart(2, '0');
   const hours = d.getHours().toString().padStart(2, '0');
@@ -142,10 +152,17 @@ export default function AddScreen() {
   // History
   const [historyContributions, setHistoryContributions] = useState<ContributionEntry[]>([]);
   const [historyExpenses, setHistoryExpenses] = useState<ExpenseEntry[]>([]);
-  const [historyCursor, setHistoryCursor] = useState<string | null>(null);
+  const [historyContribCursor, setHistoryContribCursor] = useState<string | null>(null);
+  const [historyExpenseCursor, setHistoryExpenseCursor] = useState<string | null>(null);
+  const [historyContribExhausted, setHistoryContribExhausted] = useState(false);
+  const [historyExpenseExhausted, setHistoryExpenseExhausted] = useState(false);
   const [historyHasMore, setHistoryHasMore] = useState(false);
   const [historyFilter, setHistoryFilter] = useState<ActivityFilter>('all');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [persistentTasks, setPersistentTasks] = useState<PersistentTask[]>([]);
+
+  // Track whether initial load is done so filter effect doesn't double-fetch
+  const initialLoadDoneRef = useRef(false);
 
   // Edit state
   const [editingEntry, setEditingEntry] = useState<ActivityEntry | null>(null);
@@ -161,6 +178,10 @@ export default function AddScreen() {
     if (household) {
       setHouseholdUnit(household.contributionUnit);
     }
+
+    // Load persistent tasks for shortcuts
+    const tasks = await repos.tasks.getByHousehold(currentHouseholdId);
+    setPersistentTasks(tasks);
 
     // Set defaults for member selectors
     if (householdMembers.length > 0) {
@@ -183,23 +204,32 @@ export default function AddScreen() {
     }
   }, [currentHouseholdId, repos]);
 
-  // ── Load history ─────────────────────────────────────────
+  // ── Load history (per-repo cursors, deterministic merge) ────
 
   const loadHistory = useCallback(
-    async (cursorOverride?: string | null, filterOverride?: ActivityFilter) => {
+    async (loadMore: boolean = false) => {
       if (!currentHouseholdId) return;
-      const filter = filterOverride ?? historyFilter;
 
-      const contribResult = await repos.contributions.getByHouseholdPaginated(
-        currentHouseholdId,
-        { limit: PAGE_SIZE, cursor: cursorOverride ?? undefined }
-      );
-      const expenseResult = await repos.expenses.getByHouseholdPaginated(
-        currentHouseholdId,
-        { limit: PAGE_SIZE, cursor: cursorOverride ?? undefined }
-      );
+      // Skip repos that are already exhausted (cursor=null, hasMore=false)
+      const contribCursor = loadMore ? historyContribCursor : null;
+      const expenseCursor = loadMore ? historyExpenseCursor : null;
 
-      if (cursorOverride === undefined || cursorOverride === null) {
+      const contribResult =
+        loadMore && historyContribExhausted
+          ? { items: [], cursor: null, hasMore: false }
+          : await repos.contributions.getByHouseholdPaginated(
+              currentHouseholdId,
+              { limit: PAGE_SIZE, cursor: contribCursor ?? undefined }
+            );
+      const expenseResult =
+        loadMore && historyExpenseExhausted
+          ? { items: [], cursor: null, hasMore: false }
+          : await repos.expenses.getByHouseholdPaginated(
+              currentHouseholdId,
+              { limit: PAGE_SIZE, cursor: expenseCursor ?? undefined }
+            );
+
+      if (!loadMore) {
         // First page — replace
         setHistoryContributions(contribResult.items);
         setHistoryExpenses(expenseResult.items);
@@ -209,35 +239,48 @@ export default function AddScreen() {
         setHistoryExpenses((prev) => [...prev, ...expenseResult.items]);
       }
 
-      // Determine cursor/hasMore from the earlier (newer) of the two cursors
-      const cursors = [contribResult.cursor, expenseResult.cursor].filter(Boolean);
-      const nextCursor = cursors.length > 0
-        ? cursors.sort((a, b) => (b ?? '').localeCompare(a ?? ''))[0]
-        : null;
-      setHistoryCursor(nextCursor);
+      // Per-repo cursors: each advances independently
+      setHistoryContribCursor(contribResult.cursor);
+      setHistoryExpenseCursor(expenseResult.cursor);
+      setHistoryContribExhausted(contribResult.cursor === null && !contribResult.hasMore);
+      setHistoryExpenseExhausted(expenseResult.cursor === null && !expenseResult.hasMore);
       setHistoryHasMore(contribResult.hasMore || expenseResult.hasMore);
     },
-    [currentHouseholdId, repos, historyFilter]
+    [currentHouseholdId, repos, historyContribCursor, historyExpenseCursor, historyContribExhausted, historyExpenseExhausted]
   );
 
-  // ── Initial load ──────────────────────────────────────────
+  // ── Initial load (single effect, no redundant double-fetch) ──
 
   useEffect(() => {
-    loadHousehold();
-    loadHistory(null, 'all');
+    if (initialLoadDoneRef.current) return;
+    initialLoadDoneRef.current = true;
+
+    const load = async () => {
+      await loadHousehold();
+      await loadHistory(false);
+    };
+    load();
   }, [loadHousehold, loadHistory]);
 
-  // ── Filter change reloads ─────────────────────────────────
+  // ── Filter change reloads (after initial load only) ─────────
+
+  const prevFilterRef = useRef(historyFilter);
 
   useEffect(() => {
-    loadHistory(null, historyFilter);
-  }, [historyFilter, loadHistory]);
+    if (!initialLoadDoneRef.current) return;
+    if (prevFilterRef.current === historyFilter) return;
+    prevFilterRef.current = historyFilter;
+    // Filter is applied in useMemo below; no re-fetch needed
+  }, [historyFilter]);
 
-  // ── Merged + paginated activity entries ────────────────────
+  // ── Merged + paginated activity entries (no hard cap) ─────
+  // Repos already handle per-page limits; the merge step just
+  // combines, sorts by occurredAt DESC, and applies the type filter.
+  // We pass a large limit so all accumulated entries are shown.
 
   const activityEntries = useMemo(() => {
     const result = paginateActivityLog(historyContributions, historyExpenses, [], {
-      limit: PAGE_SIZE * 10, // already paginated from repos
+      limit: 10_000,
       filter: historyFilter,
     });
     return result.entries;
@@ -417,62 +460,66 @@ export default function AddScreen() {
   const submitEdit = async () => {
     if (!editingEntry) return;
 
-    if (editingEntry.type === 'contribution') {
-      const existing = editingEntry.entry as ContributionEntry;
-      const numericValue = parseFloat(cForm.value);
-      if (isNaN(numericValue) || numericValue <= 0) return;
+    try {
+      if (editingEntry.type === 'contribution') {
+        const existing = editingEntry.entry as ContributionEntry;
+        const numericValue = parseFloat(cForm.value);
+        if (isNaN(numericValue) || numericValue <= 0) return;
 
-      // Optimistic update
-      const updated = await repos.contributions.update(existing.id, {
-        label: cForm.label.trim(),
-        performedByMemberId: cForm.performedByMemberId,
-        beneficiaryMemberIds: cForm.beneficiaryMemberIds,
-        value: numericValue,
-        occurredAt: cForm.occurredAt.toISOString(),
-        modifiedBy: currentUser?.userId,
-      });
+        // Optimistic update
+        const updated = await repos.contributions.update(existing.id, {
+          label: cForm.label.trim(),
+          performedByMemberId: cForm.performedByMemberId,
+          beneficiaryMemberIds: cForm.beneficiaryMemberIds,
+          value: numericValue,
+          occurredAt: cForm.occurredAt.toISOString(),
+          modifiedBy: currentUser?.userId,
+        });
 
-      // Replace in local history
-      setHistoryContributions((prev) =>
-        prev.map((e) => (e.id === updated.id ? updated : e))
-      );
-    } else if (editingEntry.type === 'expense') {
-      const existing = editingEntry.entry as ExpenseEntry;
-      const amountMinor = parseAmountToMinor(eForm.amountRaw);
-      if (amountMinor === null) return;
+        // Replace in local history
+        setHistoryContributions((prev) =>
+          prev.map((e) => (e.id === updated.id ? updated : e))
+        );
+      } else if (editingEntry.type === 'expense') {
+        const existing = editingEntry.entry as ExpenseEntry;
+        const amountMinor = parseAmountToMinor(eForm.amountRaw);
+        if (amountMinor === null) return;
 
-      let customShares: ExpenseParticipantShare[] | undefined;
-      if (eForm.splitMode === 'custom') {
-        customShares = eForm.participantMemberIds.map((memberId) => ({
-          memberId,
-          amountMinor: parseAmountToMinor(eForm.customShares[memberId] || '0') || 0,
-        }));
+        let customShares: ExpenseParticipantShare[] | undefined;
+        if (eForm.splitMode === 'custom') {
+          customShares = eForm.participantMemberIds.map((memberId) => ({
+            memberId,
+            amountMinor: parseAmountToMinor(eForm.customShares[memberId] || '0') || 0,
+          }));
+        }
+
+        const updated = await repos.expenses.update(existing.id, {
+          title: eForm.title.trim(),
+          amountMinor,
+          currency: eForm.currency.toUpperCase(),
+          paidByMemberId: eForm.paidByMemberId,
+          participantMemberIds: eForm.participantMemberIds,
+          splitMode: eForm.splitMode,
+          customShares,
+          note: eForm.note.trim() || undefined,
+          category: eForm.category || undefined,
+          occurredAt: eForm.occurredAt.toISOString(),
+          modifiedBy: currentUser?.userId,
+        });
+
+        setHistoryExpenses((prev) =>
+          prev.map((e) => (e.id === updated.id ? updated : e))
+        );
       }
 
-      const updated = await repos.expenses.update(existing.id, {
-        title: eForm.title.trim(),
-        amountMinor,
-        currency: eForm.currency.toUpperCase(),
-        paidByMemberId: eForm.paidByMemberId,
-        participantMemberIds: eForm.participantMemberIds,
-        splitMode: eForm.splitMode,
-        customShares,
-        note: eForm.note.trim() || undefined,
-        category: eForm.category || undefined,
-        occurredAt: eForm.occurredAt.toISOString(),
-        modifiedBy: currentUser?.userId,
-      });
-
-      setHistoryExpenses((prev) =>
-        prev.map((e) => (e.id === updated.id ? updated : e))
-      );
+      setEditingEntry(null);
+      cancelEdit();
+    } catch {
+      Alert.alert('Erreur', 'Impossible de modifier cette entree.');
     }
-
-    setEditingEntry(null);
-    cancelEdit();
   };
 
-  // ── Delete entry ─────────────────────────────────────────
+  // ── Delete entry (with error handling) ─────────────────────
 
   const handleDelete = (entry: ActivityEntry) => {
     Alert.alert('Supprimer', 'Supprimer cette entree ?', [
@@ -481,20 +528,41 @@ export default function AddScreen() {
         text: 'Supprimer',
         style: 'destructive',
         onPress: async () => {
-          if (entry.type === 'contribution') {
-            await repos.contributions.delete(entry.entry.id);
-            setHistoryContributions((prev) =>
-              prev.filter((e) => e.id !== entry.entry.id)
-            );
-          } else if (entry.type === 'expense') {
-            await repos.expenses.delete(entry.entry.id);
-            setHistoryExpenses((prev) =>
-              prev.filter((e) => e.id !== entry.entry.id)
-            );
+          try {
+            if (entry.type === 'contribution') {
+              await repos.contributions.delete(entry.entry.id);
+              setHistoryContributions((prev) =>
+                prev.filter((e) => e.id !== entry.entry.id)
+              );
+            } else if (entry.type === 'expense') {
+              await repos.expenses.delete(entry.entry.id);
+              setHistoryExpenses((prev) =>
+                prev.filter((e) => e.id !== entry.entry.id)
+              );
+            }
+          } catch {
+            Alert.alert('Erreur', 'Impossible de supprimer cette entree.');
           }
         },
       },
     ]);
+  };
+
+  // ── Share entry ───────────────────────────────────────────
+
+  const handleShare = async (entry: ActivityEntry) => {
+    let message = '';
+    if (entry.type === 'contribution') {
+      const e = entry.entry as ContributionEntry;
+      message = `${e.label} - ${e.value} ${householdUnit === 'minutes' ? 'min' : 'pts'} par ${memberName(e.performedByMemberId)} (${formatDateShort(e.occurredAt)})`;
+    } else if (entry.type === 'expense') {
+      const e = entry.entry as ExpenseEntry;
+      message = `${e.title} - ${formatAmountMinor(e.amountMinor, e.currency)} paye par ${memberName(e.paidByMemberId)} (${formatDateShort(e.occurredAt)})`;
+    }
+    if (message) {
+      const shareAdapter = new LocalSystemShareAdapter();
+      await shareAdapter.share({ message });
+    }
   };
 
   // ── Toggle member in beneficiary/participant list ─────────
@@ -574,6 +642,53 @@ export default function AddScreen() {
             />
           </View>
 
+          {/* PersistentTask shortcuts */}
+          {persistentTasks.length > 0 && (
+            <View style={styles.inputGroup}>
+              <Text variant="caption">Raccourcis</Text>
+              <View style={styles.memberRow}>
+                {persistentTasks.map((pt) => (
+                  <TouchableOpacity
+                    key={pt.id}
+                    style={[
+                      styles.memberChip,
+                      cForm.persistentTaskId === pt.id && styles.memberChipActive,
+                    ]}
+                    onPress={() => {
+                      if (cForm.persistentTaskId === pt.id) {
+                        // Deselect: clear persistentTaskId
+                        setCForm((p) => ({ ...p, persistentTaskId: null }));
+                      } else {
+                        // Select: prefill label, value, and beneficiaries
+                        setCForm((p) => ({
+                          ...p,
+                          persistentTaskId: pt.id,
+                          label: pt.name,
+                          value: pt.defaultValue.toString(),
+                          beneficiaryMemberIds:
+                            pt.defaultBeneficiaryMemberIds && pt.defaultBeneficiaryMemberIds.length > 0
+                              ? pt.defaultBeneficiaryMemberIds
+                              : p.beneficiaryMemberIds,
+                        }));
+                      }
+                    }}
+                  >
+                    <Text
+                      variant="caption"
+                      color={
+                        cForm.persistentTaskId === pt.id
+                          ? colors.textOnPrimary
+                          : colors.textSecondary
+                      }
+                    >
+                      {pt.name}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </View>
+          )}
+
           <View style={styles.inputGroup}>
             <Text variant="caption">Valeur ({unitLabel})</Text>
             <TextInput
@@ -636,6 +751,30 @@ export default function AddScreen() {
                 );
               })}
             </View>
+          </View>
+
+          {/* Date / Heure */}
+          <View style={styles.inputGroup}>
+            <Text variant="caption">Date / Heure</Text>
+            <TouchableOpacity
+              style={styles.dateTimeButton}
+              onPress={() => {
+                Alert.alert(
+                  'Date / Heure',
+                  formatDateTimeShort(cForm.occurredAt),
+                  [
+                    { text: 'Maintenant', onPress: () => setCForm((p) => ({ ...p, occurredAt: new Date() })) },
+                    { text: 'Il y a 1h', onPress: () => setCForm((p) => ({ ...p, occurredAt: new Date(Date.now() - 3600000) })) },
+                    { text: 'Hier', onPress: () => {
+                      const d = new Date(); d.setDate(d.getDate() - 1); setCForm((p) => ({ ...p, occurredAt: d }));
+                    }},
+                    { text: 'Annuler', style: 'cancel' },
+                  ]
+                );
+              }}
+            >
+              <Text variant="body">{formatDateTimeShort(cForm.occurredAt)}</Text>
+            </TouchableOpacity>
           </View>
 
           <Button
@@ -854,6 +993,44 @@ export default function AddScreen() {
             />
           </View>
 
+          {/* Date / Heure */}
+          <View style={styles.inputGroup}>
+            <Text variant="caption">Date / Heure</Text>
+            <TouchableOpacity
+              style={styles.dateTimeButton}
+              onPress={() => {
+                Alert.alert(
+                  'Date / Heure',
+                  formatDateTimeShort(eForm.occurredAt),
+                  [
+                    { text: 'Maintenant', onPress: () => setEForm((p) => ({ ...p, occurredAt: new Date() })) },
+                    { text: 'Il y a 1h', onPress: () => setEForm((p) => ({ ...p, occurredAt: new Date(Date.now() - 3600000) })) },
+                    { text: 'Hier', onPress: () => {
+                      const d = new Date(); d.setDate(d.getDate() - 1); setEForm((p) => ({ ...p, occurredAt: d }));
+                    }},
+                    { text: 'Annuler', style: 'cancel' },
+                  ]
+                );
+              }}
+            >
+              <Text variant="body">{formatDateTimeShort(eForm.occurredAt)}</Text>
+            </TouchableOpacity>
+          </View>
+
+          {/* Custom split sum validation */}
+          {eForm.splitMode === 'custom' && (() => {
+            const totalShares = eForm.participantMemberIds.reduce((sum, mid) => {
+              return sum + (parseAmountToMinor(eForm.customShares[mid] || '0') || 0);
+            }, 0);
+            const totalAmount = parseAmountToMinor(eForm.amountRaw) || 0;
+            const isValid = totalAmount === 0 || totalShares === totalAmount;
+            return !isValid ? (
+              <Text variant="caption" color={colors.balanceNegative} style={{ marginBottom: spacing.sm }}>
+                Total parts ({(totalShares / 100).toFixed(2)}) != montant ({(totalAmount / 100).toFixed(2)})
+              </Text>
+            ) : null;
+          })()}
+
           <Button
             title={editingEntry ? 'Mettre a jour' : 'Ajouter depense'}
             variant="primary"
@@ -936,6 +1113,14 @@ export default function AddScreen() {
                   </Text>
                 </TouchableOpacity>
                 <TouchableOpacity
+                  onPress={() => handleShare(entry)}
+                  style={styles.actionButton}
+                >
+                  <Text variant="caption" color={colors.textSecondary}>
+                    Share
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
                   onPress={() => handleDelete(entry)}
                   style={styles.actionButton}
                 >
@@ -952,7 +1137,7 @@ export default function AddScreen() {
           <Button
             title="Charger plus"
             variant="secondary"
-            onPress={() => loadHistory(historyCursor)}
+            onPress={() => loadHistory(true)}
             style={styles.loadMoreButton}
           />
         )}
@@ -1072,6 +1257,14 @@ const styles = StyleSheet.create({
   },
   submitButton: {
     marginTop: spacing.sm,
+  },
+  dateTimeButton: {
+    backgroundColor: colors.background,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: borderRadius.sm,
+    padding: spacing.md,
+    marginTop: spacing.xs,
   },
   historySection: {
     marginTop: spacing.md,
