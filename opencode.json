@@ -5,7 +5,7 @@
   "enabled_providers": ["opencode"],
   "share": "disabled",
   "autoupdate": false,
-  "instructions": ["MAIN_PROMPT.md", "AGENTS.md", "docs/agent-workflow.md"],
+  "instructions": ["MAIN_PROMPT.md", "AGENTS.md", "docs/V3_CONSTITUTION.md", "docs/V3_BACKEND_FRUGAL.md", "docs/agent-workflow.md"],
   "permission": {
     "*": "deny",
     "read": {"*":"allow", ".env":"deny", ".env.*":"deny", "**/.env":"deny", "**/.env.*":"deny", "**/*.key":"deny", "**/*.pem":"deny", "**/*.p8":"deny", "**/*.p12":"deny", "**/*.jks":"deny", "**/*.keystore":"deny", "**/*service-account*.json":"deny"},

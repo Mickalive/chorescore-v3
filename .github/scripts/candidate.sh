@@ -13,7 +13,7 @@ fi
 git fetch --depth=1 v2-reference lab/chorescore-v2:refs/remotes/v2-reference/lab/chorescore-v2
 
 set +e
-OPENCODE_RETRY_LABEL=builder bash .github/scripts/run-ox.sh opencode run --model "${OX_MODEL:?}" --agent v3-builder "Build ChoreScore V3 factory cycle $cycle. Active criterion: $criterion. Objective: $objective. Acceptance: $acceptance. Start from the existing accepted V3 baseline; repair or extend it, never rebuild coherent accepted work. The read-only V2 reference is v2-reference/lab/chorescore-v2 and may be inspected with git show when useful. Read every canonical file first and finish one coherent tested tranche."
+OPENCODE_RETRY_LABEL=builder bash .github/scripts/run-ox.sh opencode run --model "${OX_MODEL:?}" --agent v3-builder "Build ChoreScore V3 factory cycle $cycle. Active criterion: $criterion. Objective: $objective. Acceptance: $acceptance. Start from the existing accepted V3 baseline; repair or extend it, never rebuild coherent accepted work. The read-only V2 reference is v2-reference/lab/chorescore-v2 and may be inspected with git show when useful. Read every canonical file first, including docs/V3_BACKEND_FRUGAL.md, and finish one coherent tested tranche."
 agent_rc=$?
 set -e
 
@@ -23,13 +23,16 @@ bash .github/scripts/verify-product.sh candidate > >(tee "$verify_log") 2>&1
 verify_rc=$?
 set -e
 
+# Dependency/build artefacts are verification side effects, never product delta.
+rm -rf node_modules .expo .expo-shared coverage dist android/.gradle android/app/build android/build ios/Pods ios/build 2>/dev/null || true
+
 git add -A
 mapfile -d '' changed < <(git diff --cached --name-only -z HEAD)
 count=${#changed[@]}
 (( count <= 160 )) || { echo "::error::Candidate changed $count files"; exit 4; }
 for p in "${changed[@]}"; do
   case "$p" in
-    MAIN_PROMPT.md|AGENTS.md|governance/*|directives/*|docs/V3_CONSTITUTION.md|docs/V2_TO_V3_MIGRATION.md|docs/ROADMAP.md|docs/RELEASE_STATUS.json|docs/NEXT_CYCLE.md|docs/agent-workflow.md|.github/*|.opencode/*|opencode.json|reports/*)
+    MAIN_PROMPT.md|AGENTS.md|.gitignore|governance/*|directives/*|docs/V3_CONSTITUTION.md|docs/V3_BACKEND_FRUGAL.md|docs/V2_TO_V3_MIGRATION.md|docs/ROADMAP.md|docs/RELEASE_STATUS.json|docs/NEXT_CYCLE.md|docs/agent-workflow.md|.github/*|.opencode/*|opencode.json|reports/*)
       echo "::error::Builder changed protected path $p"; exit 5;;
   esac
 done

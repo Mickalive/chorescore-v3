@@ -9,9 +9,11 @@ on:
     paths:
       - 'MAIN_PROMPT.md'
       - 'AGENTS.md'
+      - '.gitignore'
       - 'governance/**'
       - 'directives/**'
       - 'docs/V3_CONSTITUTION.md'
+      - 'docs/V3_BACKEND_FRUGAL.md'
       - 'docs/V2_TO_V3_MIGRATION.md'
       - 'docs/ROADMAP.md'
       - 'docs/agent-workflow.md'
