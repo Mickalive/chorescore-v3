@@ -28,6 +28,8 @@ import {
   TodoRepository,
   ExpenseEntryRepository,
   SettlementRepository,
+  PaginatedResult,
+  PaginatedQuery,
 } from './index';
 import { getDatabase, parseJsonArray, toJsonArray } from '../local/SqliteStorage';
 
@@ -374,6 +376,34 @@ export class SqliteContributionEntryRepository implements ContributionEntryRepos
       [householdId]
     );
     return rows.map(contributionFromRow);
+  }
+
+  async getByHouseholdPaginated(householdId: string, query: PaginatedQuery = {}): Promise<PaginatedResult<ContributionEntry>> {
+    const limit = query.limit ?? 20;
+    const db = await getDatabase();
+
+    let sql = 'SELECT * FROM contribution_entries WHERE householdId = ?';
+    const params: (string | number)[] = [householdId];
+
+    if (query.after) {
+      sql += ' AND occurredAt >= ?';
+      params.push(query.after);
+    }
+
+    if (query.cursor) {
+      sql += ' AND occurredAt < ?';
+      params.push(query.cursor);
+    }
+
+    sql += ' ORDER BY occurredAt DESC LIMIT ?';
+    params.push(limit + 1); // fetch one extra to detect hasMore
+
+    const rows = await db.getAllAsync<ContributionEntryRow>(sql, params);
+    const hasMore = rows.length > limit;
+    const items = rows.slice(0, limit).map(contributionFromRow);
+    const cursor = hasMore && items.length > 0 ? items[items.length - 1].occurredAt : null;
+
+    return { items, cursor, hasMore };
   }
 
   async getById(id: string): Promise<ContributionEntry | null> {
@@ -728,6 +758,34 @@ export class SqliteExpenseEntryRepository implements ExpenseEntryRepository {
     return rows.map(expenseFromRow);
   }
 
+  async getByHouseholdPaginated(householdId: string, query: PaginatedQuery = {}): Promise<PaginatedResult<ExpenseEntry>> {
+    const limit = query.limit ?? 20;
+    const db = await getDatabase();
+
+    let sql = 'SELECT * FROM expense_entries WHERE householdId = ?';
+    const params: (string | number)[] = [householdId];
+
+    if (query.after) {
+      sql += ' AND occurredAt >= ?';
+      params.push(query.after);
+    }
+
+    if (query.cursor) {
+      sql += ' AND occurredAt < ?';
+      params.push(query.cursor);
+    }
+
+    sql += ' ORDER BY occurredAt DESC LIMIT ?';
+    params.push(limit + 1);
+
+    const rows = await db.getAllAsync<ExpenseEntryRow>(sql, params);
+    const hasMore = rows.length > limit;
+    const items = rows.slice(0, limit).map(expenseFromRow);
+    const cursor = hasMore && items.length > 0 ? items[items.length - 1].occurredAt : null;
+
+    return { items, cursor, hasMore };
+  }
+
   async getById(id: string): Promise<ExpenseEntry | null> {
     const db = await getDatabase();
     const row = await db.getFirstAsync<ExpenseEntryRow>(
@@ -865,6 +923,34 @@ export class SqliteSettlementRepository implements SettlementRepository {
       [householdId]
     );
     return rows.map(settlementFromRow);
+  }
+
+  async getByHouseholdPaginated(householdId: string, query: PaginatedQuery = {}): Promise<PaginatedResult<CrossLedgerSettlement>> {
+    const limit = query.limit ?? 20;
+    const db = await getDatabase();
+
+    let sql = 'SELECT * FROM settlements WHERE householdId = ?';
+    const params: (string | number)[] = [householdId];
+
+    if (query.after) {
+      sql += ' AND occurredAt >= ?';
+      params.push(query.after);
+    }
+
+    if (query.cursor) {
+      sql += ' AND occurredAt < ?';
+      params.push(query.cursor);
+    }
+
+    sql += ' ORDER BY occurredAt DESC LIMIT ?';
+    params.push(limit + 1);
+
+    const rows = await db.getAllAsync<SettlementRow>(sql, params);
+    const hasMore = rows.length > limit;
+    const items = rows.slice(0, limit).map(settlementFromRow);
+    const cursor = hasMore && items.length > 0 ? items[items.length - 1].occurredAt : null;
+
+    return { items, cursor, hasMore };
   }
 
   async getById(id: string): Promise<CrossLedgerSettlement | null> {

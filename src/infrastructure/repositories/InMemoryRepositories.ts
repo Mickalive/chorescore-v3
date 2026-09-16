@@ -26,6 +26,8 @@ import {
   TodoRepository,
   ExpenseEntryRepository,
   SettlementRepository,
+  PaginatedResult,
+  PaginatedQuery,
 } from './index';
 
 let idCounter = 0;
@@ -197,6 +199,35 @@ export class InMemoryContributionEntryRepository implements ContributionEntryRep
     return Array.from(this.items.values()).filter((e) => e.householdId === householdId);
   }
 
+  async getByHouseholdPaginated(householdId: string, query: PaginatedQuery = {}): Promise<PaginatedResult<ContributionEntry>> {
+    const limit = query.limit ?? 20;
+    let items = Array.from(this.items.values())
+      .filter((e) => e.householdId === householdId);
+
+    // Apply after filter (inclusive)
+    if (query.after) {
+      items = items.filter((e) => e.occurredAt >= query.after!);
+    }
+
+    // Sort by occurredAt DESC
+    items.sort((a, b) => b.occurredAt.localeCompare(a.occurredAt));
+
+    // Apply cursor (exclusive — skip entries with occurredAt >= cursor)
+    let start = 0;
+    if (query.cursor) {
+      start = items.findIndex((e) => e.occurredAt < query.cursor!);
+      if (start === -1) {
+        return { items: [], cursor: null, hasMore: false };
+      }
+    }
+
+    const page = items.slice(start, start + limit);
+    const nextCursor = page.length === limit ? page[page.length - 1].occurredAt : null;
+    const hasMore = page.length === limit && start + limit < items.length;
+
+    return { items: page, cursor: nextCursor, hasMore };
+  }
+
   async getById(id: string): Promise<ContributionEntry | null> {
     return this.items.get(id) ?? null;
   }
@@ -308,6 +339,32 @@ export class InMemoryExpenseEntryRepository implements ExpenseEntryRepository {
     return Array.from(this.items.values()).filter((e) => e.householdId === householdId);
   }
 
+  async getByHouseholdPaginated(householdId: string, query: PaginatedQuery = {}): Promise<PaginatedResult<ExpenseEntry>> {
+    const limit = query.limit ?? 20;
+    let items = Array.from(this.items.values())
+      .filter((e) => e.householdId === householdId);
+
+    if (query.after) {
+      items = items.filter((e) => e.occurredAt >= query.after!);
+    }
+
+    items.sort((a, b) => b.occurredAt.localeCompare(a.occurredAt));
+
+    let start = 0;
+    if (query.cursor) {
+      start = items.findIndex((e) => e.occurredAt < query.cursor!);
+      if (start === -1) {
+        return { items: [], cursor: null, hasMore: false };
+      }
+    }
+
+    const page = items.slice(start, start + limit);
+    const nextCursor = page.length === limit ? page[page.length - 1].occurredAt : null;
+    const hasMore = page.length === limit && start + limit < items.length;
+
+    return { items: page, cursor: nextCursor, hasMore };
+  }
+
   async getById(id: string): Promise<ExpenseEntry | null> {
     return this.items.get(id) ?? null;
   }
@@ -345,6 +402,32 @@ export class InMemorySettlementRepository implements SettlementRepository {
 
   async getByHousehold(householdId: string): Promise<CrossLedgerSettlement[]> {
     return Array.from(this.items.values()).filter((s) => s.householdId === householdId);
+  }
+
+  async getByHouseholdPaginated(householdId: string, query: PaginatedQuery = {}): Promise<PaginatedResult<CrossLedgerSettlement>> {
+    const limit = query.limit ?? 20;
+    let items = Array.from(this.items.values())
+      .filter((s) => s.householdId === householdId);
+
+    if (query.after) {
+      items = items.filter((s) => s.occurredAt >= query.after!);
+    }
+
+    items.sort((a, b) => b.occurredAt.localeCompare(a.occurredAt));
+
+    let start = 0;
+    if (query.cursor) {
+      start = items.findIndex((s) => s.occurredAt < query.cursor!);
+      if (start === -1) {
+        return { items: [], cursor: null, hasMore: false };
+      }
+    }
+
+    const page = items.slice(start, start + limit);
+    const nextCursor = page.length === limit ? page[page.length - 1].occurredAt : null;
+    const hasMore = page.length === limit && start + limit < items.length;
+
+    return { items: page, cursor: nextCursor, hasMore };
   }
 
   async getById(id: string): Promise<CrossLedgerSettlement | null> {

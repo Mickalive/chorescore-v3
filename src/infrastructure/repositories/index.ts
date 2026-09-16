@@ -58,8 +58,24 @@ export interface MemberRepository extends SeedableRepository<Member> {
   create(data: Omit<Member, 'id' | 'joinedAt'>): Promise<Member>;
 }
 
+export interface PaginatedResult<T> {
+  items: T[];
+  /** Cursor: the occurredAt of the last item in this page, or null if no more. */
+  cursor: string | null;
+  hasMore: boolean;
+}
+
+export interface PaginatedQuery {
+  limit?: number;
+  /** Exclusive cursor — fetch items with occurredAt < cursor. */
+  cursor?: string | null;
+  /** Only include entries at or after this timestamp (inclusive). */
+  after?: string;
+}
+
 export interface ContributionEntryRepository extends SeedableRepository<ContributionEntry> {
   getByHousehold(householdId: string): Promise<ContributionEntry[]>;
+  getByHouseholdPaginated(householdId: string, query?: PaginatedQuery): Promise<PaginatedResult<ContributionEntry>>;
   getById(id: string): Promise<ContributionEntry | null>;
   create(entry: Omit<ContributionEntry, 'id'>): Promise<ContributionEntry>;
   update(id: string, data: Partial<ContributionEntry>): Promise<ContributionEntry>;
@@ -83,6 +99,7 @@ export interface TodoRepository extends SeedableRepository<TodoItem> {
 
 export interface ExpenseEntryRepository extends SeedableRepository<ExpenseEntry> {
   getByHousehold(householdId: string): Promise<ExpenseEntry[]>;
+  getByHouseholdPaginated(householdId: string, query?: PaginatedQuery): Promise<PaginatedResult<ExpenseEntry>>;
   getById(id: string): Promise<ExpenseEntry | null>;
   create(entry: Omit<ExpenseEntry, 'id'>): Promise<ExpenseEntry>;
   update(id: string, data: Partial<ExpenseEntry>): Promise<ExpenseEntry>;
@@ -91,6 +108,7 @@ export interface ExpenseEntryRepository extends SeedableRepository<ExpenseEntry>
 
 export interface SettlementRepository extends SeedableRepository<CrossLedgerSettlement> {
   getByHousehold(householdId: string): Promise<CrossLedgerSettlement[]>;
+  getByHouseholdPaginated(householdId: string, query?: PaginatedQuery): Promise<PaginatedResult<CrossLedgerSettlement>>;
   getById(id: string): Promise<CrossLedgerSettlement | null>;
   create(settlement: Omit<CrossLedgerSettlement, 'id'>): Promise<CrossLedgerSettlement>;
   delete(id: string): Promise<void>;

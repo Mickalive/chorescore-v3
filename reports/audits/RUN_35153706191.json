@@ -1,0 +1,70 @@
+{
+  "schemaVersion": 1,
+  "cycle": "35153706191",
+  "role": "builder",
+  "decision": "repair",
+  "summary": "V3-03 candidate implements the Contribution|Dépense switch, unified filterable history, optimistic local mutations, cursor-paginated repositories and replay-safe edit/delete with green tests (122) and trusted verification exit 0 (typecheck, jest, Expo export, Android prebuild + native debug build). Two must-fix findings remain: (1) the unified history pagination in app/(tabs)/add.tsx is incorrect — the two-repo cursor logic re-fetches already-shown entries (duplicates, verified by simulation) and the merged view is hard-capped at PAGE_SIZE*10=150 entries so older loaded history is unreachable while 'Charger plus' keeps appearing; (2) the contribution form does not conserve PersistentTask shortcuts, date/heure selection or the share action required by constitution §5A and the V3-03 outcome (persistentTaskId is always null, occurredAt is always now, history actions are Edit/Suppr only). Minor findings: ' Loisirs' leading-space category label, redundant double-fetch on mount/filter change, and no inline custom-split validation. Decision: repair — coherent WIP baseline preserved.",
+  "checks": [
+    "trusted_verification_exit_0",
+    "typecheck_pass",
+    "tests_122_pass",
+    "expo_export_android_ok",
+    "android_prebuild_ok",
+    "native_debug_build_successful",
+    "switch_Contribution_Depense_present",
+    "contribution_minutes_points_no_chrono",
+    "expense_equal_custom_split_domain_validated",
+    "history_compact_mixed_filterable_Tout_Contrib_Depenses",
+    "edit_delete_replay_zero_sum_tested",
+    "expenses_only_and_contribution_only_forms_independent",
+    "local_optimistic_write_before_network_roundtrip",
+    "cursor_paginated_repositories_contributions_expenses_settlements",
+    "sqlite_indexes_household_occurredAt_present",
+    "V3-01_domain_untouched_zero_sum_invariants_green",
+    "V3-02_three_tabs_design_system_local_first_preserved",
+    "no_premium_paywall_chrono_reintroduced",
+    "no_firebase_in_domain"
+  ],
+  "findings": [
+    {
+      "path": "app/(tabs)/add.tsx (loadHistory + activityEntries merge)",
+      "problem": "Unified history pagination is incorrect. loadHistory fetches contributions and expenses with the same cursor then advances the cursor to the NEWER of the two repo cursors; the stream with the older cursor re-fetches entries already shown on the previous page, producing duplicate rows in the merged history whenever both ledgers are active and both have more than PAGE_SIZE entries. Additionally, the merged view is hard-capped at PAGE_SIZE*10=150 entries (paginateActivityLog limit), so after loading more pages the view still shows only the 150 newest entries: older loaded history is unreachable while 'Charger plus' keeps appearing. This breaks the acceptance criteria 'historique compact mixte et filtrable' and 'historique ancien paginé/cursor-based sans full download'.",
+      "evidence": "Simulation of the exact loadHistory logic with 20 interleaved contributions + 20 expenses (PAGE_SIZE=15): page 2 re-fetches c5 already shown in page 1 (merged count 41, unique 40, duplicate c5). Simulation of the merge cap: 600 loaded entries -> view shows 150, oldest visible c225, hasMore still true. The pagination tests only cover single-repo pagination and the pure paginateActivityLog function; the two-repo merged cursor path used by the screen is untested.",
+      "mustFix": true,
+      "requiredFix": "Implement a single merged cursor-based pagination across the unified stream (e.g., page by occurredAt over both repos with one cursor and dedupe/merge deterministically, or fetch per-type pages keyed to the merged cursor), remove the hard 150-entry cap so every loaded page is visible, and add tests covering the two-repo merged pagination path (no duplicates, no skipped entries, older pages reachable).",
+      "verification": "Add a test that seeds >PAGE_SIZE interleaved contributions and expenses, loads 3+ pages through the screen's loadHistory logic, and asserts the merged list has no duplicate ids, no gaps, and that the oldest loaded entry is visible; re-run npm run check."
+    },
+    {
+      "path": "app/(tabs)/add.tsx (contribution form)",
+      "problem": "The contribution form does not conserve PersistentTask shortcuts, date/heure selection or the share action required by constitution §5A ('Conserver: libellé libre; PersistentTask / raccourcis de tâches; Fait par; Fait pour; date/heure; modification; suppression; partage') and by the V3-03 outcome ('Contribution conserve saisie libre, PersistentTask, Fait par/Fait pour, date, édition/suppression/partage sans chrono'). persistentTaskId is always null (no PersistentTask UI, even though the demo fixture seeds a 'Vaisselle' PersistentTask), occurredAt is always todayLocal() (no date picker), and history actions expose only Edit/Suppr (no share).",
+      "evidence": "add.tsx: cForm.persistentTaskId initialized null and never set by any UI control; occurredAt initialized todayLocal() and never changed by any control; historyActions renders only 'Edit' and 'Suppr' TouchableOpacity. demoFixture.ts seeds a PersistentTask 'Vaisselle' (line 80-90) that the Add screen never surfaces. NEXT_CYCLE.md objective 1 lists 'free label + PersistentTask + Fait par / Fait pour + date + edit/delete/share'.",
+      "mustFix": true,
+      "requiredFix": "Add PersistentTask shortcuts to the contribution form (prefill label/value/beneficiaries from the selected PersistentTask), a date/heure selector for occurredAt, and a share action for entries (via the existing share port, honest adapter), keeping the form compact and chrono-free.",
+      "verification": "Manual/reference-scenario check that a PersistentTask can be selected and prefills the form, that occurredAt can be changed and is persisted, and that a share action is present and wired to the share port; keep npm run check green."
+    },
+    {
+      "path": "app/(tabs)/add.tsx (EXPENSE_CATEGORIES)",
+      "problem": "Category list contains ' Loisirs' with a leading space, so the rendered category chip and stored category value display a stray leading space.",
+      "evidence": "add.tsx line 76: ' Loisirs' (leading space) inside EXPENSE_CATEGORIES; the chip renders eForm.category === cat comparison and label directly.",
+      "mustFix": false,
+      "requiredFix": "Remove the leading space: 'Loisirs'.",
+      "verification": "Grep EXPENSE_CATEGORIES for entries with leading whitespace; visual check of the category chips."
+    },
+    {
+      "path": "app/(tabs)/add.tsx (effects + loadHistory)",
+      "problem": "Redundant bounded fetches: on mount and on every filter change, two effects both call loadHistory (4 paginated queries instead of 2), and loadHistory always fetches both contribution and expense streams regardless of the active filter. Bounded (2x15 per stream) but wasteful and contrary to the frugal doctrine.",
+      "evidence": "useEffect at lines 225-228 calls loadHistory(null,'all') and the effect at 232-234 calls loadHistory(null, historyFilter) on the same render; loadHistory (lines 188-221) always queries both repos and only the merge applies the filter.",
+      "mustFix": false,
+      "requiredFix": "Deduplicate the mount/filter-change loads (single effect keyed on historyFilter) and skip fetching the stream excluded by the filter when the filter is 'contribution' or 'expense'.",
+      "verification": "Instrument repository call counts in a test or dev log: opening the tab issues 2 paginated queries, a filter change issues 2, not 4."
+    },
+    {
+      "path": "app/(tabs)/add.tsx (submitExpense/submitEdit/handleDelete)",
+      "problem": "Custom split is not pre-validated in the UI: a sum mismatch is only caught by the domain throw and surfaced as a generic Alert, and submitEdit/handleDelete have no try/catch so a failed update/delete becomes an unhandled promise rejection.",
+      "evidence": "submitExpense builds customShares with parseAmountToMinor(...)||0 without checking the total against amountMinor; expenseLedger.ts throws 'custom split totals X, expected Y'; submitEdit (lines 417-473) and handleDelete (lines 477-498) contain no error handling.",
+      "mustFix": false,
+      "requiredFix": "Validate custom shares sum == amountMinor before submit with inline feedback, and wrap edit/delete in try/catch with a user-facing error.",
+      "verification": "Enter custom shares that do not sum to the amount: the form shows an inline error and no write occurs; simulate a failing delete and confirm an Alert instead of an unhandled rejection."
+    }
+  ]
+}
