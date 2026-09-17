@@ -32,7 +32,7 @@ import { Text } from '../../src/ui/components/Text';
 import { Card } from '../../src/ui/components/Card';
 import { Button } from '../../src/ui/components/Button';
 import { colors, spacing, borderRadius } from '../../src/ui/design-system/theme';
-import { useApp } from '../../src/features/app/AppContext';
+import { useApp, DataChangeType } from '../../src/features/app/AppContext';
 import {
   ContributionEntry,
   ContributionUnit,
@@ -220,7 +220,7 @@ export default function BalancesScreen() {
   settlementsRef.current = settlements;
 
   const handleDataChange = useCallback(async (
-    type: 'contribution' | 'expense' | 'settlement' | 'household' | 'member',
+    type: DataChangeType,
     hhId: string,
   ) => {
     if (!currentHouseholdId || hhId !== currentHouseholdId) return;

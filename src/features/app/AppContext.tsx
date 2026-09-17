@@ -36,7 +36,7 @@ import {
 } from './demoFixture';
 
 /** Types of data-change events that screens can emit. */
-export type DataChangeType = 'contribution' | 'expense' | 'settlement' | 'household' | 'member';
+export type DataChangeType = 'contribution' | 'expense' | 'settlement' | 'household' | 'member' | 'todo';
 
 /** Callback signature for data-change subscribers. */
 export type DataChangeCallback = (type: DataChangeType, householdId: string) => void;
@@ -67,6 +67,8 @@ interface AppState {
   // Services
   services: {
     share: LocalSystemShareAdapter;
+    notifications: LocalNotificationAdapter;
+    calendar: LocalCalendarAdapter;
   };
 }
 
@@ -239,6 +241,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     subscribeToDataChanges,
     services: {
       share: servicesRef.current.share,
+      notifications: servicesRef.current.notifications,
+      calendar: servicesRef.current.calendar,
     },
   };
 
