@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "cycle": "35182865593",
+  "decision": "continue",
+  "reason": "V3-04 accepted. Both must-fix findings resolved: currency now included in expense modification detection with tests proving currency-only edit path; claim #8 reworded to data-level claim substantiated by bounded repo call counts. 180/180 tests green, typecheck clean, native debug build BUILD SUCCESSFUL. Next roadmap criterion is V3-05 (À faire).",
+  "progressEvidence": [
+    "audit-accepted-35182865593-V3-04",
+    "currency-in-expense-detection-resolved",
+    "claim-8-reworded-to-data-level-resolved",
+    "180-tests-green",
+    "typecheck-clean",
+    "native-debug-build-BUILD-SUCCESSFUL",
+    "V3-04-complete"
+  ]
+}

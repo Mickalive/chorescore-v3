@@ -3,28 +3,22 @@
   "milestone": "v3-rc",
   "builder": {
     "enabled": true,
-    "criterionId": "V3-04",
-    "objective": "REPAIR V3-04: Include currency (and any other ledger-affecting field) in the expense modification detection in balances.tsx, so a changed currency triggers the remove-old + apply-new delta path. Add a test that performs a currency-only edit (e.g. CHF→EUR with identical amount/paidBy/participants/splitMode) and asserts the all-time moneyByCurrency snapshot equals calculateFinancialBalancesByCurrency full replay: the old currency entry is removed/zeroed and the new currency balance is created, with zero-sum on each currency.; Either (a) add a test that imports app/(tabs)/balances.tsx (jest.mock('expo-router'); mock or provide AppContext with fake repos whose getByHousehold calls are counted), drives an add/edit/delete through the emitted data-change signal, and asserts the rendered view's all-time snapshot updates by delta with bounded reads and no full re-read on focus; or (b) remove the word 'Screen-level' from claim #8 and reword it to an explicitly data-level/handler claim that the tests actually prove. Do not leave a header claim that the tests do not exercise.",
-    "scope": "Repair only the audited must-fix findings on the preserved V3 baseline; do not rebuild accepted work.",
+    "criterionId": "V3-05",
+    "objective": "Implement V3-05 — À faire et conversion atomique. À faire migre l'expérience Todo V2 sans Premium ni chrono : titre, assigné, bénéficiaires, échéance, rappel, note, PersistentTask. La complétion confirme performer, valeur et bénéficiaires puis crée atomiquement exactement une ContributionEntry avec l'unité du groupe, met à jour ledger/historique/vues locales et entre proprement dans la queue de sync offline.",
+    "scope": "Work only on V3-05 and directly necessary migrations/repairs. Preserve every completed V3 criterion.",
     "acceptance": [
-      "deux blocs de ledger distincts",
-      "périodes sont des vues et non resets",
-      "suggestions de règlement cohérentes",
-      "compensation off par défaut",
-      "taux groupe explicite et snapshot historique",
-      "aucune conversion implicite ou cross-currency",
-      "balances matérialisées == reconstruction ledger dans tests",
-      "ouvrir Balances ne nécessite pas de full scan historique distant",
-      "settlement delta applied exactly once (no double-apply)",
-      "expense delta matches full replay for equal AND custom splits",
-      "currency-only expense edit triggers remove-old + apply-new, snapshot == full replay",
-      "edits and deletes in Add tab emit data-change signal; Balances reflects changes",
-      "screen-level test proves delta refresh with bounded repo calls OR header claim corrected"
+      "création et suppression todo gratuites",
+      "complétion mini-form claire",
+      "exactement une ContributionEntry atomique",
+      "rappel/calendrier honnêtes derrière ports",
+      "aucune donnée détruite ni chrono",
+      "complétion offline cohérente et réconciliable"
     ],
     "previousCriteriaPreserved": [
       "V3-01: accepted and must not regress",
       "V3-02: accepted and must not regress",
-      "V3-03: accepted and must not regress"
+      "V3-03: accepted and must not regress",
+      "V3-04: accepted and must not regress"
     ]
   }
 }

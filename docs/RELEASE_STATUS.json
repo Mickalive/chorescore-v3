@@ -1,9 +1,9 @@
 {
   "schemaVersion": 1,
   "milestone": "v3-rc",
-  "lastCycle": "35179481461",
+  "lastCycle": "35182865593",
   "activeCriteria": [
-    "V3-04"
+    "V3-05"
   ],
   "pendingArtifact": null,
   "progressSummary": "Audited V3-04 requires repair; WIP baseline preserved when a safe delta existed.",
@@ -36,12 +36,14 @@
     },
     {
       "id": "V3-04",
-      "status": "in_progress",
-      "evidence": []
+      "status": "complete",
+      "evidence": [
+        "audit-accepted-35182865593"
+      ]
     },
     {
       "id": "V3-05",
-      "status": "pending",
+      "status": "in_progress",
       "evidence": []
     },
     {
@@ -60,28 +62,11 @@
       "evidence": []
     }
   ],
-  "openFindings": [
-    {
-      "path": "app/(tabs)/balances.tsx",
-      "problem": "Expense modification detection does not compare currency, so a currency-only edit is invisible to the Balances delta handler. The detected modification condition (lines 326-331) checks amountMinor, paidByMemberId, participantMemberIds, splitMode and customShares only. The Add-tab edit form exposes an editable currency field and persists it, so a user can edit an existing expense from CHF to EUR without touching any detected field. The handler then treats the entry as unmodified: it does not remove the old CHF effect and does not apply the new EUR effect. The all-time money snapshot keeps the stale CHF balance and never gains the EUR balance, while period views and full ledger replay (which read the persisted EUR entry) diverge from it. This violates the task requirement that the delta handler detect modified entries by removing the old effect and applying the new one, and the release gate that a common action's materialized balance equal reconstructed balance.",
-      "evidence": "balances.tsx lines 321-355: the `if (` at 326 compares oldEntry.amountMinor/paidByMemberId/participantMemberIds/splitMode/customShares but has no currency comparison; a CHF→EUR-only edit falls through `continue`. add.tsx line 891-894 renders an editable currency input (`setEForm(... currency: t.toUpperCase().slice(0,3))`) and line 532 persists `currency: eForm.currency.toUpperCase()` in the submitEdit update, then emits 'expense' (lines 548-554). InMemoryExpenseEntryRepository.update stores the new currency as-is. No test covers a currency-only edit (tests lines 920-958 change amount only).",
-      "mustFix": true,
-      "requiredFix": "Include currency (and any other ledger-affecting field) in the expense modification detection in balances.tsx, so a changed currency triggers the remove-old + apply-new delta path. Add a test that performs a currency-only edit (e.g. CHF→EUR with identical amount/paidBy/participants/splitMode) and asserts the all-time moneyByCurrency snapshot equals calculateFinancialBalancesByCurrency full replay: the old currency entry is removed/zeroed and the new currency balance is created, with zero-sum on each currency.",
-      "verification": "Edit an existing expense, change only its currency, submit, emit 'expense', and assert snapshot.moneyByCurrency equals full ledger replay per currency (old currency no longer carries the expense, new currency does). Repeat with a combined amount+currency edit. The all-time view must never retain a currency effect that full replay does not contain."
-    },
-    {
-      "path": "__tests__/domain/cost-gates-v3-04.test.ts",
-      "problem": "The required screen-level test is still not delivered. The header was reworded but now claims 'Screen-level: delta handler re-reads only the changed collection, proving bounded repo calls (no full re-read on focus or signal)' (claim #8). The tests execute data-level handler logic and a local pub/sub Set; they never import or render app/(tabs)/balances.tsx and never touch AppContext. Consequently the test would still pass if the screen reverted to a full re-read + full replay on focus or stopped subscribing, i.e. it does not test the behavior it claims. The task required either rendering the screen against fake repos and asserting delta/bounded read counts, or importing the real wiring to assert the screen subscribes, or removing/substantiating the header claim; none was done.",
-      "evidence": "Test 'Balances screen subscribes to data-change signal (no full re-read on delta)' at lines 432-481 and 'Balances subscribes to data-change signal and unsubscribes cleanly' at lines 1071-1105 each construct their own `new Set()` listeners and local subscribe/emit helpers; no `import ... from '../app/(tabs)/balances'` and no AppContext import appear in the file. Tests at lines 959-1070 label the section 'screen-level delta refresh' but only exercise repo call counts against handler-shaped logic, not the component. Jest probe confirmed importing the screen works with jest.mock('expo-router'), so the real test is feasible (a full render needs additional provider/mock handling).",
-      "mustFix": true,
-      "requiredFix": "Either (a) add a test that imports app/(tabs)/balances.tsx (jest.mock('expo-router'); mock or provide AppContext with fake repos whose getByHousehold calls are counted), drives an add/edit/delete through the emitted data-change signal, and asserts the rendered view's all-time snapshot updates by delta with bounded reads and no full re-read on focus; or (b) remove the word 'Screen-level' from claim #8 and reword it to an explicitly data-level/handler claim that the tests actually prove. Do not leave a header claim that the tests do not exercise.",
-      "verification": "The new test must fail if the screen falls back to a full reload/replay on focus or stops subscribing to subscribeToDataChanges, and must pass with the delta-based refresh. Use repository call counts and rendered values, not wall-clock time."
-    }
-  ],
+  "openFindings": [],
   "factoryHealth": {
     "stalled": false,
     "consecutiveNoProgress": 0,
-    "lastProductSha": "67426db8603f36ae87a6f07e81904a6d9755cdfd",
+    "lastProductSha": "1f14ebeab0a8ac481fabff4ecd080fb89b75d66d",
     "reason": null
   }
 }
