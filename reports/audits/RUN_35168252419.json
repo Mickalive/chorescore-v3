@@ -1,0 +1,70 @@
+{
+  "schemaVersion": 1,
+  "cycle": "35168252419",
+  "role": "builder",
+  "decision": "repair",
+  "summary": "V3-04 candidate is a coherent WIP baseline but does not yet satisfy the full objective. Positive: the Balances screen now shows two distinct ledger blocks (Contribution + Argent per currency), period views (Semaine/Mois/Annee/Tout) are pure filters that never reset or mutate the ledger, greedy pairwise settlement suggestions exist for both ledgers, compensation is disabled by default with a group-defined rate snapshot, no implicit conversion or cross-currency netting exists, and materializedBalances.ts provides delta functions whose results are proven equal to full ledger replay by tests. Trusted verification passed (exit 0: typecheck, 159 tests, Expo export Android, prebuild, native debug build BUILD SUCCESSFUL). Five must-fix findings remain: (1) no Compenser action exists — the objective requires producing an immutable CrossLedgerSettlement with before/after preview, but the screen only renders a status card and quoteCrossLedgerMoneyAmount is a dead import; (2) the Balances screen has no filtered history section, while the objective requires 'suggestions pair-a-pair et historique' and the constitution requires filtered history at the bottom of the screen; (3) the screen does not use the delta-based materialized views — it does a full replay on mount and never refreshes afterwards (tabs stay mounted), so balances are stale after entries are added in the Ajouter tab; (4) settlements are not period-filtered while contributions and expenses are, so a settlement from any date affects the week/month/year views, contradicting 'periods are views' on ledger entries; (5) the cost-gate test 'navigating Add -> Balances -> Todos -> Add does not re-fetch balances 4 times' does not test navigation or the screen at all (it calls getByHousehold 4 times in parallel) and relies on flaky wall-clock timing assertions. No V3-01/V3-02/V3-03 regression, no chrono/premium/paywall reintroduced.",
+  "checks": [
+    "trusted_verification_exit_0",
+    "typecheck_pass",
+    "tests_159_pass",
+    "expo_export_android_ok",
+    "android_prebuild_and_native_debug_build_ok",
+    "dual_ledger_blocks_contribution_and_money_per_currency",
+    "period_views_week_month_year_all_time_no_reset_no_mutation",
+    "pairwise_settlement_suggestions_contribution_and_money_greedy",
+    "compensation_disabled_by_default_demo_and_createHousehold",
+    "rate_snapshot_immutable_settlement_preserved",
+    "no_implicit_conversion_minutes_points_distinct",
+    "no_cross_currency_netting_money_ledger_per_currency",
+    "materialized_balances_equal_full_replay_tests",
+    "delta_functions_add_remove_settlement_match_full_replay",
+    "local_first_reads_no_remote_full_scan",
+    "V3-01_ledger_invariants_preserved",
+    "V3-02_design_tabs_local_first_preserved",
+    "V3-03_add_history_pagination_preserved",
+    "no_chrono_no_premium_no_paywall"
+  ],
+  "findings": [
+    {
+      "path": "app/(tabs)/balances.tsx",
+      "problem": "Missing compensation action. The V3-04 objective requires that compensation 'produit un CrossLedgerSettlement immuable avec avant/après' and the constitution §8 requires a 'Compenser' action where the user chooses contribution credit, sees the money amount per the group-defined rate, and validates with an Avant/Apres preview before an immutable CrossLedgerSettlement is persisted. The candidate only renders a status card ('Activee'/'Desactivee' + rate text). There is no way to create a settlement from any screen, even though the domain machinery (quoteCrossLedgerMoneyAmount, validateCrossLedgerSettlement, settlementPreconditions, SettlementRepository.create) already exists.",
+      "evidence": "balances.tsx line 47 imports quoteCrossLedgerMoneyAmount but never calls it (dead import); grep for 'Compenser' in app/ returns nothing; SettlementRepository.create exists (src/infrastructure/repositories/index.ts:117) but no UI calls it; the compensation card (balances.tsx lines ~300-330) only displays status and rate text.",
+      "mustFix": true,
+      "requiredFix": "Implement the Compenser action on the Balances screen (inline or modal): select contribution creditor and amount, quote the money amount via the group rate (quoteCrossLedgerMoneyAmount), display Avant/Apres for both ledgers, run validateSettlementPreconditions, persist an immutable CrossLedgerSettlement with rateSnapshot via repos.settlements.create, then refresh both ledger views. Keep the action disabled when crossLedgerCompensationEnabled=false or no rate is configured.",
+      "verification": "New tests: settlement creation flow persists a CrossLedgerSettlement whose moneyAmountMinor matches the snapshotted rate; the before/after preview equals post-settlement balances; both ledgers remain zero-sum; the action is disabled when compensation is off or no rate is set."
+    },
+    {
+      "path": "app/(tabs)/balances.tsx",
+      "problem": "Missing filtered history section. The V3-04 objective requires Balances to show 'suggestions pair-a-pair et historique'; the constitution §9 requires 'L'historique filtre reste au bas de l'ecran' and §10 requires filters Tout/Contributions/Depenses/Compensations. The candidate's Balances screen has no history section at all.",
+      "evidence": "grep for history/historique/Activite in balances.tsx returns nothing; the screen ends with the compensation info card; src/domain/calculations/activityLog.ts already supports merged contribution/expense/settlement streams with a 'settlement' filter (lines 85-87) but it is unused by Balances.",
+      "mustFix": true,
+      "requiredFix": "Add a filtered history section at the bottom of Balances (Tout / Contributions / Depenses / Compensations), reusing paginateActivityLog with settlements included, compact rows per §10, paginated and cached per V3_BACKEND_FRUGAL.md §6.",
+      "verification": "Test that the merged history includes settlements and respects each filter; screen renders compact history rows for contribution, expense and settlement types."
+    },
+    {
+      "path": "app/(tabs)/balances.tsx + src/domain/calculations/materializedBalances.ts",
+      "problem": "Delta-based materialized updates are not wired into the screen, and the screen shows stale balances. The objective requires balances 'mises a jour par delta plutot que par replay integral a chaque affichage'. The screen loads all entries once on mount and recomputes by full replay (useMemo); it never refreshes afterwards because react-navigation bottom tabs keep screens mounted (unmountOnBlur defaults to false), so entries added in the Ajouter tab never appear in Balances until remount or app restart. The delta machinery (deltaUpdateContribution, deltaUpdateContributionFromSettlement, createBalanceSnapshot) exists in materializedBalances.ts but is imported only by tests, never by app code.",
+      "evidence": "balances.tsx loadData runs in useEffect on mount only (lines 103-123); no useFocusEffect/refresh/subscription exists anywhere in app/ (grep); expo-router TabSlot.js:64-65 unmountOnBlur defaults false; grep shows materializedBalances is imported by no app/src file outside __tests__.",
+      "mustFix": true,
+      "requiredFix": "Wire the materialized balance service into the screen: maintain a materialized snapshot, apply deltas on entry add/remove/settlement, and refresh on focus or on a data-change signal from AppContext so Balances reflects new entries without full replay and without staleness.",
+      "verification": "Test that after adding a contribution, the Balances view reflects it via the delta path without a full re-read; a cost-gate test exercising the actual screen refresh contract (repository call counts, not wall-clock time)."
+    },
+    {
+      "path": "app/(tabs)/balances.tsx",
+      "problem": "Settlements are not period-filtered. Period views filter contributions and expenses by occurredAt but pass the full settlements array unfiltered into calculateContributionBalances and calculateFinancialBalancesByCurrency. A settlement from any date therefore affects the Semaine/Mois/Annee views, contradicting 'periodes sont des vues' on ledger entries (settlements are ledger entries per constitution §8).",
+      "evidence": "balances.tsx lines 135-141 filter contributions/expenses via filterByPeriod; lines 147 and 158 pass the unfiltered `settlements` state; materializedBalances.ts computePeriodContributionBalances/computePeriodFinancialBalances also filter only entries, not settlements; no test covers period-filtered settlements.",
+      "mustFix": true,
+      "requiredFix": "Filter settlements by period (filterByPeriod on occurredAt) before computing period balances, in both the screen and the materialized service, and add tests asserting a settlement outside the period does not affect the period view while remaining in all-time.",
+      "verification": "Test: a settlement dated 2020 does not appear in week/month/year views but appears in all-time; both ledgers remain zero-sum for every period."
+    },
+    {
+      "path": "__tests__/domain/cost-gates-v3-04.test.ts",
+      "problem": "Weak/misleading cost-gate test. The test 'navigating Add -> Balances -> Todos -> Add does not re-fetch balances 4 times' does not test navigation or the screen at all: it calls getByHousehold 4 times in parallel and asserts identical results. The actual screen behavior (mount-only load, stale after new entries, full replay on remount) is untested. Several assertions are wall-clock timing bounds (<200ms/<100ms/<50ms/<5ms/<500ms), which are flaky and do not measure remote reads or repository call counts.",
+      "evidence": "cost-gates-v3-04.test.ts lines 179-211: Promise.all of 4 getByHousehold calls with no screen component, no tab navigation, no focus simulation; timing assertions at lines 94, 108, 125, 148, 173, 210.",
+      "mustFix": true,
+      "requiredFix": "Replace with a test that exercises the real refresh contract: render the Balances screen against a fake repo, add an entry, and assert the view updates via delta without a full re-read; or assert the screen subscribes to a data-change signal. Keep a bounded-read assertion based on repository call counts rather than wall-clock time.",
+      "verification": "The test fails against the current mount-only implementation and passes once the delta/refresh wiring from the materialized-view finding exists."
+    }
+  ]
+}
