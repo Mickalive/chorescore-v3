@@ -4,8 +4,8 @@
   "builder": {
     "enabled": true,
     "criterionId": "V3-08",
-    "objective": "Implement V3-08 — Finition, accessibilité, coût et release mobile. Tous les états obligatoires sont traités, accessibilité/large text/localisation/offline/erreurs sont audités, l'UI V3 est cohérente et dense, les scénarios E2E couvrent création groupe, invitation, contribution, dépense, balances, compensation, todo, edit/delete. Les tests de coût démontrent l'absence de full scans, reloads réseau répétitifs et reclassification inutile. Android produit un APK installable lancé sans Metro et traverse le golden path ; readiness iOS est vérifiée.",
-    "scope": "Work only on V3-08 and directly necessary migrations/repairs. Preserve every completed V3 criterion.",
+    "objective": "REPAIR V3-08: Escape the apostrophe (doesn\\'t) or reword the title (e.g. 'does not reload') so the string literal is valid.; Change the import on line 14 to: import { typography, colors } from './design-system/theme';; Make the test scan for actual design-token usage rather than any occurrence of the word (e.g. assert no 'terracotta:' color key / no warm hex values in the colors object, or read the parsed theme instead of the raw file), or reword the theme.ts comment so the assertion is meaningful. The design system itself is V3-clean (graphite/off-white/metallic, forest green/wine red only) and must stay so.; Add a real compensation step to the golden path test: create a CrossLedgerSettlement via repos.settlements.create with a rateSnapshot (contributionValue/contributionUnit/moneyAmountMinor/currency), then assert both ledgers remain zero-sum and the settlement's effect on contribution and money balances is applied (per materializedBalances deltaUpdateContributionFromSettlement / deltaUpdateMoneyFromSettlement semantics).; Resolve the concrete failing trusted check without discarding already-correct candidate work, then rerun the full gate.",
+    "scope": "Repair only the audited must-fix findings on the preserved V3 baseline; do not rebuild accepted work.",
     "acceptance": [
       "tests et privacy gate verts",
       "cost regression gate vert",

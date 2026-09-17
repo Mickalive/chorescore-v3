@@ -1,43 +1,33 @@
 # Next cycle
 
-Active criterion: **V3-07 — Data product, privacy plane et pipeline frugale** (repair).
+Active criterion: **V3-08 — Finition, accessibilite, cout et release mobile** (repair).
 
 ## Objective
 
-Repair the 5 must-fix findings in the existing V3-07 WIP delta. Do not rebuild — the candidate baseline (12 new files, 1151-line test suite, 60/70 tests pass) is the starting point.
+Repair the single must-fix finding in the existing V3-08 WIP delta. Do not rebuild — the candidate baseline (880-line cost-gate test suite, 10 gates) is the starting point.
 
-## Must-fix findings
+## Must-fix finding
 
-### F1 — Test-file type errors (trusted exit 2)
-8 TypeScript errors in `__tests__/domain/v3-07-analytics-privacy.test.ts`:
-- Line 434: `label` not in anonymous event union → use `as unknown as` cast
-- Lines 501–505: partial records missing required fields → use full valid event shapes or casts
-- Line 730: `'commercial-use'` not a `DataProcessingPurpose` → replace with valid purpose or cast
-- Line 870: invalid cast to `Record<string, unknown>` → use `as unknown as`
+### F1 — Unescaped apostrophe in describe string literal
 
-### F2 — Pipeline label contradiction (core broken path)
-`validateNoOperationalIds` (pipeline.ts) forbids `label` as input, but `transformContributionCreated` and `transformEntryCreated` require `label` for classification. All contribution/entry facts are rejected at stage 1 — transforms are dead code.
+**Path:** `__tests__/domain/cost-gates-v3-08.test.ts` line 205
 
-**Fix:** Remove `label`/`title`/`notes` from the input-forbidden list. These are consumed for classification and never emitted — rely on output event types + PrivacyReleaseGate to guarantee no free text in outputs. Add a test proving a labeled contribution transforms successfully with no text in the emitted event.
+```
+describe('V3-08 Gate 2: Tab switching doesn't reload same objects', () => {
+```
 
-### F3 — Gate tests unpassable
-`assessReIdentificationRisk` flags datasets < 10 records with `re_identification_risk` (high), blocking approval. Tests use 5 records and empty data expecting `approved=true`.
+The `'` in `doesn't` terminates the single-quoted string literal prematurely. TypeScript sees `doesn` as a complete string, then `t` as an unexpected identifier, producing 10 cascading parse errors (TS1005, TS1002, TS1128) across lines 205-260. Typecheck exits 2 and the full test suite never runs.
 
-**Fix:** Use ≥10 records with repeated (category, month, beneficiaryCount) combinations so `combinations.size ≤ facts.length * 0.8` and `facts.length ≥ minCohortSize * 2`. Do not weaken the gate.
+**Fix:** Escape the apostrophe or switch the outer quotes to backtick:
+```
+describe(`V3-08 Gate 2: Tab switching doesn't reload same objects`, () => {
+```
 
-### F4 — Query budget mismatch
-Test expects `remainingQueriesThisMinute=1` but service returns 2 (`limit - used - 1`).
-
-**Fix:** Align test and implementation on one documented semantic.
-
-### F5 — Consent expiry race
-`retentionDays: 0` with strict `<` comparison fails in same-millisecond jest execution.
-
-**Fix:** Use negative retentionDays (e.g. `-1`) or change comparison to `<=`. Make deterministic.
+The comment on line 202 should also be updated for consistency (no TS impact).
 
 ## Verification
 
 - `npx tsc --noEmit` exits 0
-- All 70+ tests pass (no new failures)
-- All V3-01 through V3-06 regression suites pass (380+ tests)
-- Contribution/entry pipeline path proven functional with no free text in output events
+- All 391+ tests pass (19+ suites)
+- All V3-01 through V3-07 regression suites pass
+- V3-08 cost-gate test suite runs green covering: 50k reads, tab switching, sync deltas, bounded writes, classification cache, privacy gate, cost budgets, offline fallback, golden path E2E, accessibility/design system

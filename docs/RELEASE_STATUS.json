@@ -1,12 +1,12 @@
 {
   "schemaVersion": 1,
   "milestone": "v3-rc",
-  "lastCycle": "35261053897",
+  "lastCycle": "35268791572",
   "activeCriteria": [
     "V3-08"
   ],
   "pendingArtifact": null,
-  "progressSummary": "Audited V3-07 requires repair; WIP baseline preserved when a safe delta existed.",
+  "progressSummary": "Audited V3-08 requires repair; WIP baseline preserved when a safe delta existed.",
   "criteria": [
     {
       "id": "V3-01",
@@ -76,11 +76,52 @@
       "evidence": []
     }
   ],
-  "openFindings": [],
+  "openFindings": [
+    {
+      "path": "__tests__/domain/cost-gates-v3-08.test.ts (line 205)",
+      "problem": "Unescaped apostrophe in the describe() title 'V3-08 Gate 2: Tab switching doesn't reload same objects' terminates the single-quoted string, producing TS1005/TS1002/TS1128 errors at lines 205-260. This is the root cause of the trusted verification failure (exit code 2), which is a mandatory mustFix — the decision MUST NOT be accept.",
+      "evidence": "reports/audits/TRUSTED_35268791572.md: 'Trusted verification exit code: 2' with TS1005/TS1002/TS1128 at cost-gates-v3-08.test.ts(205,45)-(206,3) and (259,5)-(260,2). Line 205 read directly: describe('V3-08 Gate 2: Tab switching doesn't reload same objects', () => {. Note line 266 in the same file correctly escapes: doesn\\'t.",
+      "mustFix": true,
+      "requiredFix": "Escape the apostrophe (doesn\\'t) or reword the title (e.g. 'does not reload') so the string literal is valid.",
+      "verification": "npm run typecheck exits 0; trusted verification exit code 0."
+    },
+    {
+      "path": "src/ui/accessibility.ts (line 14)",
+      "problem": "Wrong relative import path: '../design-system/theme' resolves to src/design-system/theme which does not exist. The file lives at src/ui/accessibility.ts, so the theme module is at './design-system/theme'. This produces TS2307 plus cascading TS18046 errors at lines 204/219, so typecheck still fails even after the syntax error is fixed.",
+      "evidence": "Independent isolated-copy check: with only the syntax error fixed, npx tsc --noEmit exits 2 with 'src/ui/accessibility.ts(14,36): error TS2307: Cannot find module '../design-system/theme'' and 'TS18046: 'val' is of type 'unknown'' at 204,56 and 219,19/46. After changing the import to './design-system/theme', tsc exits 0.",
+      "mustFix": true,
+      "requiredFix": "Change the import on line 14 to: import { typography, colors } from './design-system/theme';",
+      "verification": "npx tsc --noEmit exits 0."
+    },
+    {
+      "path": "__tests__/domain/cost-gates-v3-08.test.ts (Gate 10, 'no chrono, premium, or warm V2 elements in design system')",
+      "problem": "Self-contradictory test: it asserts the theme.ts file content does not contain the word 'terracotta', but src/ui/design-system/theme.ts line 10 documentation comment says 'No warm terracotta, no self-care, no gamification'. The test fails at runtime once the typecheck issues are fixed, so the suite is not green.",
+      "evidence": "Independent isolated-copy check: full jest run after fixing the two typecheck issues — 21 suites, 425 tests, 424 passed / 1 failed; the failure is expect(content).not.toContain('terracotta') at cost-gates-v3-08.test.ts:857, with the theme.ts comment content shown in the failure output.",
+      "mustFix": true,
+      "requiredFix": "Make the test scan for actual design-token usage rather than any occurrence of the word (e.g. assert no 'terracotta:' color key / no warm hex values in the colors object, or read the parsed theme instead of the raw file), or reword the theme.ts comment so the assertion is meaningful. The design system itself is V3-clean (graphite/off-white/metallic, forest green/wine red only) and must stay so.",
+      "verification": "npm run test exits 0 with the Gate 10 assertions still proving the V3 design system contains no warm V2 tokens."
+    },
+    {
+      "path": "__tests__/domain/cost-gates-v3-08.test.ts (Gate 9) and __tests__/domain/v3-08-e2e-golden-path.test.ts",
+      "problem": "The golden-path E2E scenario claims 'compensate' coverage (Gate 9 title: 'golden path: create group → add members → contribute → expense → balance → compensate → todo → edit → delete'; release notes claim the golden path covers compensation), but neither new test file ever creates a CrossLedgerSettlement. The V3-08 objective explicitly requires E2E scenarios covering 'compensation'. This is a weak/misleading test claim.",
+      "evidence": "grep of both new test files: the only settlement references are repos.settlements.getByHousehold(...) calls whose results are passed as empty arrays to balance calculations; there is no repos.settlements.create(...) call anywhere. Gate 9 body (lines 677-809) performs create group → members → contribution → expense → balances → todo → complete → edit → delete, with no settlement step.",
+      "mustFix": true,
+      "requiredFix": "Add a real compensation step to the golden path test: create a CrossLedgerSettlement via repos.settlements.create with a rateSnapshot (contributionValue/contributionUnit/moneyAmountMinor/currency), then assert both ledgers remain zero-sum and the settlement's effect on contribution and money balances is applied (per materializedBalances deltaUpdateContributionFromSettlement / deltaUpdateMoneyFromSettlement semantics).",
+      "verification": "Golden path test passes with the settlement step and asserts contributionLedgerIsZeroSum and financialLedgerIsZeroSum after the settlement."
+    },
+    {
+      "path": ".",
+      "problem": "Trusted product verification failed",
+      "evidence": "Authoritative verification log: reports/audits/TRUSTED_35268791572.md (exit 2)",
+      "mustFix": true,
+      "requiredFix": "Resolve the concrete failing trusted check without discarding already-correct candidate work, then rerun the full gate.",
+      "verification": "Full trusted V3 verification must return exit code 0."
+    }
+  ],
   "factoryHealth": {
     "stalled": false,
     "consecutiveNoProgress": 0,
-    "lastProductSha": "411497efa62908ed54d36e592cc021feeccd4201",
+    "lastProductSha": "a4a1eeb40dc8dfd4cdffb1da43a0c7128d35fb79",
     "reason": null
   }
 }
