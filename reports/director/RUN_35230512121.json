@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "cycle": "35230512121",
+  "decision": "continue",
+  "reason": "V3-06 repair. Four must-fix findings from the previous cycle remain unfixed: (1) sync pipeline is wired only into the in-memory (test) path — the production SQLite path still buffers applyDeltas into sync_records without materializing into business tables and never records dirty records for pushDeltas; even in-memory, persistent_tasks/members/memberships/households writes never record dirty records; (2) applyDeltas is not transactional — cursor advances before materialization, so a materialization failure leaves data silently lost; (3) tenant isolation and balance-integrity rules (requireHouseholdMembership/requireRole/assertLedgerWrite) still have zero callers in the data-access path; (4) conflict resolution is incomplete: households are blind-overwritten, local revisions are fabricated as 0 so remote always wins, and SQLite applyDeltas remains blind INSERT OR REPLACE. The WIP baseline must be preserved and the next cycle must repair these four findings on the existing candidate.",
+  "progressEvidence": [
+    "v3-06-invitation-flow-delivered-previous-cycle-preserved",
+    "v3-06-group-options-screen-delivered-previous-cycle-preserved",
+    "v3-06-sync-materialization-in-memory-path-only-not-wired-to-SQLite",
+    "17-suites-260-tests-green-previous-cycle",
+    "no-regression-V3-01-V3-05",
+    "WIP-baseline-preserved-for-repair",
+    "mustFix-1-sync-pipeline-not-wired-in-SQLite-production-path-still-open",
+    "mustFix-2-applyDeltas-not-transactional-cursor-before-materialization-still-open",
+    "mustFix-3-tenant-isolation-unenforced-in-data-access-path-still-open",
+    "mustFix-4-conflict-resolution-blind-households-local-revision-fabricated-0-still-open",
+    "next-cycle-V3-06-repair-sync-materialize-SQLite-transactional-auth-conflict-resolution"
+  ]
+}
