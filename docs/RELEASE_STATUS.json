@@ -1,12 +1,12 @@
 {
   "schemaVersion": 1,
   "milestone": "v3-rc",
-  "lastCycle": "35182865593",
+  "lastCycle": "35187808657",
   "activeCriteria": [
     "V3-05"
   ],
   "pendingArtifact": null,
-  "progressSummary": "Audited V3-04 requires repair; WIP baseline preserved when a safe delta existed.",
+  "progressSummary": "Audited V3-05 requires repair; WIP baseline preserved when a safe delta existed.",
   "criteria": [
     {
       "id": "V3-01",
@@ -62,11 +62,20 @@
       "evidence": []
     }
   ],
-  "openFindings": [],
+  "openFindings": [
+    {
+      "path": "app/(tabs)/todos.tsx (handleComplete, lines 247-254) and __tests__/domain/todo-completion.test.ts (lines 203-245)",
+      "problem": "MUST-FIX — the completion is not atomic. The two coupled writes (todo status update + ContributionEntry creation) are executed with Promise.all, which is not a transaction. Failure scenario A: if repos.todos.update rejects after repos.contributions.create resolved, an orphan ContributionEntry exists while the todo stays active; the user sees 'Impossible de terminer la tache' and a retry creates a SECOND ContributionEntry — violating the V3-05 acceptance 'exactement une ContributionEntry atomique'. Failure scenario B: if repos.contributions.create rejects after the todo update resolved, the todo is marked completed (and filtered out of the list) with no ledger entry — silent loss of the contribution. The test named 'creating the contribution and updating the todo is atomic in the repos' only exercises the success path and asserts 'both succeed or both fail' without ever simulating a failure — a weak test that does not guard the invariant. Backend frugal §7: 'Les changements couplés doivent employer batch/transaction/opération métier atomique.'",
+      "evidence": "todos.tsx lines 247-254: `await Promise.all([repos.todos.update(selectedTodo.id, {status:'completed', completedAt:...}), repos.contributions.create(result.contributionEntry)])`. Independent probe (temporary test, removed): deleting the todo before the Promise.all makes todoRepo.update throw while contribRepo.create still succeeds — console output 'todoUpdateFailed= true contributionsCreated= 1'. The repository layer (InMemoryRepositories.ts and SqliteRepositories.ts) exposes no transaction/batch API, so the UI-level Promise.all is the only 'atomicity' mechanism. todo-completion.test.ts lines 226-230 comment claims 'both succeed or both fail' but the test never injects a failure.",
+      "mustFix": true,
+      "requiredFix": "Execute the completion as a single atomic operation: add a repository-level transaction (e.g. SQLite withTransactionAsync wrapping the todo update + contribution insert, with an in-memory equivalent) or a completion use-case in the domain/application layer that writes both the todo status and the ContributionEntry in one transaction, and have the UI call that single operation. Add tests that verify failure atomicity: (a) when the todo update fails, no ContributionEntry is created; (b) when the contribution creation fails, the todo is not marked completed; (c) a retry after any failure cannot produce a second ContributionEntry.",
+      "verification": "New failure-injection tests against the transactional completion path: force the todo update to reject and assert contribRepo.getByHousehold returns 0 entries; force the contribution create to reject and assert the todo status remains 'todo'; then complete successfully and assert exactly 1 ContributionEntry exists. The existing success-path test must be updated to use the atomic operation instead of Promise.all."
+    }
+  ],
   "factoryHealth": {
     "stalled": false,
     "consecutiveNoProgress": 0,
-    "lastProductSha": "1f14ebeab0a8ac481fabff4ecd080fb89b75d66d",
+    "lastProductSha": "d748e5282b8ad27413de344e2a0bff61c7b34081",
     "reason": null
   }
 }

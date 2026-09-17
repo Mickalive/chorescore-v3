@@ -4,8 +4,8 @@
   "builder": {
     "enabled": true,
     "criterionId": "V3-05",
-    "objective": "Implement V3-05 — À faire et conversion atomique. À faire migre l'expérience Todo V2 sans Premium ni chrono : titre, assigné, bénéficiaires, échéance, rappel, note, PersistentTask. La complétion confirme performer, valeur et bénéficiaires puis crée atomiquement exactement une ContributionEntry avec l'unité du groupe, met à jour ledger/historique/vues locales et entre proprement dans la queue de sync offline.",
-    "scope": "Work only on V3-05 and directly necessary migrations/repairs. Preserve every completed V3 criterion.",
+    "objective": "REPAIR V3-05: Execute the completion as a single atomic operation: add a repository-level transaction (e.g. SQLite withTransactionAsync wrapping the todo update + contribution insert, with an in-memory equivalent) or a completion use-case in the domain/application layer that writes both the todo status and the ContributionEntry in one transaction, and have the UI call that single operation. Add tests that verify failure atomicity: (a) when the todo update fails, no ContributionEntry is created; (b) when the contribution creation fails, the todo is not marked completed; (c) a retry after any failure cannot produce a second ContributionEntry.",
+    "scope": "Repair only the audited must-fix findings on the preserved V3 baseline; do not rebuild accepted work.",
     "acceptance": [
       "création et suppression todo gratuites",
       "complétion mini-form claire",
