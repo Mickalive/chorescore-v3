@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 1,
+  "cycle": "35210010719",
+  "role": "builder",
+  "decision": "accept",
+  "summary": "REPAIR V3-05 accepted: atomic completion is now a single transactional operation. completeTodoAtomic validates via planTodoCompletion then runs repos.withTransaction wrapping todos.update + contributions.create; RepositoryFactory provides SQLite withTransactionAsync and in-memory snapshot/restore equivalence; UI handleComplete calls the atomic use-case instead of Promise.all; four failure-injection tests prove (a) todo-update failure creates 0 contributions and leaves todo active, (b) contribution-create failure rolls back todo to 'todo', (c) retry after either failure yields exactly one ContributionEntry and ledger zero-sum. Trusted verification exit 0 reproduced (typecheck, 200 tests, Expo export/prebuild/native debug BUILD SUCCESSFUL). No V3-01..V3-04 regression, no chrono/premium/paywall, no domain Firebase coupling.",
+  "checks": [
+    "trusted verification exit 0 reproduced: typecheck + 200 tests (15 suites) + Expo export Android (1309 modules) + prebuild + native debug BUILD SUCCESSFUL",
+    "completeTodoAtomic use-case exists and wraps both writes in repos.withTransaction",
+    "RepositoryFactory.AllRepositories.withTransaction implemented: SQLite withTransactionAsync and in-memory snapshot/restore",
+    "InMemoryRepositories snapshot/restore added for Todo and ContributionEntry repos",
+    "UI app/(tabs)/todos.tsx handleComplete calls single atomic operation, Promise.all removed",
+    "failure atomicity tests (a) (b) (c) (c2) present and passing in __tests__/domain/todo-completion.test.ts",
+    "success-path tests updated to use completeTodoAtomic, still proving exactly-one contribution and zero-sum ledger",
+    "V3-05 cost gate bounded writes verified: completion = 2 writes inside one transaction",
+    "no chrono reintroduction: grep ChronoTimer/startChrono/stopChrono clean except migration docs",
+    "no Premium/paywall/entitlement/billing in product code: grep clean across app/src",
+    "no Firebase/Firestore types in domain or application use-case: grep clean",
+    "V3-01..V3-04 regressions green: ledgers, property invariants, materialized balances, pagination, V3-03/V3-04 cost gates all pass",
+    "offline coherence preserved: local-first transactional write, data-change signals emitted after commit, honest notification/calendar ports still gated by isAvailable()"
+  ],
+  "findings": [
+    {
+      "path": "src/infrastructure/repositories/RepositoryFactory.ts",
+      "problem": "In-memory withTransaction snapshots only todos and contributions; if future coupled operations span other repos they would need additional snapshots. For current V3-05 scope this is correct and explicitly documented.",
+      "evidence": "withTransaction snapshots todoRepo and contributionRepo only; no other repo mutated inside the transaction. Future V3-06 sync queueing will need to extend if needed.",
+      "mustFix": false,
+      "requiredFix": "No fix required for V3-05. Document that extension point if additional atomic couplings are added later.",
+      "verification": "Manual inspection; all V3-05 completion paths only touch todos and contributions."
+    }
+  ]
+}

@@ -15,8 +15,9 @@ import {
   InMemoryMemberRepository,
   InMemoryHouseholdRepository,
 } from '../../src/infrastructure/repositories/InMemoryRepositories';
+import { createInMemoryRepositories } from '../../src/infrastructure/repositories/RepositoryFactory';
 import { TodoItem, Household, Member } from '../../src/domain/entities';
-import { planTodoCompletion } from '../../src/domain/services/todoCompletionService';
+import { completeTodoAtomic } from '../../src/application/use-cases/completeTodoAtomic';
 
 const HH = 'h-cost';
 
@@ -93,7 +94,8 @@ describe('V3-05 cost gates', () => {
     const h = household();
     householdRepo.seed([h]);
 
-    const t = await todoRepo.create({
+    const repos = createInMemoryRepositories();
+    const t = await repos.todos.create({
       householdId: HH,
       title: 'Test atomic',
       assigneeMemberId: 'm-0',
@@ -105,7 +107,9 @@ describe('V3-05 cost gates', () => {
       status: 'todo',
     });
 
-    const result = planTodoCompletion({
+    // The production path: one atomic operation = 1 todo update + 1
+    // contribution create inside a single transaction.
+    const result = await completeTodoAtomic(repos, {
       todo: t,
       household: h,
       performerMemberId: 'm-0',
@@ -114,18 +118,16 @@ describe('V3-05 cost gates', () => {
       completedByUserId: 'user-a',
     });
 
-    // Exactly 2 writes: update todo + create contribution
-    const [updatedTodo, createdContrib] = await Promise.all([
-      todoRepo.update(t.id, { status: 'completed', completedAt: result.updatedTodo.completedAt }),
-      contribRepo.create(result.contributionEntry),
-    ]);
-
-    expect(updatedTodo.status).toBe('completed');
-    expect(createdContrib).toBeDefined();
+    expect(result.updatedTodo.status).toBe('completed');
+    expect(result.contributionEntry).toBeDefined();
 
     // Verify: exactly 1 contribution exists
-    const allContribs = await contribRepo.getByHousehold(HH);
+    const allContribs = await repos.contributions.getByHousehold(HH);
     expect(allContribs).toHaveLength(1);
+
+    // Verify: the todo is completed in the store
+    const storedTodo = await repos.todos.getById(t.id);
+    expect(storedTodo?.status).toBe('completed');
   });
 
   test('deleting a todo is a single write', async () => {

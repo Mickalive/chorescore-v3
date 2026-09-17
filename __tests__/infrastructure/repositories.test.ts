@@ -777,6 +777,7 @@ describe('V3-02 demo fixture consistency', () => {
       todos: new SqliteTodoRepository(),
       expenses: new SqliteExpenseEntryRepository(),
       settlements: new SqliteSettlementRepository(),
+      withTransaction: async <T>(fn: () => Promise<T>): Promise<T> => fn(),
     };
 
     await ensureDemoFixture(repos, DEMO_USER);

@@ -33,7 +33,7 @@ import { Card } from '../../src/ui/components/Card';
 import { colors, spacing, borderRadius } from '../../src/ui/design-system/theme';
 import { useApp } from '../../src/features/app/AppContext';
 import { TodoItem, Member, Household, ContributionUnit, PersistentTask } from '../../src/domain/entities';
-import { planTodoCompletion } from '../../src/domain/services/todoCompletionService';
+import { completeTodoAtomic } from '../../src/application/use-cases/completeTodoAtomic';
 
 // ── Types ──────────────────────────────────────────────────────
 
@@ -235,7 +235,10 @@ export default function TodosScreen() {
 
     setIsSubmitting(true);
     try {
-      const result = planTodoCompletion({
+      // Single atomic operation: todo status update + ContributionEntry
+      // creation commit together or roll back together. A retry after a
+      // failure can never produce a second ContributionEntry.
+      await completeTodoAtomic(repos, {
         todo: selectedTodo,
         household,
         performerMemberId: completeForm.performerMemberId,
@@ -243,15 +246,6 @@ export default function TodosScreen() {
         beneficiaryMemberIds: completeForm.beneficiaryMemberIds,
         completedByUserId: currentUser.userId,
       });
-
-      // Atomic write: both operations in parallel
-      await Promise.all([
-        repos.todos.update(selectedTodo.id, {
-          status: 'completed',
-          completedAt: result.updatedTodo.completedAt,
-        }),
-        repos.contributions.create(result.contributionEntry),
-      ]);
 
       // Cancel reminder if exists
       if (selectedTodo.reminderAt && services.notifications.isAvailable()) {

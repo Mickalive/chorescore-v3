@@ -189,6 +189,21 @@ export class InMemoryMemberRepository implements MemberRepository {
 export class InMemoryContributionEntryRepository implements ContributionEntryRepository {
   private items = new Map<string, ContributionEntry>();
 
+  /** Snapshot internal state for transactional rollback. */
+  snapshot(): Map<string, ContributionEntry> {
+    return new Map(
+      Array.from(this.items.entries()).map(([k, v]) => [
+        k,
+        { ...v, beneficiaryMemberIds: [...v.beneficiaryMemberIds] },
+      ]),
+    );
+  }
+
+  /** Restore from a snapshot taken before a transaction. */
+  restoreFromSnapshot(snap: Map<string, ContributionEntry>): void {
+    this.items = new Map(snap);
+  }
+
   seed(entries: ContributionEntry[]): void {
     for (const e of entries) {
       this.items.set(e.id, { ...e });
@@ -292,6 +307,21 @@ export class InMemoryPersistentTaskRepository implements PersistentTaskRepositor
 
 export class InMemoryTodoRepository implements TodoRepository {
   private items = new Map<string, TodoItem>();
+
+  /** Snapshot internal state for transactional rollback. */
+  snapshot(): Map<string, TodoItem> {
+    return new Map(
+      Array.from(this.items.entries()).map(([k, v]) => [
+        k,
+        { ...v, beneficiaryMemberIds: [...v.beneficiaryMemberIds] },
+      ]),
+    );
+  }
+
+  /** Restore from a snapshot taken before a transaction. */
+  restoreFromSnapshot(snap: Map<string, TodoItem>): void {
+    this.items = new Map(snap);
+  }
 
   seed(todos: TodoItem[]): void {
     for (const t of todos) {

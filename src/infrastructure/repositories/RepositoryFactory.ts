@@ -50,6 +50,15 @@ export interface AllRepositories {
   todos: TodoRepository;
   expenses: ExpenseEntryRepository;
   settlements: SettlementRepository;
+
+  /**
+   * Run `fn` inside a storage-level transaction.
+   * On success the transaction commits; on any throw it rolls back so that
+   * neither the todo update nor the contribution insert persists alone.
+   * SQLite: real DB transaction via `withTransactionAsync`.
+   * In-memory: snapshot/restore of the affected repos.
+   */
+  withTransaction: <T>(fn: () => Promise<T>) => Promise<T>;
 }
 
 /**
@@ -88,7 +97,7 @@ async function createSqliteRepositories(): Promise<AllRepositories | null> {
 
     // Force database initialization to verify expo-sqlite works
     const { getDatabase } = await import('../local/SqliteStorage');
-    await getDatabase();
+    const db = await getDatabase();
 
     return {
       users: new SqliteUserRepository(),
@@ -100,6 +109,14 @@ async function createSqliteRepositories(): Promise<AllRepositories | null> {
       todos: new SqliteTodoRepository(),
       expenses: new SqliteExpenseEntryRepository(),
       settlements: new SqliteSettlementRepository(),
+      withTransaction: async <T>(fn: () => Promise<T>): Promise<T> => {
+        // Real SQLite transaction: any throw rolls back both writes.
+        let result: T;
+        await db.withTransactionAsync(async () => {
+          result = await fn();
+        });
+        return result!;
+      },
     };
   } catch {
     // expo-sqlite not available (test env, web, etc.)
@@ -108,16 +125,33 @@ async function createSqliteRepositories(): Promise<AllRepositories | null> {
 }
 
 function createInMemoryRepositories(): AllRepositories {
+  const todoRepo = new InMemoryTodoRepository();
+  const contributionRepo = new InMemoryContributionEntryRepository();
+
   return {
     users: new InMemoryUserRepository(),
     memberships: new InMemoryMembershipRepository(),
     households: new InMemoryHouseholdRepository(),
     members: new InMemoryMemberRepository(),
-    contributions: new InMemoryContributionEntryRepository(),
+    contributions: contributionRepo,
     tasks: new InMemoryPersistentTaskRepository(),
-    todos: new InMemoryTodoRepository(),
+    todos: todoRepo,
     expenses: new InMemoryExpenseEntryRepository(),
     settlements: new InMemorySettlementRepository(),
+    withTransaction: async <T>(fn: () => Promise<T>): Promise<T> => {
+      // In-memory equivalent of a DB transaction: snapshot the affected
+      // repos, run the work, and restore on any failure so a partial write
+      // can never survive.
+      const todoSnap = todoRepo.snapshot();
+      const contributionSnap = contributionRepo.snapshot();
+      try {
+        return await fn();
+      } catch (err) {
+        todoRepo.restoreFromSnapshot(todoSnap);
+        contributionRepo.restoreFromSnapshot(contributionSnap);
+        throw err;
+      }
+    },
   };
 }
 
