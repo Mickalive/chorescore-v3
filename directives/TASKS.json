@@ -3,27 +3,29 @@
   "milestone": "v3-rc",
   "builder": {
     "enabled": true,
-    "criterionId": "V3-06",
-    "objective": "REPAIR V3-06: Restore the import of ScopedContributionRepository and ScopedExpenseRepository from '../../src/infrastructure/repositories/ScopedRepositoryFacade' (or rewrite the 7 tests to use createScopedRepositories). Then re-run tsc and the full jest suite.; Inject the failing repo while preserving the prototype chain, e.g. const failing = Object.create(originalContributions); failing.seed = () => { throw new Error('Simulated materialization failure'); }; failing.create = async () => { throw new Error('Simulated materialization failure'); }; (or a Proxy), then assign (repos as any).contributions = failing before pullDeltas and restore afterwards. Keep the assertions that the cursor did not advance and every business table is unchanged.; Wrap baseSyncState in a MaterializingSyncState (export the class from RepositoryFactory or replicate the factory wiring in the test) and pass that wrapped sync state to pullDeltas, so applyDeltas materializes the remote delta into the business table. Keep the assertions: remote delta -> business record readable; local write via wrapped repo -> getDirtyRecords returns the payload; pushDeltas sends it.; Resolve the concrete failing trusted check without discarding already-correct candidate work, then rerun the full gate.",
-    "scope": "Repair only the audited must-fix findings on the preserved V3 baseline; do not rebuild accepted work.",
+    "criterionId": "V3-07",
+    "objective": "Implement V3-07 — Data product, privacy plane et pipeline frugale. Architecture analytics V2 préservée et étendue aux contributions, dépenses, settlements et usage : consent policy, taxonomie/classifier versionné downstream, pipeline, suppression cellules rares, query budget, differential privacy si pertinente, PrivacyReleaseGate, buyer contracts et audit log. La pipeline est asynchrone, incrémentale/checkpointée et batchée ; classification mise en cache avec règles/classifieur léger avant IA ; Research Facts minimisés ; aucune double collecte inutile. Aucun ID opérationnel, nom/email/device id, texte libre ou historique individuellement ré-identifiable ne sort.",
+    "scope": "Work only on V3-07 and directly necessary migrations/repairs. Preserve every completed V3 criterion.",
     "acceptance": [
-      "applyDeltas materializes pulled records into business tables (contribution_entries, expense_entries, settlements, todo_items, persistent_tasks, members, memberships, households) inside a transaction",
-      "storeLocalRecords has callers and getDirtyRecords returns real payloads; pushDeltas sends actual local writes",
-      "group-options UI reachable from group settings: unit toggle (Minutes|Points) with provenance warning, compensation toggle + rate",
-      "invitation UI: invite action with share sheet, /join/:token deep-link route, atomic acceptance (membership + member)",
-      "authorization rules enforced in data-access path: tenant isolation on reads/writes, deterministic conflict resolution replacing blind LWW in applyDeltas",
-      "hostile tests: cross-tenant read blocked, balance falsification rejected, concurrent same-id edits resolved deterministically",
-      "end-to-end sync tests: remote delta materializes into business data, local write appears in getDirtyRecords and is pushed",
-      "no N+1 or listener massif",
-      "lectures/écritures distantes instrumentables et bornées",
-      "no regression V3-01 through V3-05"
+      "Operational Store et Research Analytics Plane séparés",
+      "analytics désactivable sans casser le produit",
+      "taxonomie/classification versionnée",
+      "aucun texte libre/ID opérationnel dans sorties",
+      "privacy release gate et anti-reconstruction",
+      "événements V3 couvrent contributions dépenses settlements usage",
+      "checkpoint incrémental sans scan historique par défaut",
+      "classification cache évite appels identiques répétés",
+      "aucun LLM synchrone dans le parcours utilisateur",
+      "sans nouvel événement la pipeline ne rescane/reclassifie pas",
+      "rétention et reprocessing contrôlés"
     ],
     "previousCriteriaPreserved": [
       "V3-01: accepted and must not regress",
       "V3-02: accepted and must not regress",
       "V3-03: accepted and must not regress",
       "V3-04: accepted and must not regress",
-      "V3-05: accepted and must not regress"
+      "V3-05: accepted and must not regress",
+      "V3-06: accepted and must not regress"
     ]
   }
 }

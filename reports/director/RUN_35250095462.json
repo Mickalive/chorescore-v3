@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "cycle": "35250095462",
+  "decision": "continue",
+  "reason": "V3-06 accepted. The audit decided accept on V3-06 after the repair delta resolved all three must-fix findings from RUN_35248510646: (1) ScopedContributionRepository/ScopedExpenseRepository import restored, 7 authorization tests pass; (2) failure-injection test uses Object.create to preserve prototype chain, intended error message verified; (3) MaterializingSyncState exported and wired in the SQLite factory-wiring test, remote delta materializes into business table. Trusted verification exit code 0: tsc passes, 18 suites / 320 tests all pass, Android export + prebuild + native debug build successful. All V3-01 through V3-05 regression suites pass. V3-06 acceptance criteria verified present: transactional materialization, getDirtyRecords/pushDeltas, group-options UI, invitation UI, authorization rules, hostile tests, end-to-end sync tests, cost instrumentation, no N+1. No must-fix findings remain. Next criterion on roadmap: V3-07 (Data product frugal).",
+  "progressEvidence": [
+    "V3-06-accepted-audit-cycle-35250095462",
+    "trusted-verification-exit-0-tsc-320-tests-android-build",
+    "mustFix-1-restored-import-ScopedContributionRepository-ScopedExpenseRepository-7-tests-pass",
+    "mustFix-2-ObjectCreate-preserves-prototype-chain-intended-error-message-verified",
+    "mustFix-3-MaterializingSyncState-exported-and-wired-in-SQLite-factory-test",
+    "V3-06-acceptance-criteria-verified-transactional-materialization-getDirtyRecords-pushDeltas",
+    "V3-06-acceptance-criteria-verified-group-options-UI-invitation-UI-authorization-hostile-tests",
+    "V3-06-acceptance-criteria-verified-cost-instrumentation-sync-delta-budget-tab-switch-zero-reads",
+    "no-regression-V3-01-through-V3-05-236-tests-pass",
+    "next-criterion-V3-07-data-product-frugal"
+  ]
+}

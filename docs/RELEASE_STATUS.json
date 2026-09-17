@@ -1,12 +1,12 @@
 {
   "schemaVersion": 1,
   "milestone": "v3-rc",
-  "lastCycle": "35248510646",
+  "lastCycle": "35250095462",
   "activeCriteria": [
-    "V3-06"
+    "V3-07"
   ],
   "pendingArtifact": null,
-  "progressSummary": "Audited V3-06 requires repair; WIP baseline preserved when a safe delta existed.",
+  "progressSummary": "V3-06 accepted after repair delta resolved all three must-fix findings. Trusted verification exit 0: tsc passes, 18 suites / 320 tests pass, Android export + prebuild + native debug build successful. All V3-01 through V3-05 regression suites pass. Next criterion: V3-07 (Data product frugal).",
   "criteria": [
     {
       "id": "V3-01",
@@ -50,12 +50,19 @@
     },
     {
       "id": "V3-06",
-      "status": "in_progress",
-      "evidence": []
+      "status": "complete",
+      "evidence": [
+        "audit-accepted-35250095462",
+        "trusted-verification-exit-0-tsc-320-tests-android-build",
+        "mustFix-1-import-restored-7-authorization-tests-pass",
+        "mustFix-2-ObjectCreate-prototype-chain-preservation",
+        "mustFix-3-MaterializingSyncState-exported-SQLite-wiring-fixed",
+        "audit-accepted-35250095462"
+      ]
     },
     {
       "id": "V3-07",
-      "status": "pending",
+      "status": "in_progress",
       "evidence": []
     },
     {
@@ -64,44 +71,11 @@
       "evidence": []
     }
   ],
-  "openFindings": [
-    {
-      "path": "__tests__/domain/v3-06-repair-sync-authorization.test.ts (import block lines 20-23; usages at lines 637, 652, 672, 687, 707, 724, 745)",
-      "problem": "The candidate removed ScopedContributionRepository and ScopedExpenseRepository from the import statement but the test body still instantiates them directly (new ScopedContributionRepository(...) / new ScopedExpenseRepository(...)) in the 'authorization enforced through repository path' describe block. This breaks the typecheck (trusted verification exit code 2) and causes 7 runtime test failures with ReferenceError: ScopedContributionRepository is not defined. The classes are still exported from ScopedRepositoryFacade.ts, so only the import is missing.",
-      "evidence": "Trusted log TRUSTED_35248510646.md: 'error TS2304: Cannot find name ScopedContributionRepository' x5 and 'ScopedExpenseRepository' x2. Independent npx tsc --noEmit reproduces the same 7 errors. Independent npx jest: 7 tests in 'V3-06 REPAIR: authorization enforced through repository path' fail with 'ReferenceError: ScopedContributionRepository is not defined'.",
-      "mustFix": true,
-      "requiredFix": "Restore the import of ScopedContributionRepository and ScopedExpenseRepository from '../../src/infrastructure/repositories/ScopedRepositoryFacade' (or rewrite the 7 tests to use createScopedRepositories). Then re-run tsc and the full jest suite.",
-      "verification": "npx tsc --noEmit exits 0 and npx jest passes the 'authorization enforced through repository path' describe block."
-    },
-    {
-      "path": "__tests__/domain/v3-06-repair-sync-authorization.test.ts (Finding #1 failure-injection test, lines 972-978 and assertion at 1013)",
-      "problem": "The rewritten failure-injection test injects a failing repo built as {...originalContributions, seed: throw, create: throw}. originalContributions is a SyncRecordingContributionRepository class instance; spreading a class instance copies only own enumerable fields (inner, syncState) and loses all prototype methods (getById, getByHousehold, ...). The production MaterializingSyncState.applyDeltas -> materializeDeltas -> upsertWithConflictResolution calls repos.contributions.getById(record.id) BEFORE seed, so the actual error is 'repos.contributions.getById is not a function' instead of the intended 'Simulated materialization failure'. The assertion expect(caughtError.message).toContain('Simulated materialization failure') fails, so the test does not prove the intended scenario (a repo error during materialization rolling back cursor + all business tables).",
-      "evidence": "Independent npx jest: 'repo error during materialization does NOT advance cursor and does NOT partially update ANY business table' fails — 'Expected substring: Simulated materialization failure / Received string: repos.contributions.getById is not a function'. SyncMaterializer.ts line 213 calls repos.contributions.getById(record.id) before seed at line 219.",
-      "mustFix": true,
-      "requiredFix": "Inject the failing repo while preserving the prototype chain, e.g. const failing = Object.create(originalContributions); failing.seed = () => { throw new Error('Simulated materialization failure'); }; failing.create = async () => { throw new Error('Simulated materialization failure'); }; (or a Proxy), then assign (repos as any).contributions = failing before pullDeltas and restore afterwards. Keep the assertions that the cursor did not advance and every business table is unchanged.",
-      "verification": "The test passes with the intended 'Simulated materialization failure' error and still asserts cursor <= 1 and all 7 business tables unchanged after rollback."
-    },
-    {
-      "path": "__tests__/infrastructure/repositories.test.ts (V3-06 REPAIR Finding #5 describe block, lines 1013-1105; pull call at line 1064, assertion at line 1075)",
-      "problem": "The new SQLite factory-wiring test does not wire the repos 'exactly as the factory does'. It constructs raw SQLite repos + SyncRecording wrappers but passes the raw SqliteSyncStateRepository (baseSyncState) directly to pullDeltas instead of wrapping it in a MaterializingSyncState as the factory does (RepositoryFactory.ts lines 441-442: materializingSync = new MaterializingSyncState(baseSyncState, () => repos)). The raw SqliteSyncStateRepository.applyDeltas is buffer-only (SqliteRepositories.ts lines 1168-1201: writes sync_records, never materializes into business tables), so the remote delta never becomes a readable business record and the assertion expect(entry).not.toBeNull() fails.",
-      "evidence": "Independent npx jest: 'factory-wired SQLite repos: remote delta materializes into business table' fails at line 1075 (entry is null). Test line 1064: 'await pull(baseSyncState, HH, ...)' — baseSyncState is a raw SqliteSyncStateRepository, not a MaterializingSyncState. The objective explicitly requires 'raw SQLite repos + SyncRecording* wrappers + MaterializingSyncState' or an exported testable factory path.",
-      "mustFix": true,
-      "requiredFix": "Wrap baseSyncState in a MaterializingSyncState (export the class from RepositoryFactory or replicate the factory wiring in the test) and pass that wrapped sync state to pullDeltas, so applyDeltas materializes the remote delta into the business table. Keep the assertions: remote delta -> business record readable; local write via wrapped repo -> getDirtyRecords returns the payload; pushDeltas sends it.",
-      "verification": "The test passes with entry.label === 'Remote via factory' and entry.value === 30, and the local-write/push assertions still hold."
-    },
-    {
-      "path": ".",
-      "problem": "Trusted product verification failed",
-      "evidence": "Authoritative verification log: reports/audits/TRUSTED_35248510646.md (exit 2)",
-      "mustFix": true,
-      "requiredFix": "Resolve the concrete failing trusted check without discarding already-correct candidate work, then rerun the full gate.",
-      "verification": "Full trusted V3 verification must return exit code 0."
-    }
-  ],
+  "openFindings": [],
   "factoryHealth": {
     "stalled": false,
     "consecutiveNoProgress": 0,
-    "lastProductSha": "a5034a2906ab17f7dc34b8fb57fcceb718904c56",
+    "lastProductSha": "a0f1660f5d82579487ed051f43f37f7c274f402f",
     "reason": null
   }
 }
