@@ -19,8 +19,6 @@ const fs = require('fs');
 const path = require('path');
 const { execFileSync } = require('child_process');
 
-const apkPath = process.env.CHORESCORE_APK_PATH;
-
 function configuredAndroidPackage() {
   if (process.env.CHORESCORE_E2E_PACKAGE) return process.env.CHORESCORE_E2E_PACKAGE;
   const appConfigPath = path.resolve('app.json');
@@ -33,6 +31,29 @@ function configuredAndroidPackage() {
 }
 
 const packageName = configuredAndroidPackage();
+
+/**
+ * Resolve the APK path when installation is needed.
+ * Priority: CHORESCORE_APK_PATH env var > auto-locate under build outputs.
+ * Returns null when no APK is found (caller decides whether to throw).
+ */
+function resolveApkPath() {
+  const envPath = process.env.CHORESCORE_APK_PATH;
+  if (envPath && fs.existsSync(envPath)) return envPath;
+
+  // Auto-locate under standard build output directory
+  const buildDir = path.resolve('android', 'app', 'build', 'outputs', 'apk', 'release');
+  try {
+    const entries = fs.readdirSync(buildDir);
+    const apk = entries.find((f) => f.endsWith('.apk'));
+    if (apk) return path.join(buildDir, apk);
+  } catch (_) {
+    // build directory may not exist
+  }
+
+  return null;
+}
+
 const outputDir = process.env.CHORESCORE_E2E_OUTPUT || path.resolve('audit/android-e2e');
 const resultPath = path.join(outputDir, 'result.json');
 const checkpoints = [];
@@ -183,7 +204,7 @@ function writeResult(status, error = null) {
     schemaVersion: 1,
     status,
     packageName,
-    apkPath,
+    apkPath: process.env.CHORESCORE_APK_PATH || null,
     startedAt,
     finishedAt: new Date().toISOString(),
     checkpoints,
@@ -202,9 +223,17 @@ function launch() {
 // ══════════════════════════════════════════════════════════════
 
 try {
-  if (!apkPath || !fs.existsSync(apkPath)) throw new Error(`Unreadable CHORESCORE_APK_PATH: ${apkPath}`);
   if (!/device/.test(adb(['get-state']))) throw new Error('No adb device/emulator');
-  if (!shell('pm', 'list', 'packages', packageName).includes(packageName)) {
+
+  // Check if the package is already installed; only install when needed
+  const alreadyInstalled = shell('pm', 'list', 'packages', packageName).includes(packageName);
+  if (!alreadyInstalled) {
+    const apkPath = resolveApkPath();
+    if (!apkPath) {
+      throw new Error(
+        'Package not installed and no APK found. Set CHORESCORE_APK_PATH or build the release APK first.'
+      );
+    }
     adb(['install', '-r', apkPath]);
   }
 
