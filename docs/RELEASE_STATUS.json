@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "milestone": "v3-rc",
-  "lastCycle": "35216548572",
+  "lastCycle": "35223607868",
   "activeCriteria": [
     "V3-06"
   ],
@@ -66,50 +66,42 @@
   ],
   "openFindings": [
     {
-      "path": "src/infrastructure/repositories/InMemoryRepositories.ts / SqliteRepositories.ts / index.ts / src/domain/services/syncEngine.ts",
-      "problem": "Sync is not functional end-to-end. applyDeltas only INSERT OR REPLACE into the sync_records buffer table and never materializes pulled payloads into business tables (contribution_entries, expense_entries, settlements, todo_items, persistent_tasks, members, memberships, households), so remote changes never reach business data. Conversely storeLocalRecords has zero callers anywhere in src, so local writes never populate sync_records and getDirtyRecords is always empty: pushDeltas never sends anything. The V3-06 acceptance criteria 'persistance et conflits gérés' and 'sync delta-only après quelques changements' are therefore not met by the product, only by buffer-level tests.",
-      "evidence": "InMemoryRepositories.ts applyDeltas:569 / storeLocalRecords:603 / getDirtyRecords:624; SqliteRepositories.ts applyDeltas:1168 / storeLocalRecords:1197 / getDirtyRecords:1213; index.ts applyDeltas:142 / storeLocalRecords:144 / getDirtyRecords:146; syncEngine.ts pullDeltas:58 / pushDeltas:104 / syncHousehold:146. git grep shows no caller of storeLocalRecords outside repository definitions and tests.",
+      "path": "src/infrastructure/repositories/RepositoryFactory.ts (createSqliteRepositories) + src/infrastructure/repositories/SqliteRepositories.ts",
+      "problem": "The sync pipeline is wired only into the in-memory (test) path. The production SQLite path used on device returns plain SqliteSyncStateRepository and plain Sqlite business repositories: applyDeltas still only buffers pulled records into sync_records (cursor advances) and never materializes them into business tables, and local business writes never call storeLocalRecords, so pushDeltas has no payloads. This is the previous audit's must-fix finding #1, still unfixed for the production path. Additionally, even in the in-memory path only contributions/expenses/todos/settlements are wrapped: writes to persistent_tasks, members, memberships and households never record dirty records.",
+      "evidence": "RepositoryFactory.ts: createSqliteRepositories() constructs syncState: new SqliteSyncStateRepository() and plain Sqlite business repos with no MaterializingSyncState and no sync-recording wrappers; MaterializingSyncState + inline storeLocalRecords wrappers exist only in createInMemoryRepositories(); grep shows storeLocalRecords callers only in RepositoryFactory.ts (in-memory) and the unused SyncRecordingWrapper.ts; pullDeltas/pushDeltas/syncHousehold have zero callers in app/ or src/features; AppContext uses LocalSyncAdapter (honest no-op, isAvailable()===false).",
       "mustFix": true,
-      "requiredFix": "Wire the sync pipeline into the product: (a) applyDeltas must materialize each pulled record into its business table (or the sync layer must replay the payloads through the ledger/use-cases) inside a transaction, then advance the cursor; (b) every local business write must record its dirty record via storeLocalRecords (or equivalent) so pushDeltas has real payloads; (c) add an end-to-end test proving a remote delta changes business data and a local write is pushed, not just buffer/cursor mechanics.",
-      "verification": "Independent grep of all callers of storeLocalRecords/applyDeltas; read of both repository implementations and syncEngine; read of v3-06 test file (731 lines) confirming tests only assert buffer/cursor state."
+      "requiredFix": "Wire the same materialization + dirty-record recording into the SQLite path (e.g. SqliteSyncStateRepository.applyDeltas materializes into Sqlite business tables, and Sqlite business repos record dirty sync records after writes), covering all 8 SYNC_COLLECTIONS including persistent_tasks, members, memberships and households. Add a test that exercises the SQLite repository path (or a shared contract test run against both implementations) proving remote delta -> business record readable + local write -> getDirtyRecords payload.",
+      "verification": "Run the V3-06 e2e suites against the SQLite repository implementation (not only in-memory); assert applyDeltas on SqliteSyncStateRepository leaves the business row readable and a local Sqlite business write appears in getDirtyRecords."
     },
     {
-      "path": "app/ (no invitation screens) / app.json / src/application/ports/index.ts / src/domain/services/invitationService.ts",
-      "problem": "No invitation UI exists: there is no create-invitation screen, no share-sheet action, no accept screen and no deep-link route (app.json declares scheme 'chorescore' but no /join/:token route). The createInvitation port (ports/index.ts:130-131) and invitationService are only referenced by tests. The V3-06 criterion 'invitation create/share/accept testable' and the constitution §4 'parcours d'invitation réellement utilisable' are unmet.",
-      "evidence": "grep of app/ for invitation|Invitation|linkToken|join|Linking|deep.?link returns no invitation UI (only balances.tsx compensation references); app.json scheme 'chorescore' at line 9 with no routes; invitationService.ts createInvitation:76 / planInvitationAcceptance:130 have no UI callers.",
+      "path": "src/infrastructure/repositories/RepositoryFactory.ts (MaterializingSyncState.applyDeltas)",
+      "problem": "applyDeltas does not materialize inside a transaction and advances the cursor before materialization: inner.applyDeltas (which advances the cursor) runs first, then materializeDeltas runs outside any transaction. A failure during materialization leaves the cursor advanced with records present only in the sync_records buffer; the next pull will not re-fetch them, silently losing business data. This violates the criterion 'applyDeltas materializes pulled records into business tables inside a transaction, then advance the cursor'.",
+      "evidence": "MaterializingSyncState.applyDeltas: const applied = await this.inner.applyDeltas(householdId, collection, records); await materializeDeltas(repos, collection, records); return applied; - no withTransaction/withTransactionAsync wrapper around the pair; in-memory withTransaction snapshots only todoRepo and contributionRepo (RepositoryFactory.ts lines 257-266).",
       "mustFix": true,
-      "requiredFix": "Add a real invitation flow: an invite action in the group (share sheet with the link), a deep-link route (e.g. /join/:token) that resolves the invitation and accepts it atomically (membership + member), and an honest adapter behind the existing invitation port. Keep the flow free of any plan/entitlement gating.",
-      "verification": "Independent grep across app/ and src/ for invitation entry points; read of app.json and invitationService."
+      "requiredFix": "Wrap cursor advance + materialization in a single transaction (extend in-memory withTransaction snapshot coverage to all affected repos, and use withTransactionAsync on SQLite): materialize first, then advance the cursor, atomically; on failure roll back both so the delta is re-fetched on the next pull.",
+      "verification": "Add a test that injects a failing materialization (e.g. malformed/unsupported payload causing a repo error) and asserts the cursor did not advance and the business tables were not partially updated."
     },
     {
-      "path": "app/(tabs)/balances.tsx / app/ (no options screen) / src/domain/services/unitChangeService.ts",
-      "problem": "No group-options UI: the group unit (Minutes|Points) and the cross-ledger compensation toggle/rate are unreachable in-app. balances.tsx gates compensation on crossLedgerCompensationEnabled and tells the user to activate it 'dans les options du groupe', but no such options screen exists, so the V3-06 criterion 'options groupe Minutes|Points + compensation' and the constitution §8 compensation flow cannot be exercised by a user. unitChangeService.planUnitChange is only used in tests.",
-      "evidence": "balances.tsx canCompensate gate (~line 519) and dangling 'Activez-la dans les options du groupe' text (~line 835); grep of app/ for options|unitChange|compensation finds no options screen; unitChangeService.ts planUnitChange:47 has no UI caller.",
+      "path": "src/domain/services/authorizationRules.ts + src/infrastructure/repositories/*",
+      "problem": "Tenant isolation and balance integrity are still not enforced in the data-access path. requireHouseholdMembership, requireRole and assertLedgerWrite have zero callers outside authorizationRules.ts; repositories accept any householdId without any caller-membership context, so a cross-tenant read/write is not blocked at the repository or use-case level. The hostile tests exercise the pure functions directly, not the data-access path. This is the previous audit's must-fix finding #4, still unfixed.",
+      "evidence": "grep -rn 'requireHouseholdMembership|requireRole(|assertLedgerWrite' src/ excluding authorizationRules.ts returns nothing; repositories (InMemoryRepositories.ts, SqliteRepositories.ts) take no userId/membership parameter; hostile tests in v3-06-sync-e2e.test.ts call the rule functions directly rather than through repository reads/writes.",
       "mustFix": true,
-      "requiredFix": "Add a group-options screen reachable from the group (per constitution §3 'Options restent hors de la navigation principale') exposing: contribution unit Minutes|Points with explicit confirmation that historical entries keep their provenance/unit (no silent conversion), and the compensation toggle + group-defined rate. Wire it to unitChangeService and the household settings.",
-      "verification": "Independent grep of app/ for options/unit/compensation entry points; read of balances.tsx gate and unitChangeService."
+      "requiredFix": "Enforce membership scoping in the data-access path: repository or use-case layer must verify the caller's membership for every read/write (e.g. a scoped repository facade taking the caller userId and checking memberships before getByHousehold/create/update/delete), and ledger mutations must go through append/revision/tombstone with assertLedgerWrite-style validation. Hostile tests must prove a non-member read/write is rejected through the actual repository path.",
+      "verification": "Run hostile tests that call the repository path (not the pure functions) with a non-member caller and assert AuthorizationError(CROSS_TENANT) / BALANCE_FALSIFICATION is thrown."
     },
     {
-      "path": "src/domain/services/authorizationRules.ts / src/infrastructure/repositories/InMemoryRepositories.ts / SqliteRepositories.ts",
-      "problem": "Authorization rules are not enforced in any data-access path. requireHouseholdMembership/requireRole/assertLedgerWrite are only exercised by tests; no repository or use-case checks tenant membership before reads/writes, and nothing prevents balance falsification at the data layer. resolveConflict/resolveConflicts (authorizationRules.ts:127/143) are dead code: applyDeltas performs blind last-write-wins by (id, collection) without revision comparison, violating the constitution §9 and backend-frugal §9 requirement that accounting operations never be lost by blind LWW.",
-      "evidence": "authorizationRules.ts requireHouseholdMembership:42 / requireRole:65 / assertLedgerWrite:97 / resolveConflict:127 / resolveConflicts:143; git grep shows no production caller of these functions outside tests; applyDeltas in both repositories does INSERT OR REPLACE keyed by id only.",
+      "path": "src/infrastructure/sync/SyncMaterializer.ts + src/infrastructure/repositories/SqliteRepositories.ts",
+      "problem": "Conflict resolution is incomplete and still effectively blind in places. (1) materializeDeltas case 'households' does repos.households.update(record.id, incoming) with no resolveConflict. (2) For the other collections, resolveConflict is called with the local entity fabricated as { id, revision: 0, updatedAt: existing.occurredAt } - local revisions are never tracked, so any remote record with revision >= 1 always wins and a local offline edit of the same id is silently discarded (de facto blind last-write-wins for accounting operations). (3) The SQLite applyDeltas remains blind INSERT OR REPLACE into the buffer.",
+      "evidence": "SyncMaterializer.ts: case 'households': await repos.households.update(record.id, incoming); (no resolveConflict); resolveConflict calls pass revision: 0 for the local side (lines 134-203); SqliteSyncStateRepository.applyDeltas upserts sync_records by id without conflict resolution; the e2e conflict test exercises the pure resolveConflict function, not the materializer path.",
       "mustFix": true,
-      "requiredFix": "Enforce tenant isolation and balance integrity in the data-access path (repository or use-case level): every read/write scoped to the caller's memberships, ledger mutations only through append/revision/tombstone, and applyDeltas must use the deterministic revision/timestamp/id conflict resolution instead of blind overwrite. Add hostile tests (cross-tenant read blocked, balance falsification rejected, concurrent same-id edits resolved deterministically).",
-      "verification": "Independent grep of all callers of requireHouseholdMembership/requireRole/resolveConflict; read of authorizationRules.ts and both applyDeltas implementations."
-    },
-    {
-      "path": "__tests__/domain/v3-06-groups-invitations-sync.test.ts",
-      "problem": "The V3-06 test suite (731 lines) covers invitation lifecycle, unit change and delta-only cursor mechanics, but never proves that a pulled delta materializes into business data or that a local write is queued for push. The 'sync delta-only' and 'persistance et conflits gérés' criteria are therefore only verified at the buffer level, which is why the non-functional pipeline above passes the suite.",
-      "evidence": "Test file read: sync tests assert initial pull revision 0, cursor advance, and delta-only fetch ranges; no assertion reads back a business table (e.g. contribution_entries) after applyDeltas, and no test calls storeLocalRecords.",
-      "mustFix": true,
-      "requiredFix": "Add end-to-end sync tests: apply a remote delta and assert the business record is readable and balances are updated; create a local write and assert it appears in getDirtyRecords and is pushed; simulate a conflict and assert the deterministic resolver outcome. These tests must fail until the pipeline is wired.",
-      "verification": "Full read of the v3-06 test file; cross-check with repository implementations."
+      "requiredFix": "Track and persist the local revision of each synchronized entity (revision column on business tables or sync metadata), pass the real local revision to resolveConflict in the materializer, apply resolveConflict to households (and members/memberships) as well, and make the SQLite applyDeltas use the same deterministic revision/timestamp/id resolution instead of blind overwrite. Add a materializer-level test where the local revision is higher than the remote and assert the local version wins.",
+      "verification": "Run a materializer-level conflict test (local revision > remote revision on the same id) asserting the local entity is preserved, and a households delta test asserting a remote household update is resolved deterministically rather than blindly overwritten."
     }
   ],
   "factoryHealth": {
     "stalled": false,
     "consecutiveNoProgress": 0,
-    "lastProductSha": "7a07d54c6c81a95ffc56786278aa5ea4eaf9376a",
+    "lastProductSha": "b6221a4f06f05ac557813a33e52374a03c44e762",
     "reason": null
   }
 }

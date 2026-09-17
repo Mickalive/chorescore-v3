@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "cycle": "35223607868",
+  "decision": "continue",
+  "reason": "V3-06 repair. Candidate delta adds the invitation flow (app/invite.tsx, app/join/[token].tsx, deep-link scheme, route registration, Inviter/Options chips in index), group-options screen (app/group-options.tsx: Minutes|Points toggle with provenance warning, compensation toggle + rate), sync materialization in the in-memory path (MaterializingSyncState, inline storeLocalRecords wrappers for contributions/expenses/todos/settlements), e2e sync tests (v3-06-sync-e2e.test.ts), and extended hostile tests. Trusted verification exit 0 reproduced (17 suites / 260 tests, typecheck, Expo export, Android debug build). However four must-fix findings remain and are critical to the V3-06 acceptance: (1) sync pipeline is wired only into the in-memory (test) repository — the production SQLite path still buffers applyDeltas into sync_records without materializing into business tables and never records dirty records for pushDeltas; even in-memory, persistent_tasks/members/memberships/households writes never record dirty records; (2) applyDeltas is not transactional — cursor advances before materialization, so a materialization failure leaves data silently lost; (3) tenant isolation and balance-integrity rules (requireHouseholdMembership/requireRole/assertLedgerWrite) still have zero callers in the data-access path — repositories accept any householdId without caller-membership scoping; (4) conflict resolution is incomplete: households are blind-overwritten, local revisions are fabricated as 0 so remote always wins, and SQLite applyDeltas remains blind INSERT OR REPLACE. The invitation flow and group-options UI are correctly delivered and should be preserved. The WIP baseline is sound but the sync/auth/conflict core remains unwired in the production path.",
+  "progressEvidence": [
+    "v3-06-invitation-flow-delivered-invite.tsx-join/token.tsx-deep-link-route",
+    "v3-06-group-options-screen-delivered-minutes-points-toggle-compensation",
+    "v3-06-sync-materialization-in-memory-path-only",
+    "v3-06-e2e-sync-tests-and-hostile-tests-added",
+    "17-suites-260-tests-green",
+    "typecheck-clean",
+    "expo-export-android-prebuild-native-debug-BUILD-SUCCESSFUL",
+    "no-regression-V3-01-V3-05",
+    "no-chrono-no-premium-no-paywall-no-Firebase-types",
+    "WIP-baseline-preserved-for-repair",
+    "mustFix-1-sync-pipeline-not-wired-in-SQLite-production-path",
+    "mustFix-2-applyDeltas-not-transactional-cursor-before-materialization",
+    "mustFix-3-tenant-isolation-unenforced-in-data-access-path",
+    "mustFix-4-conflict-resolution-blind-households-local-revision-fabricated-0",
+    "next-cycle-V3-06-repair-sync-materialize-SQLite-transactional-auth-conflict-resolution"
+  ]
+}
