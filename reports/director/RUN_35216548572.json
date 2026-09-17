@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "cycle": "35216548572",
+  "decision": "continue",
+  "reason": "V3-06 repair. Candidate delta adds domain services (syncEngine, invitationService, unitChangeService, authorizationRules, costInstrumentation), sync state tables, and a 731-line test suite. Trusted verification exit 0 reproduced (typecheck, 237 tests / 16 suites green, Expo export Android, prebuild, native debug BUILD SUCCESSFUL). However, five must-fix findings remain: (1) sync pipeline is not functional end-to-end — applyDeltas only fills the sync_records buffer and never materializes into business tables; storeLocalRecords has zero callers so pushDeltas always sends nothing; (2) no invitation UI — no create/share/accept screen and no deep-link /join/:token route; (3) no group-options UI — unit Minutes|Points and cross-ledger compensation toggle unreachable in-app, dangling 'options du groupe' text in balances.tsx; (4) authorization rules are only exercised in tests, not enforced in any data-access path, and applyDeltas performs blind last-write-wins violating constitution §9 / backend-frugal §9; (5) tests assert buffer/cursor mechanics only, never business-table materialization. The existing domain services and cursor design are a sound WIP baseline; the next cycle must wire the sync pipeline end-to-end, add the two missing UI flows, enforce authorization in the data path, and extend tests to prove business-level effects.",
+  "progressEvidence": [
+    "v3-06-domain-services-syncEngine-invitationService-unitChangeService-authorizationRules-costInstrumentation",
+    "sync-state-tables-sync_cursors-sync_records-invitations-in-sqlite",
+    "delta-only-cursor-correct-in-principle",
+    "cost-instrumentation-COST_BUDGETS-tested",
+    "LocalSyncAdapter-honest-no-op",
+    "no-regression-V3-01-V3-05",
+    "237-tests-green-16-suites",
+    "typecheck-clean",
+    "expo-export-android-prebuild-native-debug-BUILD-SUCCESSFUL",
+    "no-chrono-no-premium-no-paywall",
+    "no-firebase-types-in-domain-application",
+    "WIP-baseline-preserved-for-repair",
+    "mustFix-1-sync-pipeline-not-wired-into-business-tables",
+    "mustFix-2-no-invitation-UI",
+    "mustFix-3-no-group-options-UI",
+    "mustFix-4-authorization-rules-unenforced-blind-LWW",
+    "mustFix-5-tests-only-assert-buffer-cursor-mechanics",
+    "next-cycle-V3-06-repair-sync-ui-authorization-tests"
+  ]
+}

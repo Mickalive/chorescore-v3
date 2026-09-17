@@ -4,20 +4,19 @@
   "builder": {
     "enabled": true,
     "criterionId": "V3-06",
-    "objective": "Implement V3-06 — Groupes, invitations, identité, sync et backend frugal. Multi-groupes illimités, identité stable, isolation tenant, options groupe Minutes|Points et compensation, invitation réelle par lien/partage/deep-link quand disponible, acceptation simple, persistance/sync/offline robustes. La sync est delta-only avec révisions/cursors par groupe, signal léger de changement si temps réel, opérations couplées atomiques, conflits multi-appareils déterministes et règles backend hostiles. Firebase/Firestore, s'il est retenu, reste un adapter.",
-    "scope": "Work only on V3-06 and directly necessary migrations/repairs. Preserve every completed V3 criterion.",
+    "objective": "REPAIR V3-06: Wire the sync pipeline into the product: (a) applyDeltas must materialize each pulled record into its business table (or the sync layer must replay the payloads through the ledger/use-cases) inside a transaction, then advance the cursor; (b) every local business write must record its dirty record via storeLocalRecords (or equivalent) so pushDeltas has real payloads; (c) add an end-to-end test proving a remote delta changes business data and a local write is pushed, not just buffer/cursor mechanics.; Add a real invitation flow: an invite action in the group (share sheet with the link), a deep-link route (e.g. /join/:token) that resolves the invitation and accepts it atomically (membership + member), and an honest adapter behind the existing invitation port. Keep the flow free of any plan/entitlement gating.; Add a group-options screen reachable from the group (per constitution §3 'Options restent hors de la navigation principale') exposing: contribution unit Minutes|Points with explicit confirmation that historical entries keep their provenance/unit (no silent conversion), and the compensation toggle + group-defined rate. Wire it to unitChangeService and the household settings.; Enforce tenant isolation and balance integrity in the data-access path (repository or use-case level): every read/write scoped to the caller's memberships, ledger mutations only through append/revision/tombstone, and applyDeltas must use the deterministic revision/timestamp/id conflict resolution instead of blind overwrite. Add hostile tests (cross-tenant read blocked, balance falsification rejected, concurrent same-id edits resolved deterministically).; Add end-to-end sync tests: apply a remote delta and assert the business record is readable and balances are updated; create a local write and assert it appears in getDirtyRecords and is pushed; simulate a conflict and assert the deterministic resolver outcome. These tests must fail until the pipeline is wired.",
+    "scope": "Repair only the audited must-fix findings on the preserved V3 baseline; do not rebuild accepted work.",
     "acceptance": [
-      "groupes illimités",
-      "invitation create/share/accept testable",
-      "identité stable et isolation groupe",
-      "changement d'unité ne réinterprète pas l'historique",
-      "persistance et conflits gérés",
-      "aucune restriction de plan",
-      "sync après quelques changements récupère seulement les deltas",
-      "aucun N+1 ni listener massif injustifié",
-      "aucun last-write-wins aveugle sur opérations comptables",
-      "règles backend empêchent lecture cross-tenant et falsification de balances",
-      "lectures/écritures distantes instrumentables et bornées"
+      "applyDeltas materializes pulled records into business tables (contribution_entries, expense_entries, settlements, todo_items, persistent_tasks, members, memberships, households) inside a transaction",
+      "storeLocalRecords has callers and getDirtyRecords returns real payloads; pushDeltas sends actual local writes",
+      "group-options UI reachable from group settings: unit toggle (Minutes|Points) with provenance warning, compensation toggle + rate",
+      "invitation UI: invite action with share sheet, /join/:token deep-link route, atomic acceptance (membership + member)",
+      "authorization rules enforced in data-access path: tenant isolation on reads/writes, deterministic conflict resolution replacing blind LWW in applyDeltas",
+      "hostile tests: cross-tenant read blocked, balance falsification rejected, concurrent same-id edits resolved deterministically",
+      "end-to-end sync tests: remote delta materializes into business data, local write appears in getDirtyRecords and is pushed",
+      "no N+1 or listener massif",
+      "lectures/écritures distantes instrumentables et bornées",
+      "no regression V3-01 through V3-05"
     ],
     "previousCriteriaPreserved": [
       "V3-01: accepted and must not regress",
