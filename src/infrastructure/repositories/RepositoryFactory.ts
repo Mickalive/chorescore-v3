@@ -359,6 +359,12 @@ function createInMemoryRepositories(): AllRepositories {
       // on any failure so a partial write can never survive.
       const contribSnap = contributionRepo.snapshot();
       const todoSnap = todoRepo.snapshot();
+      const expenseSnap = expenseRepo.snapshot();
+      const settlementSnap = settlementRepo.snapshot();
+      const taskSnap = taskRepo.snapshot();
+      const memberSnap = memberRepo.snapshot();
+      const membershipSnap = membershipRepo.snapshot();
+      const householdSnap = householdRepo.snapshot();
       // Snapshot base sync state (cursors + records)
       const syncCursorsSnap = baseSyncState.snapshotCursors();
       const syncRecordsSnap = baseSyncState.snapshotRecords();
@@ -367,6 +373,12 @@ function createInMemoryRepositories(): AllRepositories {
       } catch (err) {
         contributionRepo.restoreFromSnapshot(contribSnap);
         todoRepo.restoreFromSnapshot(todoSnap);
+        expenseRepo.restoreFromSnapshot(expenseSnap);
+        settlementRepo.restoreFromSnapshot(settlementSnap);
+        taskRepo.restoreFromSnapshot(taskSnap);
+        memberRepo.restoreFromSnapshot(memberSnap);
+        membershipRepo.restoreFromSnapshot(membershipSnap);
+        householdRepo.restoreFromSnapshot(householdSnap);
         baseSyncState.restoreCursors(syncCursorsSnap);
         baseSyncState.restoreRecords(syncRecordsSnap);
         throw err;

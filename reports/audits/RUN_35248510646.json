@@ -1,0 +1,81 @@
+{
+  "schemaVersion": 1,
+  "cycle": "35248510646",
+  "role": "builder",
+  "decision": "repair",
+  "summary": "Trusted verification failed (exit 2); candidate retained as WIP for repair. The candidate substantively addresses all six V3-06 repair findings: snapshot()/restoreFromSnapshot() were added to InMemoryExpenseEntryRepository, InMemorySettlementRepository, InMemoryPersistentTaskRepository, InMemoryMemberRepository, InMemoryMembershipRepository and InMemoryHouseholdRepository, and the in-memory withTransaction now snapshots/restores all eight business repos plus sync cursors/records; the failure-injection test was rewritten to inject a failing repo into the real repository set and assert every business table is unchanged; hostile tests now drive the use-case layer (completeTodoAtomic) plus sign-in/sign-out re-scoping; AppContext keeps rawReposRef and resets reposRef on signOut so each sign-in wraps exactly once from the raw set; join/[token].tsx uses rawRepos for invitation-authorized reads and membership creation; ScopedPersistentTaskRepository and ScopedInvitationRepository were added. However, trusted verification FAILED with exit code 2 (typecheck errors) and independent re-runs confirm the candidate is not green: (1) tsc reports 7 errors in __tests__/domain/v3-06-repair-sync-authorization.test.ts — ScopedContributionRepository/ScopedExpenseRepository are used at lines 637-745 but their import was removed, causing 7 runtime ReferenceError test failures; (2) the rewritten failure-injection test is itself broken — the injected failing repo is built with {...originalContributions} spread of a class instance, which loses prototype methods, so the materializer throws 'repos.contributions.getById is not a function' before the intended seed throw and the error-message assertion fails; (3) the new SQLite factory-wiring test passes the raw SqliteSyncStateRepository to pullDeltas instead of a MaterializingSyncState wrapping it (as the factory does), so the remote delta is never materialized into the business table and the 'entry not null' assertion fails. Full suite: 9 failed / 311 passed; the only failing suites are the two candidate-modified suites; all V3-01..V3-05 suites pass. Decision: repair, preserving this coherent baseline.",
+  "checks": [
+    "Trusted verification log reports/audits/TRUSTED_35248510646.md: exit code 2 — tsc --noEmit fails with 7 TS2304 errors (ScopedContributionRepository/ScopedExpenseRepository not found) in __tests__/domain/v3-06-repair-sync-authorization.test.ts; a nonzero trusted exit code is a mandatory mustFix and the decision MUST NOT be accept",
+    "Independent re-run: npx tsc --noEmit reproduces the same 7 errors at lines 637, 652, 672, 687, 707, 724, 745",
+    "Independent re-run: npx jest — 9 failed / 311 passed; failing suites are exactly the two candidate-modified suites (v3-06-repair-sync-authorization.test.ts: 8 failures; repositories.test.ts: 1 failure); all 16 other suites pass, including V3-01..V3-05",
+    "Candidate diff reviewed (7 files, +716/-94 staged) against pristine accepted tree (clean at f50d13a)",
+    "withTransaction snapshot/restore now covers all 8 business repos + sync cursors/records (RepositoryFactory.ts lines 356-387); snapshot()/restoreFromSnapshot() added to the 6 required in-memory repos with deep copies of nested arrays/objects (InMemoryRepositories.ts)",
+    "Failure-injection test rewritten to mutate repos.contributions in the real repository set and call pullDeltas on the production MaterializingSyncState (getRepos closure captures repos by reference) — but the injection technique {...originalContributions} drops prototype methods, so the test fails (see finding)",
+    "Hostile tests via use-case layer: completeTodoAtomic through scoped repos — member succeeds, non-member blocked with AuthorizationError, failed completion rolls back todo+contribution (all pass)",
+    "Sign-in/sign-out re-scoping: AppContext keeps rawReposRef, signIn wraps from rawReposRef.current, signOut resets reposRef to rawReposRef.current; test proves user B can read B's own group and is blocked from A's group after A signs out (passes)",
+    "Invitation-acceptance path: join/[token].tsx resolves invitation, reads household and memberships, and creates membership+member+invitation status via rawRepos inside withTransaction (invitation-authorized); scoped repos would have thrown CROSS_TENANT before membership existed",
+    "ScopedPersistentTaskRepository (membership check on getByHousehold/getById/create/delete) and ScopedInvitationRepository (getByHousehold requires membership, create requires OWNER, token-based getByLinkToken/getById invitation-authorized) added and wired into createScopedRepositories; hostile tests for tasks/invitations pass",
+    "SQLite factory-wiring test added but broken: it passes the raw SqliteSyncStateRepository to pullDeltas instead of a MaterializingSyncState, so the remote delta never materializes into the business table (see finding)",
+    "No regression in V3-01..V3-05 suites; cost instrumentation budgets still present (sync-delta <= 8 reads / 8 writes / 2 network calls; tab-switch 0 network calls)",
+    "Non-blocking observations: rawRepos is exposed on AppContext to all screens (only join flow consumes it); InMemoryInvitationRepository is not snapshotted in withTransaction so an invitation status change survives a rollback in the join transaction; ScopedInvitationRepository.getPendingByEmail is unscoped (latent, unused in the app path)",
+    "trusted verification: FAIL exit 2; see reports/audits/TRUSTED_35248510646.md"
+  ],
+  "findings": [
+    {
+      "path": "__tests__/domain/v3-06-repair-sync-authorization.test.ts (import block lines 20-23; usages at lines 637, 652, 672, 687, 707, 724, 745)",
+      "problem": "The candidate removed ScopedContributionRepository and ScopedExpenseRepository from the import statement but the test body still instantiates them directly (new ScopedContributionRepository(...) / new ScopedExpenseRepository(...)) in the 'authorization enforced through repository path' describe block. This breaks the typecheck (trusted verification exit code 2) and causes 7 runtime test failures with ReferenceError: ScopedContributionRepository is not defined. The classes are still exported from ScopedRepositoryFacade.ts, so only the import is missing.",
+      "evidence": "Trusted log TRUSTED_35248510646.md: 'error TS2304: Cannot find name ScopedContributionRepository' x5 and 'ScopedExpenseRepository' x2. Independent npx tsc --noEmit reproduces the same 7 errors. Independent npx jest: 7 tests in 'V3-06 REPAIR: authorization enforced through repository path' fail with 'ReferenceError: ScopedContributionRepository is not defined'.",
+      "mustFix": true,
+      "requiredFix": "Restore the import of ScopedContributionRepository and ScopedExpenseRepository from '../../src/infrastructure/repositories/ScopedRepositoryFacade' (or rewrite the 7 tests to use createScopedRepositories). Then re-run tsc and the full jest suite.",
+      "verification": "npx tsc --noEmit exits 0 and npx jest passes the 'authorization enforced through repository path' describe block."
+    },
+    {
+      "path": "__tests__/domain/v3-06-repair-sync-authorization.test.ts (Finding #1 failure-injection test, lines 972-978 and assertion at 1013)",
+      "problem": "The rewritten failure-injection test injects a failing repo built as {...originalContributions, seed: throw, create: throw}. originalContributions is a SyncRecordingContributionRepository class instance; spreading a class instance copies only own enumerable fields (inner, syncState) and loses all prototype methods (getById, getByHousehold, ...). The production MaterializingSyncState.applyDeltas -> materializeDeltas -> upsertWithConflictResolution calls repos.contributions.getById(record.id) BEFORE seed, so the actual error is 'repos.contributions.getById is not a function' instead of the intended 'Simulated materialization failure'. The assertion expect(caughtError.message).toContain('Simulated materialization failure') fails, so the test does not prove the intended scenario (a repo error during materialization rolling back cursor + all business tables).",
+      "evidence": "Independent npx jest: 'repo error during materialization does NOT advance cursor and does NOT partially update ANY business table' fails — 'Expected substring: Simulated materialization failure / Received string: repos.contributions.getById is not a function'. SyncMaterializer.ts line 213 calls repos.contributions.getById(record.id) before seed at line 219.",
+      "mustFix": true,
+      "requiredFix": "Inject the failing repo while preserving the prototype chain, e.g. const failing = Object.create(originalContributions); failing.seed = () => { throw new Error('Simulated materialization failure'); }; failing.create = async () => { throw new Error('Simulated materialization failure'); }; (or a Proxy), then assign (repos as any).contributions = failing before pullDeltas and restore afterwards. Keep the assertions that the cursor did not advance and every business table is unchanged.",
+      "verification": "The test passes with the intended 'Simulated materialization failure' error and still asserts cursor <= 1 and all 7 business tables unchanged after rollback."
+    },
+    {
+      "path": "__tests__/infrastructure/repositories.test.ts (V3-06 REPAIR Finding #5 describe block, lines 1013-1105; pull call at line 1064, assertion at line 1075)",
+      "problem": "The new SQLite factory-wiring test does not wire the repos 'exactly as the factory does'. It constructs raw SQLite repos + SyncRecording wrappers but passes the raw SqliteSyncStateRepository (baseSyncState) directly to pullDeltas instead of wrapping it in a MaterializingSyncState as the factory does (RepositoryFactory.ts lines 441-442: materializingSync = new MaterializingSyncState(baseSyncState, () => repos)). The raw SqliteSyncStateRepository.applyDeltas is buffer-only (SqliteRepositories.ts lines 1168-1201: writes sync_records, never materializes into business tables), so the remote delta never becomes a readable business record and the assertion expect(entry).not.toBeNull() fails.",
+      "evidence": "Independent npx jest: 'factory-wired SQLite repos: remote delta materializes into business table' fails at line 1075 (entry is null). Test line 1064: 'await pull(baseSyncState, HH, ...)' — baseSyncState is a raw SqliteSyncStateRepository, not a MaterializingSyncState. The objective explicitly requires 'raw SQLite repos + SyncRecording* wrappers + MaterializingSyncState' or an exported testable factory path.",
+      "mustFix": true,
+      "requiredFix": "Wrap baseSyncState in a MaterializingSyncState (export the class from RepositoryFactory or replicate the factory wiring in the test) and pass that wrapped sync state to pullDeltas, so applyDeltas materializes the remote delta into the business table. Keep the assertions: remote delta -> business record readable; local write via wrapped repo -> getDirtyRecords returns the payload; pushDeltas sends it.",
+      "verification": "The test passes with entry.label === 'Remote via factory' and entry.value === 30, and the local-write/push assertions still hold."
+    },
+    {
+      "path": "src/features/app/AppContext.tsx (rawRepos exposure, lines 64-66 and 254)",
+      "problem": "The raw unscoped repository set is exposed to every screen through useApp().rawRepos. Only the join flow legitimately needs invitation-authorized access; exposing the raw set on the shared context broadens the bypass surface so any screen (current or future) can accidentally read/write across tenants without membership checks. The objective permits 'invitation-token-scoped read + membership creation authorized by the invitation, or a dedicated join use-case'; a dedicated join use-case would be tighter than a context-wide raw escape hatch.",
+      "evidence": "AppContext.tsx lines 64-66 document rawRepos as 'used ONLY for invitation-authorized operations'; join/[token].tsx is the only consumer today. The scoped repos remain the default for all screens.",
+      "mustFix": false,
+      "requiredFix": "Optional hardening: replace the context-wide rawRepos with a dedicated join use-case (e.g. acceptInvitation(token, user) that internally uses the raw repos) so the raw set is not reachable from arbitrary screens.",
+      "verification": "No screen other than the join flow can reach raw unscoped repositories."
+    },
+    {
+      "path": "src/infrastructure/repositories/RepositoryFactory.ts (createInMemoryRepositories.withTransaction, lines 356-387) / src/infrastructure/repositories/InMemoryRepositories.ts (InMemoryInvitationRepository)",
+      "problem": "The in-memory withTransaction snapshots/restores the 8 business repos listed in the objective plus sync cursors/records, but InMemoryInvitationRepository is not snapshotted. The join flow runs rawRepos.withTransaction over memberships.create + members.create + invitations.updateStatus; if a later step throws, membership and member are rolled back but the invitation status change survives — a partial write in a business table after a failed transaction. This is outside the objective's explicit repo list but conflicts with the stated purpose 'so any throw rolls back every business table'.",
+      "evidence": "RepositoryFactory.ts lines 360-367 snapshot contribution/todo/expense/settlement/task/member/membership/household repos only; invitationRepo is absent. join/[token].tsx lines 130-142 wrap memberships.create, members.create and invitations.updateStatus in rawRepos.withTransaction.",
+      "mustFix": false,
+      "requiredFix": "Optional: add snapshot()/restoreFromSnapshot() to InMemoryInvitationRepository and include it in the withTransaction snapshot/restore set so the join transaction is fully atomic.",
+      "verification": "A failure-injection test on the join transaction asserts the invitation status is unchanged after a throw."
+    },
+    {
+      "path": "src/infrastructure/repositories/ScopedRepositoryFacade.ts (ScopedInvitationRepository.getPendingByEmail, lines 615-617)",
+      "problem": "getPendingByEmail passes through unscoped: any caller can query invitations for any email address, and the returned Invitation entities include the linkToken (a capability to join the household). No app screen calls it today, so this is a latent leak rather than an active one, but the scoped facade should not expose it without an authorization check.",
+      "evidence": "ScopedRepositoryFacade.ts lines 615-617: 'async getPendingByEmail(email: string): Promise<Invitation[]> { return this.inner.getPendingByEmail(email); }'. Invitation entity includes linkToken (invitationService.ts line 88). No callers found in app/ or src/ outside repository definitions.",
+      "mustFix": false,
+      "requiredFix": "Optional: require the caller to be a member of each invitation's household (filter after membership check) or remove the method from the scoped facade until a legitimate caller exists.",
+      "verification": "A hostile test calling scoped.invitations.getPendingByEmail for another user's email is blocked or returns only invitations for households the caller belongs to."
+    },
+    {
+      "path": ".",
+      "problem": "Trusted product verification failed",
+      "evidence": "Authoritative verification log: reports/audits/TRUSTED_35248510646.md (exit 2)",
+      "mustFix": true,
+      "requiredFix": "Resolve the concrete failing trusted check without discarding already-correct candidate work, then rerun the full gate.",
+      "verification": "Full trusted V3 verification must return exit code 0."
+    }
+  ]
+}

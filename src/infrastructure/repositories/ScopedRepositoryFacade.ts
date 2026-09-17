@@ -77,11 +77,11 @@ export function createScopedRepositories(
     households: new ScopedHouseholdRepository(repos.households, callerUserId, repos.memberships),
     members: new ScopedMemberRepository(repos.members, callerUserId, repos.memberships),
     memberships: new ScopedMembershipRepository(repos.memberships, callerUserId),
-    // users, invitations, syncState, tasks stay unscoped:
+    tasks: new ScopedPersistentTaskRepository(repos.tasks, callerUserId, repos.memberships),
+    invitations: new ScopedInvitationRepository(repos.invitations, callerUserId, repos.memberships),
+    // users, syncState stay unscoped:
     //   - users: global, not household-scoped
-    //   - invitations: system-level lifecycle (create is OWNER-gated via memberships)
     //   - syncState: internal sync machinery
-    //   - tasks: persistent task templates, read via household-scoped queries in repos.tasks
   };
 }
 
@@ -523,5 +523,111 @@ export class ScopedMembershipRepository implements MembershipRepository {
     // For delete, we need to look up by id — this is a special case
     // In practice, membership deletion is rare and handled by the system
     return this.inner.delete(id);
+  }
+}
+
+/**
+ * Authorization-enforcing facade for a persistent task repository.
+ * V3-06 REPAIR Finding #6: membership check on getByHousehold/create/delete.
+ */
+export class ScopedPersistentTaskRepository implements PersistentTaskRepository {
+  constructor(
+    private inner: PersistentTaskRepository,
+    private callerUserId: string,
+    private membershipRepo: MembershipRepository,
+  ) {}
+
+  private async checkMembership(householdId: string): Promise<void> {
+    const memberships = await this.membershipRepo.getByHousehold(householdId);
+    requireHouseholdMembership(this.callerUserId, householdId, memberships);
+  }
+
+  seed(items: PersistentTask[]): void { this.inner.seed(items); }
+
+  async getByHousehold(householdId: string): Promise<PersistentTask[]> {
+    await this.checkMembership(householdId);
+    return this.inner.getByHousehold(householdId);
+  }
+
+  async getById(id: string): Promise<PersistentTask | null> {
+    const task = await this.inner.getById(id);
+    if (task) {
+      await this.checkMembership(task.householdId);
+    }
+    return task;
+  }
+
+  async create(task: Omit<PersistentTask, 'id' | 'createdAt'>): Promise<PersistentTask> {
+    await this.checkMembership(task.householdId);
+    return this.inner.create(task);
+  }
+
+  async delete(id: string): Promise<void> {
+    const existing = await this.inner.getById(id);
+    if (existing) {
+      await this.checkMembership(existing.householdId);
+    }
+    return this.inner.delete(id);
+  }
+}
+
+/**
+ * Authorization-enforcing facade for an invitation repository.
+ * V3-06 REPAIR Finding #6: getByHousehold requires membership;
+ * token-based getByLinkToken/getById remain invitation-authorized (anyone with the token can resolve).
+ * create requires OWNER role.
+ */
+export class ScopedInvitationRepository implements InvitationRepository {
+  constructor(
+    private inner: InvitationRepository,
+    private callerUserId: string,
+    private membershipRepo: MembershipRepository,
+  ) {}
+
+  private async checkMembership(householdId: string): Promise<void> {
+    const memberships = await this.membershipRepo.getByHousehold(householdId);
+    requireHouseholdMembership(this.callerUserId, householdId, memberships);
+  }
+
+  private async checkOwner(householdId: string): Promise<void> {
+    const memberships = await this.membershipRepo.getByHousehold(householdId);
+    requireRole(this.callerUserId, householdId, memberships, 'OWNER');
+  }
+
+  seed(items: Invitation[]): void { this.inner.seed(items); }
+
+  /** Token-based lookup: anyone with the token can resolve it (invitation-authorized). */
+  async getById(id: string): Promise<Invitation | null> {
+    return this.inner.getById(id);
+  }
+
+  /** Token-based lookup: anyone with the token can resolve it (invitation-authorized). */
+  async getByLinkToken(token: string): Promise<Invitation | null> {
+    return this.inner.getByLinkToken(token);
+  }
+
+  /** Household-scoped: requires membership. */
+  async getByHousehold(householdId: string): Promise<Invitation[]> {
+    await this.checkMembership(householdId);
+    return this.inner.getByHousehold(householdId);
+  }
+
+  async getPendingByEmail(email: string): Promise<Invitation[]> {
+    return this.inner.getPendingByEmail(email);
+  }
+
+  /** Create requires OWNER role in the target household. */
+  async create(data: Omit<Invitation, 'id' | 'createdAt'>): Promise<Invitation> {
+    await this.checkOwner(data.householdId);
+    return this.inner.create(data);
+  }
+
+  /** Update status requires membership. */
+  async updateStatus(id: string, status: Invitation['status']): Promise<Invitation> {
+    const existing = await this.inner.getById(id);
+    if (existing) {
+      await this.checkMembership(existing.householdId);
+    }
+    return this.inner.updateStatus(id, status);
   }
 }

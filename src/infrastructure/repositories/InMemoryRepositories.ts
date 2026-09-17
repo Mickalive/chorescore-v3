@@ -89,6 +89,18 @@ export class InMemoryUserRepository implements UserRepository {
 export class InMemoryMembershipRepository implements MembershipRepository {
   private items = new Map<string, Membership>();
 
+  /** Snapshot internal state for transactional rollback. */
+  snapshot(): Map<string, Membership> {
+    return new Map(
+      Array.from(this.items.entries()).map(([k, v]) => [k, { ...v }]),
+    );
+  }
+
+  /** Restore from a snapshot taken before a transaction. */
+  restoreFromSnapshot(snap: Map<string, Membership>): void {
+    this.items = new Map(snap);
+  }
+
   seed(memberships: Membership[]): void {
     for (const m of memberships) {
       this.items.set(m.id, { ...m });
@@ -127,6 +139,18 @@ export class InMemoryMembershipRepository implements MembershipRepository {
 
 export class InMemoryHouseholdRepository implements HouseholdRepository {
   private items = new Map<string, Household>();
+
+  /** Snapshot internal state for transactional rollback. */
+  snapshot(): Map<string, Household> {
+    return new Map(
+      Array.from(this.items.entries()).map(([k, v]) => [k, { ...v }]),
+    );
+  }
+
+  /** Restore from a snapshot taken before a transaction. */
+  restoreFromSnapshot(snap: Map<string, Household>): void {
+    this.items = new Map(snap);
+  }
 
   seed(households: Household[]): void {
     for (const h of households) {
@@ -167,6 +191,18 @@ export class InMemoryHouseholdRepository implements HouseholdRepository {
 
 export class InMemoryMemberRepository implements MemberRepository {
   private items = new Map<string, Member>();
+
+  /** Snapshot internal state for transactional rollback. */
+  snapshot(): Map<string, Member> {
+    return new Map(
+      Array.from(this.items.entries()).map(([k, v]) => [k, { ...v }]),
+    );
+  }
+
+  /** Restore from a snapshot taken before a transaction. */
+  restoreFromSnapshot(snap: Map<string, Member>): void {
+    this.items = new Map(snap);
+  }
 
   seed(members: Member[]): void {
     for (const m of members) {
@@ -283,6 +319,26 @@ export class InMemoryContributionEntryRepository implements ContributionEntryRep
 export class InMemoryPersistentTaskRepository implements PersistentTaskRepository {
   private items = new Map<string, PersistentTask>();
 
+  /** Snapshot internal state for transactional rollback. */
+  snapshot(): Map<string, PersistentTask> {
+    return new Map(
+      Array.from(this.items.entries()).map(([k, v]) => [
+        k,
+        {
+          ...v,
+          defaultBeneficiaryMemberIds: v.defaultBeneficiaryMemberIds
+            ? [...v.defaultBeneficiaryMemberIds]
+            : undefined,
+        },
+      ]),
+    );
+  }
+
+  /** Restore from a snapshot taken before a transaction. */
+  restoreFromSnapshot(snap: Map<string, PersistentTask>): void {
+    this.items = new Map(snap);
+  }
+
   seed(tasks: PersistentTask[]): void {
     for (const t of tasks) {
       this.items.set(t.id, { ...t });
@@ -370,6 +426,25 @@ export class InMemoryTodoRepository implements TodoRepository {
 export class InMemoryExpenseEntryRepository implements ExpenseEntryRepository {
   private items = new Map<string, ExpenseEntry>();
 
+  /** Snapshot internal state for transactional rollback. */
+  snapshot(): Map<string, ExpenseEntry> {
+    return new Map(
+      Array.from(this.items.entries()).map(([k, v]) => [
+        k,
+        {
+          ...v,
+          participantMemberIds: [...v.participantMemberIds],
+          customShares: v.customShares ? v.customShares.map((s) => ({ ...s })) : undefined,
+        },
+      ]),
+    );
+  }
+
+  /** Restore from a snapshot taken before a transaction. */
+  restoreFromSnapshot(snap: Map<string, ExpenseEntry>): void {
+    this.items = new Map(snap);
+  }
+
   seed(entries: ExpenseEntry[]): void {
     for (const e of entries) {
       this.items.set(e.id, { ...e });
@@ -440,6 +515,21 @@ export class InMemoryExpenseEntryRepository implements ExpenseEntryRepository {
 
 export class InMemorySettlementRepository implements SettlementRepository {
   private items = new Map<string, CrossLedgerSettlement>();
+
+  /** Snapshot internal state for transactional rollback. */
+  snapshot(): Map<string, CrossLedgerSettlement> {
+    return new Map(
+      Array.from(this.items.entries()).map(([k, v]) => [
+        k,
+        { ...v, rateSnapshot: { ...v.rateSnapshot } },
+      ]),
+    );
+  }
+
+  /** Restore from a snapshot taken before a transaction. */
+  restoreFromSnapshot(snap: Map<string, CrossLedgerSettlement>): void {
+    this.items = new Map(snap);
+  }
 
   seed(settlements: CrossLedgerSettlement[]): void {
     for (const s of settlements) {

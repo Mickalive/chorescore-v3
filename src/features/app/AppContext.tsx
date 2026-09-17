@@ -58,8 +58,12 @@ interface AppState {
   // Members
   getMembersForHousehold: (householdId: string) => Promise<Member[]>;
 
-  // Repositories (exposed for screens)
+  // Repositories (exposed for screens — scoped to current user)
   repos: AllRepositories;
+
+  /** Raw unscoped repos — used ONLY for invitation-authorized operations
+   *  (token-based reads + membership creation during join flow). */
+  rawRepos: AllRepositories;
 
   // Data-change signals (lightweight pub/sub for cross-tab delta refresh)
   emitDataChange: (type: DataChangeType, householdId: string) => void;
@@ -93,7 +97,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // Start with a real (in-memory) repository set so screens always receive a
   // working provider; it is replaced by the SQLite-backed set once ready.
   // No business data is written before readiness because sign-in is gated.
-  const reposRef = useRef<AllRepositories>(createInMemoryRepositories());
+  const rawReposRef = useRef<AllRepositories>(createInMemoryRepositories());
+  const reposRef = useRef<AllRepositories>(rawReposRef.current);
   const reposReadyPromiseRef = useRef<Promise<void> | null>(null);
 
   // Initialize repositories asynchronously — SQLite on device, in-memory for tests.
@@ -102,6 +107,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (!reposReadyPromiseRef.current) {
       reposReadyPromiseRef.current = (async () => {
         const repos = await createRepositories();
+        rawReposRef.current = repos;
         reposRef.current = repos;
         setReposReady(true);
       })();
@@ -184,9 +190,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     await ensureReposReady();
     const user = await servicesRef.current.auth.signInWithEmail(email, _password);
     if (user) {
-      // V3-06 REPAIR: Wrap repos with scoped facades so every read/write
-      // verifies membership and ledger mutations go through validation.
-      reposRef.current = createScopedRepositories(reposRef.current, user.userId);
+      // V3-06 REPAIR: Always wrap from the RAW repos, never from an
+      // already-scoped set. This prevents stale callerUserId from a
+      // previous session leaking into the new session's scope.
+      reposRef.current = createScopedRepositories(rawReposRef.current, user.userId);
       await ensureDemoFixture(reposRef.current, user);
       setCurrentHouseholdId(DEMO_HOUSEHOLD_ID);
       await loadHouseholds(user.userId);
@@ -195,6 +202,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const signOut = useCallback(async () => {
     await servicesRef.current.auth.signOut();
+    // V3-06 REPAIR: Reset scoped repos to raw repos so the next signIn
+    // wraps from the unscoped set, not from the previous user's scoped set.
+    reposRef.current = rawReposRef.current;
     setHouseholds([]);
     setCurrentHouseholdId(null);
   }, []);
@@ -241,6 +251,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     loadHouseholds,
     getMembersForHousehold,
     repos: reposRef.current,
+    rawRepos: rawReposRef.current,
     emitDataChange,
     subscribeToDataChanges,
     services: {

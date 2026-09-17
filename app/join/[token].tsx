@@ -36,7 +36,7 @@ type JoinStatus = 'loading' | 'ready' | 'accepting' | 'accepted' | 'error';
 export default function JoinScreen() {
   const { token } = useLocalSearchParams<{ token: string }>();
   const router = useRouter();
-  const { currentUser, repos, signIn } = useApp();
+  const { currentUser, repos, rawRepos, signIn } = useApp();
 
   const [status, setStatus] = useState<JoinStatus>('loading');
   const [errorMessage, setErrorMessage] = useState('');
@@ -50,14 +50,19 @@ export default function JoinScreen() {
     }
 
     try {
-      const invitation = await repos.invitations.getByLinkToken(token as string);
+      // V3-06 REPAIR: Use rawRepos for invitation resolution. The join flow
+      // requires reading the household and existing memberships BEFORE the
+      // user is a member, so scoped repos would reject with CROSS_TENANT.
+      // Token-based invitation lookups are invitation-authorized (anyone with
+      // the token can resolve).
+      const invitation = await rawRepos.invitations.getByLinkToken(token as string);
       if (!invitation) {
         setStatus('error');
         setErrorMessage('Invitation introuvable ou invalide.');
         return;
       }
 
-      const household = await repos.households.getById(invitation.householdId);
+      const household = await rawRepos.households.getById(invitation.householdId);
       if (!household) {
         setStatus('error');
         setErrorMessage('Groupe introuvable.');
@@ -73,8 +78,8 @@ export default function JoinScreen() {
         return;
       }
 
-      // Validate acceptance
-      const existingMemberships = await repos.memberships.getByHousehold(invitation.householdId);
+      // Validate acceptance using raw repos (user is not yet a member)
+      const existingMemberships = await rawRepos.memberships.getByHousehold(invitation.householdId);
       try {
         validateAcceptInvitation(invitation, household, existingMemberships, currentUser.userId);
       } catch (err) {
@@ -89,7 +94,7 @@ export default function JoinScreen() {
       setStatus('error');
       setErrorMessage('Erreur lors de la verification de l\'invitation.');
     }
-  }, [token, repos, currentUser]);
+  }, [token, rawRepos, currentUser]);
 
   useEffect(() => {
     resolveInvitation();
@@ -100,14 +105,18 @@ export default function JoinScreen() {
     setStatus('accepting');
 
     try {
-      const invitation = await repos.invitations.getByLinkToken(token as string);
+      // V3-06 REPAIR: Use rawRepos for the entire join flow. The user is
+      // not yet a member of the household, so scoped repos would reject
+      // all operations with CROSS_TENANT. Token-based invitation access
+      // and membership creation are invitation-authorized.
+      const invitation = await rawRepos.invitations.getByLinkToken(token as string);
       if (!invitation) {
         setStatus('error');
         setErrorMessage('Invitation introuvable.');
         return;
       }
 
-      const household = await repos.households.getById(invitation.householdId);
+      const household = await rawRepos.households.getById(invitation.householdId);
       if (!household) {
         setStatus('error');
         setErrorMessage('Groupe introuvable.');
@@ -117,19 +126,19 @@ export default function JoinScreen() {
       // Plan the atomic membership + member creation
       const result = planInvitationAcceptance(invitation, currentUser.userId, currentUser.displayName);
 
-      // Execute atomically in a transaction
-      await repos.withTransaction(async () => {
-        await repos.memberships.create({
+      // Execute atomically in a transaction (using rawRepos for invitation-authorized writes)
+      await rawRepos.withTransaction(async () => {
+        await rawRepos.memberships.create({
           userId: result.membership.userId,
           householdId: result.membership.householdId,
           role: result.membership.role,
         });
-        await repos.members.create({
+        await rawRepos.members.create({
           householdId: result.member.householdId,
           name: result.member.name,
           userId: result.member.userId,
         });
-        await repos.invitations.updateStatus(invitation.id, 'accepted');
+        await rawRepos.invitations.updateStatus(invitation.id, 'accepted');
       });
 
       setStatus('accepted');

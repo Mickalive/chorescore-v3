@@ -19,15 +19,6 @@
 
 import { createInMemoryRepositories, resetSyncRevisions, AllRepositories } from '../../src/infrastructure/repositories/RepositoryFactory';
 import {
-  InMemorySyncStateRepository,
-} from '../../src/infrastructure/repositories/InMemoryRepositories';
-import {
-  ScopedContributionRepository,
-  ScopedExpenseRepository,
-  ScopedTodoRepository,
-  ScopedSettlementRepository,
-  ScopedHouseholdRepository,
-  ScopedMemberRepository,
   createScopedRepositories,
 } from '../../src/infrastructure/repositories/ScopedRepositoryFacade';
 import {
@@ -42,6 +33,9 @@ import {
   SyncRecord,
   SyncCollection,
 } from '../../src/domain/entities';
+import {
+  createInvitation,
+} from '../../src/domain/services/invitationService';
 import {
   pullDeltas,
   pushDeltas,
@@ -909,9 +903,11 @@ describe('V3-06 REPAIR: full sync e2e', () => {
 
 // ══════════════════════════════════════════════════════════════
 // 9. FINDING #1: Failure injection — cursor + materialization atomic
+//    V3-06 REPAIR Finding #2: Uses the PRODUCTION MaterializingSyncState
+//    and injects a failing repo into the real repository set.
 // ══════════════════════════════════════════════════════════════
 
-describe('V3-06 REPAIR Finding #1: failing materialization rolls back cursor', () => {
+describe('V3-06 REPAIR Finding #1: failing materialization rolls back cursor AND all business tables', () => {
   let repos: AllRepositories;
 
   beforeEach(() => {
@@ -919,11 +915,42 @@ describe('V3-06 REPAIR Finding #1: failing materialization rolls back cursor', (
     repos = createInMemoryRepositories();
   });
 
-  test('repo error during materialization does NOT advance cursor and does NOT partially update business tables', async () => {
+  test('repo error during materialization does NOT advance cursor and does NOT partially update ANY business table', async () => {
     await repos.households.seed([household()]);
     await repos.members.seed([member('m-a'), member('m-b')]);
 
-    // Apply a valid record first to set the cursor at revision 1
+    // Seed data into multiple business tables so we can verify rollback across ALL of them.
+    await repos.expenses.create({
+      householdId: HH, title: 'Existing expense', amountMinor: 1000,
+      currency: 'CHF', paidByMemberId: 'm-a', participantMemberIds: ['m-a'],
+      splitMode: 'equal', occurredAt: '2026-09-16T09:00:00.000Z', createdBy: 'user-a',
+    });
+    await repos.settlements.create({
+      householdId: HH, contributionCreditorMemberId: 'm-a',
+      counterpartyMemberId: 'm-b', contributionValue: 10,
+      contributionUnit: 'minutes', moneyAmountMinor: 500, currency: 'CHF',
+      rateSnapshot: { contributionValue: 60, contributionUnit: 'minutes', moneyAmountMinor: 2000, currency: 'CHF' },
+      occurredAt: '2026-09-16T09:00:00.000Z', createdBy: 'user-a',
+    });
+    await repos.todos.create({
+      householdId: HH, title: 'Existing todo', assigneeMemberId: 'm-a',
+      beneficiaryMemberIds: ['m-a'], dueAt: null, reminderAt: null,
+      notes: '', persistentTaskId: null, status: 'todo',
+    });
+    await repos.tasks.create({
+      householdId: HH, name: 'Existing task', defaultValue: 15, defaultUnit: 'minutes',
+    });
+
+    // Snapshot the state of ALL business tables before the failing pull
+    const contribsBefore = (await repos.contributions.getByHousehold(HH)).map(e => e.id);
+    const expensesBefore = (await repos.expenses.getByHousehold(HH)).map(e => e.id);
+    const settlementsBefore = (await repos.settlements.getByHousehold(HH)).map(s => s.id);
+    const todosBefore = (await repos.todos.getByHousehold(HH)).map(t => t.id);
+    const tasksBefore = (await repos.tasks.getByHousehold(HH)).map(t => t.id);
+    const membersBefore = (await repos.members.getByHousehold(HH)).map(m => m.id);
+    const householdsBefore = await repos.households.getById(HH);
+
+    // Apply a valid record first to set the pull cursor at revision 1
     const validPayload = JSON.stringify({
       id: 'c-ok', householdId: HH, label: 'Valid',
       performedByMemberId: 'm-a', beneficiaryMemberIds: ['m-a', 'm-b'],
@@ -939,61 +966,27 @@ describe('V3-06 REPAIR Finding #1: failing materialization rolls back cursor', (
     const cursorAfterFirst = await repos.syncState.getCursor(HH, '__pull__:contribution_entries' as any);
     expect(cursorAfterFirst?.lastRevision).toBe(1);
 
-    // Verify the valid record exists
-    const entryOk = await repos.contributions.getById('c-ok');
-    expect(entryOk).not.toBeNull();
-    expect(entryOk!.label).toBe('Valid');
-
-    // Now inject a record that will cause a repo error during materialization.
-    // We create a custom repos set where contributions.create throws.
-    const failingRepos: AllRepositories = {
-      ...repos,
-      contributions: {
-        ...repos.contributions,
-        create: async () => { throw new Error('Simulated repo failure'); },
-        seed: async () => { throw new Error('Simulated repo failure'); },
-      } as any,
+    // V3-06 REPAIR Finding #2: Inject a FAILING repo into the REAL repository set.
+    // The MaterializingSyncState.getRepos closure captures `repos` by reference,
+    // so mutating repos.contributions changes what applyDeltas sees.
+    const originalContributions = repos.contributions;
+    const failingContributionRepo = {
+      ...originalContributions,
+      seed: (_items: any[]) => { throw new Error('Simulated materialization failure'); },
+      create: async () => { throw new Error('Simulated materialization failure'); },
     };
+    (repos as any).contributions = failingContributionRepo;
 
-    // Create a MaterializingSyncState that uses the failing repos
-    const baseSyncState = new InMemorySyncStateRepository();
-    // Seed the same cursor state
-    const cursor = await repos.syncState.getCursor(HH, '__pull__:contribution_entries' as any);
-    if (cursor) await baseSyncState.setCursor(cursor);
-    // Seed the sync buffer with existing records
-    const existingDirty = await repos.syncState.getDirtyRecords(HH, 'contribution_entries', 0);
-    if (existingDirty.length > 0) {
-      await baseSyncState.storeLocalRecords(HH, 'contribution_entries', existingDirty);
-    }
+    // Capture the expense count right before the failing pull — the transaction
+    // should roll back any partial writes from the materializer.
+    const expensesBeforeFail = (await repos.expenses.getByHousehold(HH)).length;
 
-    const materializingSync = new (class {
-      inner = baseSyncState;
-      getRepos = () => failingRepos;
-      getCursor = (h: string, c: any) => baseSyncState.getCursor(h, c);
-      setCursor = (c: any) => baseSyncState.setCursor(c);
-      async applyDeltas(householdId: string, collection: SyncCollection, records: SyncRecord[], pullCursorToAdvance?: any) {
-        const repos = failingRepos;
-        const recordIds = records.map(r => r.id);
-        const localRevisions = new Map<string, number>();
-        const existingRecords = await baseSyncState.getDirtyRecords(householdId, collection, 0);
-        for (const record of existingRecords) {
-          if (recordIds.includes(record.id)) localRevisions.set(record.id, record.revision);
-        }
-        return repos.withTransaction(async () => {
-          await materializeDeltas(repos, collection, records, localRevisions);
-          await baseSyncState.storeLocalRecords(householdId, collection, records);
-          if (pullCursorToAdvance) await baseSyncState.setCursor(pullCursorToAdvance);
-          return records;
-        });
-      }
-      storeLocalRecords = (h: string, c: any, r: any[]) => baseSyncState.storeLocalRecords(h, c, r);
-      getDirtyRecords = (h: string, c: any, s: number) => baseSyncState.getDirtyRecords(h, c, s);
-    })() as any;
-
-    // Try to pull a new record — the materialization should fail
+    // Now pull a new contribution record via the PRODUCTION MaterializingSyncState.
+    // The materialization will call contributions.seed(...) which throws,
+    // triggering withTransaction rollback of EVERY business table.
     let caughtError: Error | null = null;
     try {
-      await pullDeltas(materializingSync, HH, async (coll) => {
+      await pullDeltas(repos.syncState, HH, async (coll) => {
         if (coll !== 'contribution_entries') return [];
         return [{
           id: 'c-fail', householdId: HH, collection: 'contribution_entries',
@@ -1010,19 +1003,42 @@ describe('V3-06 REPAIR Finding #1: failing materialization rolls back cursor', (
       caughtError = err as Error;
     }
 
-    // The transaction should have failed, so:
-    // 1. The cursor should NOT have advanced past revision 1
-    const cursorAfterFail = await baseSyncState.getCursor(HH, '__pull__:contribution_entries' as any);
+    // Restore the original contributions repo for clean assertions
+    (repos as any).contributions = originalContributions;
+
+    // ── ASSERTIONS ──────────────────────────────────────────────
+
+    // 1. Error was thrown (transaction rolled back)
+    expect(caughtError).not.toBeNull();
+    expect(caughtError!.message).toContain('Simulated materialization failure');
+
+    // 2. Pull cursor did NOT advance past revision 1
+    const cursorAfterFail = await repos.syncState.getCursor(HH, '__pull__:contribution_entries' as any);
     expect(cursorAfterFail?.lastRevision ?? 0).toBeLessThanOrEqual(1);
 
-    // 2. The failed record should NOT exist in the business table.
-    // Use repos.contributions (the underlying repo) since failingRepos.contributions
-    // was created by spreading a class instance which loses prototype methods.
-    const failedEntry = await repos.contributions.getById('c-fail').catch(() => null);
-    expect(failedEntry).toBeNull();
-    // The transaction failed, so the cursor didn't advance and the record
-    // was never materialized.
-    expect(caughtError).not.toBeNull();
+    // 3. Failed record does NOT exist in any business table
+    const failedContribution = await originalContributions.getById('c-fail').catch(() => null);
+    expect(failedContribution).toBeNull();
+
+    // 4. ALL business tables are UNCHANGED after rollback
+    const contribsAfter = (await originalContributions.getByHousehold(HH)).map(e => e.id);
+    const expensesAfter = (await repos.expenses.getByHousehold(HH)).map(e => e.id);
+    const settlementsAfter = (await repos.settlements.getByHousehold(HH)).map(s => s.id);
+    const todosAfter = (await repos.todos.getByHousehold(HH)).map(t => t.id);
+    const tasksAfter = (await repos.tasks.getByHousehold(HH)).map(t => t.id);
+    const membersAfter = (await repos.members.getByHousehold(HH)).map(m => m.id);
+    const householdsAfter = await repos.households.getById(HH);
+
+    expect(contribsAfter).toEqual(contribsBefore);
+    expect(expensesAfter).toEqual(expensesBefore);
+    expect(settlementsAfter).toEqual(settlementsBefore);
+    expect(todosAfter).toEqual(todosBefore);
+    expect(tasksAfter).toEqual(tasksBefore);
+    expect(membersAfter).toEqual(membersBefore);
+    expect(householdsAfter).toEqual(householdsBefore);
+
+    // 5. Expense count specifically has NOT increased (no partial materialization)
+    expect(expensesAfter.length).toBe(expensesBeforeFail);
   });
 
   test('transaction wrapping: cursor advance happens atomically with materialization', async () => {
@@ -1343,5 +1359,277 @@ describe('V3-06 REPAIR Finding #3: authorization enforced through scoped repos',
 
     // Cannot read other group
     await expect(scoped.contributions.getByHousehold(HH2)).rejects.toThrow(AuthorizationError);
+  });
+});
+
+// ══════════════════════════════════════════════════════════════
+// 12. FINDING #6: ScopedPersistentTaskRepository + ScopedInvitationRepository
+// ══════════════════════════════════════════════════════════════
+
+describe('V3-06 REPAIR Finding #6: scoped persistent tasks and invitations', () => {
+  let repos: AllRepositories;
+
+  beforeEach(() => {
+    resetSyncRevisions();
+    repos = createInMemoryRepositories();
+  });
+
+  test('non-member cannot read persistent tasks through scoped repos', async () => {
+    await repos.households.seed([household()]);
+    await repos.memberships.seed([
+      membership('mem-1', 'user-a', HH, 'OWNER'),
+    ]);
+
+    const scoped = createScopedRepositories(repos, 'user-stranger');
+
+    await expect(scoped.tasks.getByHousehold(HH)).rejects.toThrow(AuthorizationError);
+  });
+
+  test('non-member cannot create persistent tasks through scoped repos', async () => {
+    await repos.households.seed([household()]);
+    await repos.memberships.seed([
+      membership('mem-1', 'user-a', HH, 'OWNER'),
+    ]);
+
+    const scoped = createScopedRepositories(repos, 'user-stranger');
+
+    await expect(scoped.tasks.create({
+      householdId: HH, name: 'Unauthorized task', defaultValue: 15, defaultUnit: 'minutes',
+    })).rejects.toThrow(AuthorizationError);
+  });
+
+  test('member can read and create persistent tasks in own group', async () => {
+    await repos.households.seed([household()]);
+    await repos.memberships.seed([
+      membership('mem-1', 'user-member', HH, 'MEMBER'),
+    ]);
+
+    const scoped = createScopedRepositories(repos, 'user-member');
+
+    // Can read
+    const tasks = await scoped.tasks.getByHousehold(HH);
+    expect(tasks).toEqual([]);
+
+    // Can create
+    const created = await scoped.tasks.create({
+      householdId: HH, name: 'Authorized task', defaultValue: 15, defaultUnit: 'minutes',
+    });
+    expect(created.name).toBe('Authorized task');
+  });
+
+  test('non-member cannot read invitations for a household through scoped repos', async () => {
+    await repos.households.seed([household()]);
+    await repos.memberships.seed([
+      membership('mem-1', 'user-a', HH, 'OWNER'),
+    ]);
+    await repos.invitations.create(createInvitation({
+      household: household(), invitedByUserId: 'user-a', invitedEmail: 'test@test.com',
+    }));
+
+    const scoped = createScopedRepositories(repos, 'user-stranger');
+
+    await expect(scoped.invitations.getByHousehold(HH)).rejects.toThrow(AuthorizationError);
+  });
+
+  test('token-based invitation lookup bypasses membership check (invitation-authorized)', async () => {
+    await repos.households.seed([household()]);
+    await repos.memberships.seed([
+      membership('mem-1', 'user-a', HH, 'OWNER'),
+    ]);
+    const inv = await repos.invitations.create(createInvitation({
+      household: household(), invitedByUserId: 'user-a', invitedEmail: 'test@test.com',
+    }));
+
+    const scoped = createScopedRepositories(repos, 'user-stranger');
+
+    // Token-based lookup should work for anyone with the token
+    const found = await scoped.invitations.getByLinkToken(inv.linkToken);
+    expect(found).not.toBeNull();
+    expect(found!.id).toBe(inv.id);
+
+    // getById should also work (invitation-authorized)
+    const byId = await scoped.invitations.getById(inv.id);
+    expect(byId).not.toBeNull();
+  });
+
+  test('non-member cannot create invitations through scoped repos', async () => {
+    await repos.households.seed([household()]);
+    await repos.memberships.seed([
+      membership('mem-1', 'user-a', HH, 'OWNER'),
+    ]);
+
+    const scoped = createScopedRepositories(repos, 'user-stranger');
+
+    await expect(scoped.invitations.create({
+      householdId: HH, invitedByUserId: 'user-stranger',
+      invitedEmail: 'test@test.com', role: 'MEMBER', status: 'pending',
+      linkToken: 'fake-token', expiresAt: '2026-12-31T00:00:00.000Z',
+    })).rejects.toThrow(AuthorizationError);
+  });
+
+  test('OWNER can create invitations through scoped repos', async () => {
+    await repos.households.seed([household()]);
+    await repos.memberships.seed([
+      membership('mem-1', 'user-owner', HH, 'OWNER'),
+    ]);
+
+    const scoped = createScopedRepositories(repos, 'user-owner');
+
+    const created = await scoped.invitations.create({
+      householdId: HH, invitedByUserId: 'user-owner',
+      invitedEmail: 'new@test.com', role: 'MEMBER', status: 'pending',
+      linkToken: 'valid-token', expiresAt: '2026-12-31T00:00:00.000Z',
+    });
+    expect(created.invitedEmail).toBe('new@test.com');
+  });
+});
+
+// ══════════════════════════════════════════════════════════════
+// 13. FINDING #3: Hostile tests via use-case layer
+// ══════════════════════════════════════════════════════════════
+
+describe('V3-06 REPAIR Finding #3: hostile tests via use-case layer (completeTodoAtomic)', () => {
+  let repos: AllRepositories;
+
+  beforeEach(() => {
+    resetSyncRevisions();
+    repos = createInMemoryRepositories();
+  });
+
+  test('completeTodoAtomic through scoped repos: member succeeds, non-member blocked', async () => {
+    await repos.households.seed([household()]);
+    await repos.members.seed([member('m-a')]);
+    await repos.memberships.seed([
+      membership('mem-1', 'user-member', HH, 'MEMBER'),
+      membership('mem-2', 'user-stranger', HH2, 'MEMBER'), // member of OTHER group
+    ]);
+
+    // Create a todo in HH
+    const todo = await repos.todos.create({
+      householdId: HH, title: 'Sortir poubelles', assigneeMemberId: 'm-a',
+      beneficiaryMemberIds: ['m-a'], dueAt: null, reminderAt: null,
+      notes: '', persistentTaskId: null, status: 'todo',
+    });
+
+    // Member of HH can complete the todo via scoped repos + use-case
+    const scopedMember = createScopedRepositories(repos, 'user-member');
+    const { completeTodoAtomic } = require('../../src/application/use-cases/completeTodoAtomic');
+
+    const result = await completeTodoAtomic(scopedMember, {
+      todo,
+      household: household(),
+      performerMemberId: 'm-a',
+      value: 15,
+      beneficiaryMemberIds: ['m-a'],
+      completedByUserId: 'user-member',
+    });
+
+    expect(result.contributionEntry.label).toBe('Sortir poubelles');
+    expect(result.contributionEntry.value).toBe(15);
+
+    // Verify the contribution was actually written
+    const contributions = await repos.contributions.getByHousehold(HH);
+    expect(contributions).toHaveLength(1);
+    expect(contributions[0].label).toBe('Sortir poubelles');
+  });
+
+  test('completeTodoAtomic blocked for non-member through scoped repos', async () => {
+    await repos.households.seed([household()]);
+    await repos.members.seed([member('m-a')]);
+    await repos.memberships.seed([
+      membership('mem-1', 'user-owner', HH, 'OWNER'),
+    ]);
+
+    const todo = await repos.todos.create({
+      householdId: HH, title: 'Secret todo', assigneeMemberId: 'm-a',
+      beneficiaryMemberIds: ['m-a'], dueAt: null, reminderAt: null,
+      notes: '', persistentTaskId: null, status: 'todo',
+    });
+
+    const scopedStranger = createScopedRepositories(repos, 'user-stranger');
+    const { completeTodoAtomic } = require('../../src/application/use-cases/completeTodoAtomic');
+
+    await expect(completeTodoAtomic(scopedStranger, {
+      todo,
+      household: household(),
+      performerMemberId: 'm-a',
+      value: 15,
+      beneficiaryMemberIds: ['m-a'],
+      completedByUserId: 'user-stranger',
+    })).rejects.toThrow(AuthorizationError);
+
+    // Verify the todo was NOT completed and no contribution was created
+    const todoAfter = await repos.todos.getById(todo.id);
+    expect(todoAfter!.status).toBe('todo');
+    const contributions = await repos.contributions.getByHousehold(HH);
+    expect(contributions).toHaveLength(0);
+  });
+
+  test('transactional rollback: failed completion leaves todo and contribution unchanged', async () => {
+    await repos.households.seed([household()]);
+    await repos.members.seed([member('m-a')]);
+    await repos.memberships.seed([
+      membership('mem-1', 'user-member', HH, 'MEMBER'),
+    ]);
+
+    const todo = await repos.todos.create({
+      householdId: HH, title: 'Atomic todo', assigneeMemberId: 'm-a',
+      beneficiaryMemberIds: ['m-a'], dueAt: null, reminderAt: null,
+      notes: '', persistentTaskId: null, status: 'todo',
+    });
+
+    const scoped = createScopedRepositories(repos, 'user-member');
+    const { completeTodoAtomic } = require('../../src/application/use-cases/completeTodoAtomic');
+
+    // Try to complete an already-completed todo — should fail atomically
+    await repos.todos.update(todo.id, { status: 'completed', completedAt: new Date().toISOString() });
+
+    await expect(completeTodoAtomic(scoped, {
+      todo: { ...todo, status: 'completed' },
+      household: household(),
+      performerMemberId: 'm-a',
+      value: 15,
+      beneficiaryMemberIds: ['m-a'],
+      completedByUserId: 'user-member',
+    })).rejects.toThrow('already completed');
+
+    // No contribution should have been created
+    const contributions = await repos.contributions.getByHousehold(HH);
+    expect(contributions).toHaveLength(0);
+  });
+});
+
+// ══════════════════════════════════════════════════════════════
+// 14. Sign-in / sign-out re-scoping
+// ══════════════════════════════════════════════════════════════
+
+describe('V3-06 REPAIR Finding #4: sign-in / sign-out re-scoping', () => {
+  test('signOut resets repos to raw so next signIn wraps from raw repos', async () => {
+    const rawRepos = createInMemoryRepositories();
+    await rawRepos.households.seed([household(), household({ id: HH2, name: 'Other' })]);
+    await rawRepos.memberships.seed([
+      membership('mem-1', 'user-a', HH, 'MEMBER'),
+      membership('mem-2', 'user-b', HH2, 'MEMBER'),
+    ]);
+
+    // Sign in as user-a
+    const scopedA = createScopedRepositories(rawRepos, 'user-a');
+
+    // user-a can read HH
+    const resultA = await scopedA.contributions.getByHousehold(HH);
+    expect(resultA).toEqual([]);
+
+    // user-a CANNOT read HH2
+    await expect(scopedA.contributions.getByHousehold(HH2)).rejects.toThrow(AuthorizationError);
+
+    // Simulate signOut: reset to raw repos, then sign in as user-b
+    const scopedB = createScopedRepositories(rawRepos, 'user-b');
+
+    // user-b can read HH2
+    const resultB = await scopedB.contributions.getByHousehold(HH2);
+    expect(resultB).toEqual([]);
+
+    // user-b CANNOT read HH
+    await expect(scopedB.contributions.getByHousehold(HH)).rejects.toThrow(AuthorizationError);
   });
 });
