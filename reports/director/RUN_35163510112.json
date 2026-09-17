@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "cycle": "35163510112",
+  "decision": "continue",
+  "reason": "V3-03 accepted: all four must-fix findings resolved (composite cursor with id tie-break, concurrent loadHistory guard with id dedup, per-entry unit in share/display, custom-split submit blocked). 138 tests green, typecheck clean, Expo export + Android prebuild + native debug build BUILD SUCCESSFUL. No V3-01/V3-02 regression. Next roadmap criterion is V3-04 — Balances + compensation.",
+  "progressEvidence": [
+    "V3-03 accepted by auditor cycle 35163510112: all 4 must-fix findings resolved",
+    "MF-1 resolved: composite cursor (occurredAt + id, ORDER BY occurredAt DESC, id DESC) in InMemory and SQLite repositories for contributions, expenses, settlements; paginateActivityLog uses consistent composite cursor; test seeds PAGE_SIZE+5 entries with identical occurredAt + older entries, asserts every id reachable exactly once; 50-trial fuzz confirms no missing/duplicate ids across both algorithms",
+    "MF-2 resolved: loadHistory guarded by in-flight ref that skips concurrent load-more calls; append step dedupes by entry id; concurrent load-more test asserts no duplicate ids",
+    "MF-3 resolved: share message and history row display use entry's stored unit (e.unit) instead of current household unit; historical unit labels preserved after Minutes<->Points switch per constitution §18",
+    "MF-4 resolved: custom-split submit blocked when sum(customShares) != amountMinor — button disabled via memoized validation and submitExpense early-returns; invalid custom-split expense cannot be persisted",
+    "Trusted verification PASSED: exit code 0, typecheck green, 138 tests / 11 suites green, Expo export Android ok, prebuild ok, Android native debug build BUILD SUCCESSFUL",
+    "No V3-01/V3-02 regression: ledger invariants, three-tab design, local-first architecture preserved",
+    "No chrono/premium/paywall reintroduced; cost gates bounded reads, no full scan"
+  ],
+  "nextTask": "V3-04 — Balances + compensation. Evolve ScoreScreen into Balances with dual-ledger view (contribution + argent distincts), time period filters (Semaine/Mois/Année/Depuis le début), zero-sum balance display per member, cross-ledger compensation flow (manual, with group rate + immutable snapshot per constitution §8), settlement suggestions from ledger, filtered history at bottom. Balances must be materialized views derived from ledger entries — never recomputed by replaying full history at each screen render. Per constitution §9: positive values in forest green desaturated, negative in wine red desaturated; two visual blocks remain distinct; compensation action secondary when enabled. Must include: (1) contribution balance by member using stored unit, (2) financial balance by member using stored currency, (3) settlement/reimbursement suggestions from financial ledger, (4) cross-ledger compensation UI with Before/After preview and CrossLedgerSettlement write, (5) time period filters that view but never reset the perpetual balance, (6) filtered history section. Preserve all V3-01/V3-02/V3-03 acceptance. No full-scan recomputation; cost regression gate applies."
+}
