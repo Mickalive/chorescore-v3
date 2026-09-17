@@ -1,12 +1,12 @@
 {
   "schemaVersion": 1,
   "milestone": "v3-rc",
-  "lastCycle": "35271021564",
+  "lastCycle": "35277862075",
   "activeCriteria": [
     "V3-08"
   ],
   "pendingArtifact": null,
-  "progressSummary": "V3-08 reopened after trusted finalizer failure in run 35277775025",
+  "progressSummary": "Audited V3-08 requires repair; WIP baseline preserved when a safe delta existed.",
   "criteria": [
     {
       "id": "V3-01",
@@ -80,18 +80,18 @@
   ],
   "openFindings": [
     {
-      "path": "release",
-      "problem": "Trusted V3 finalizer failed",
-      "evidence": "GitHub Actions finalizer run 35277775025",
+      "path": "scripts/e2e-android.js (line 205, with docstring line 14)",
+      "problem": "The Android E2E script unconditionally requires the CHORESCORE_APK_PATH environment variable, but the trusted finalizer workflow invokes 'npm run e2e:android' without setting it (the workflow pre-installs the APK via 'adb install -r \"$apk\"' in the emulator step). The script's own docstring declares the variable 'optional if already installed', but the implementation throws 'Unreadable CHORESCORE_APK_PATH: undefined' at the first check of the try block. The trusted finalizer would fail at the Android API 35 install/launch/golden-path step, reopen V3-08 again, and the repair objective (make the trusted finalizer pass) would not be met.",
+      "evidence": "scripts/e2e-android.js line 22: 'const apkPath = process.env.CHORESCORE_APK_PATH;' and line 205: 'if (!apkPath || !fs.existsSync(apkPath)) throw new Error(`Unreadable CHORESCORE_APK_PATH: ${apkPath}`);'. .github/workflows/chorescore-v3-finalize.yml emulator step (lines 84-94): 'script: | set -euo pipefail; apk=$(find android/app/build/outputs/apk/release -type f -name '*.apk' | head -1); adb install -r \"$apk\"; npm run e2e:android' — no CHORESCORE_APK_PATH env var anywhere in the workflow (grep confirms). Simulation with the env var deleted reproduces the throw and exit 1. The script's docstring line 14 states 'CHORESCORE_APK_PATH — path to the APK (optional if already installed)', contradicting the code.",
       "mustFix": true,
-      "requiredFix": "Inspect the exact trusted finalizer failure and repair only the concrete product/privacy/cost/APK/runtime/E2E blocker while preserving V3-01..V3-07.",
-      "verification": "Trusted V3 finalizer must pass product, privacy and cost gates, APK build, install/launch and golden path."
+      "requiredFix": "Make the APK path optional when the package is already installed: check 'pm list packages <packageName>' first and only require/use apkPath when an install is actually needed, or auto-locate the APK under android/app/build/outputs/apk/release/ when CHORESCORE_APK_PATH is unset. The implementation must match the documented contract ('optional if already installed').",
+      "verification": "In the finalizer environment (no CHORESCORE_APK_PATH, package pre-installed via adb install -r), 'npm run e2e:android' must reach the golden-path steps instead of throwing at the first guard; the trusted finalizer run must pass the Android API 35 install/launch/golden-path step."
     }
   ],
   "factoryHealth": {
     "stalled": false,
     "consecutiveNoProgress": 0,
-    "lastProductSha": "c47d65e448dfed01fa967e77fce6b20e60691287",
+    "lastProductSha": "f4cce055d438efc998551ef7ecca4b2190102f29",
     "reason": null
   }
 }

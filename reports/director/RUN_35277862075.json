@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "cycle": "35277862075",
+  "decision": "continue",
+  "reason": "V3-08 repair. Trusted verification passed (exit 0): typecheck clean, 21 suites / 426 tests pass, privacy:check PASS (static contract + 71 tests), cost:check PASS (21 cost-gate tests), expo install --check OK, expo export android OK, prebuild OK, native debug build BUILD SUCCESSFUL. The three npm scripts required by the trusted finalizer gates step (privacy:check, cost:check, e2e:android) are now present and honest. iOS export and release APK verified independently. One must-fix finding remains: scripts/e2e-android.js line 205 unconditionally requires CHORESCORE_APK_PATH via 'if (!apkPath || !fs.existsSync(apkPath)) throw ...', but the trusted finalizer emulator step (.github/workflows/chorescore-v3-finalize.yml) pre-installs the APK via 'adb install -r' and never sets that env var. The script's own docstring (line 14) declares the variable 'optional if already installed', contradicting the implementation. In the finalizer environment the script would throw 'Unreadable CHORESCORE_APK_PATH: undefined' at its first check and the E2E step would fail again. The WIP baseline for V3-08 must be preserved and the next cycle must make the APK path optional when the package is already installed, matching the documented contract.",
+  "progressEvidence": [
+    "V3-08-repair-finalizer-failure-cycle-35277862075",
+    "trusted-verification-exit-0-typecheck-clean-426-tests-pass",
+    "privacy-check-pass-static-contract-71-tests",
+    "cost-check-pass-21-cost-gate-tests",
+    "expo-install-check-dependencies-up-to-date",
+    "expo-export-android-1318-modules",
+    "expo-prebuild-android-ok",
+    "native-debug-build-successful",
+    "ios-export-verified-independently-exit-0",
+    "release-apk-verified-independently-104MB",
+    "gates-step-repaired-three-npm-scripts-added",
+    "no-product-code-diff-vs-pristine-accepted-tree",
+    "no-regression-V3-01-through-V3-07-426-tests-pass",
+    "mustFix-1-e2e-android-script-requires-CHORESCORE_APK_PATH-that-finalizer-never-sets",
+    "WIP-baseline-preserved-for-repair",
+    "next-cycle-V3-08-repair-make-APK-path-optional-when-package-already-installed"
+  ]
+}
