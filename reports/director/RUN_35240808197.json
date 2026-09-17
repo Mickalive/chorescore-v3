@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "cycle": "35240808197",
+  "decision": "continue",
+  "reason": "V3-06 repair. The audit found the four must-fix findings from the previous cycle remain unresolved: (1) cursor advance and materialization are not in a single transaction — pullDeltas calls applyDeltas then setCursor as sequential top-level statements, and the in-memory withTransaction still snapshots only contributionRepo and todoRepo, not all affected repos, so a mid-transaction failure leaves partial writes; (2) when a local dirty record wins a conflict (local revision higher than remote), storeLocalRecords overwrites the buffer with the remote record, silently losing the local offline edit from the push queue; (3) ScopedRepositoryFacade membership enforcement is imported only by the test file — AppContext.tsx and screens use unscoped repos directly, so no membership verification happens for product reads/writes; (4) no test exercises the SQLite repository path for the sync pipeline — all sync tests run only against createInMemoryRepositories(). The WIP baseline from the previous cycle must be preserved and the next cycle must repair these findings on the existing candidate.",
+  "progressEvidence": [
+    "v3-06-invitation-flow-delivered-previous-cycle-preserved",
+    "v3-06-group-options-screen-delivered-previous-cycle-preserved",
+    "v3-06-sync-materialization-in-memory-path-exists-but-not-wired-to-SQLite",
+    "17-suites-260-tests-green-previous-cycle",
+    "no-regression-V3-01-V3-05",
+    "WIP-baseline-preserved-for-repair",
+    "mustFix-1-cursor-advance-not-transactional-with-materialization-still-open",
+    "mustFix-2-local-dirty-record-overwritten-by-remote-on-local-wins-conflict-still-open",
+    "mustFix-3-scoped-repository-facade-not-wired-into-app-data-access-path-still-open",
+    "mustFix-4-no-test-exercises-sync-pipeline-on-SQLite-repository-path-still-open",
+    "next-cycle-V3-06-repair-transactional-cursor-preserve-local-dirty-wire-auth-SQLite-sync-test"
+  ]
+}
