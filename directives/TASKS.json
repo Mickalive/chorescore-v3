@@ -4,7 +4,7 @@
   "builder": {
     "enabled": true,
     "criterionId": "V3-04",
-    "objective": "REPAIR V3-04: Wire a delta-based refresh contract: maintain the materialized snapshot and apply deltas for entries added/removed in other tabs (via a data-change signal from AppContext, or a delta-aware focus refresh that fetches only new/changed entries), so Balances reflects new entries without a full re-read/full replay on every focus. Add the required test: render the Balances screen against a fake repo, add an entry, and assert the view updates via delta without a full re-read, using repository call counts (not wall-clock time); or assert the screen subscribes to a data-change signal. Remove the unproven claim in the test header.; Apply the settlement's money delta to the materialized money snapshot (add a deltaUpdateMoneyFromSettlement or equivalent: creditor +moneyAmountMinor, counterparty -moneyAmountMinor) so both ledger views refresh immediately after repos.settlements.create, and use the settlement entity returned by repos.settlements.create (real id) for state and delta so the in-session state matches the persisted ledger.",
+    "objective": "REPAIR V3-04: Ensure the settlement delta is applied exactly once. Options: (a) do not emit 'settlement' from handleCompenserConfirm (the screen already applied the delta and updated state), or (b) make handleDataChange idempotent by computing oldIds from a ref that is updated synchronously when the delta is applied (e.g. a settlementsRef updated in handleCompenserConfirm before the emit), or (c) pass the created entity in the signal payload and skip the re-read for self-created settlements. Add a test that renders the screen (or simulates the exact handler wiring with React closure semantics) and asserts the all-time contribution AND money balances equal full ledger replay after repos.settlements.create.; Apply the expense delta using the same allocation as the ledger: reuse allocateExpense(entry) (or replicate its splitMode-aware logic) so the delta equals full replay for both equal and custom splits. Add a test asserting delta == full replay for a custom-split expense.; Emit the appropriate data-change signal after successful edit and delete in the Add tab (e.g. emitDataChange('contribution'|'expense', currentHouseholdId)), and make the Balances delta handler process removals/modifications (not only additions): detect removed ids and apply 'remove' deltas, and detect modified entries (same id, changed fields) by removing the old effect and applying the new one. Add a test asserting the all-time snapshot equals full replay after a delete and after an edit.; Add a test that either (a) renders the Balances screen against fake repositories, adds an entry via the repo, emits the data-change signal, and asserts the view updates via delta with bounded repository call counts (no full re-read on focus), or (b) imports the real AppContext/Balances wiring and asserts the screen subscribes to subscribeToDataChanges and applies deltas. Remove or substantiate the header claim.",
     "scope": "Repair only the audited must-fix findings on the preserved V3 baseline; do not rebuild accepted work.",
     "acceptance": [
       "deux blocs de ledger distincts",
@@ -15,8 +15,10 @@
       "aucune conversion implicite ou cross-currency",
       "balances matérialisées == reconstruction ledger dans tests",
       "ouvrir Balances ne nécessite pas de full scan historique distant",
-      "delta-based refresh: screen updates without full re-read on focus",
-      "money delta applied immediately after settlement creation"
+      "settlement delta applied exactly once (no double-apply)",
+      "expense delta matches full replay for equal AND custom splits",
+      "edits and deletes in Add tab emit data-change signal; Balances reflects changes",
+      "screen-level test renders Balances, proves delta refresh with bounded repo calls"
     ],
     "previousCriteriaPreserved": [
       "V3-01: accepted and must not regress",
