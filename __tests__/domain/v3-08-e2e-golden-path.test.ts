@@ -180,7 +180,92 @@ describe('V3-08 E2E Golden Path: full user journey', () => {
     }
   });
 
-  test('6. Complete todo atomically', async () => {
+  test('6. Cross-ledger settlement applies correctly', async () => {
+    const memberIds = [DEMO_ALEX_MEMBER_ID, DEMO_SAM_MEMBER_ID];
+
+    // Create expenses so we have money balances to settle against
+    await repos.expenses.create({
+      householdId: DEMO_HOUSEHOLD_ID,
+      title: 'Groceries for settlement',
+      amountMinor: 4000,
+      currency: 'CHF',
+      paidByMemberId: DEMO_SAM_MEMBER_ID,
+      participantMemberIds: memberIds,
+      splitMode: 'equal',
+      occurredAt: '2026-09-17T12:00:00.000Z',
+      createdBy: DEMO_USER.userId,
+    });
+
+    // Compute balances before settlement
+    const contribsBefore = await repos.contributions.getByHousehold(DEMO_HOUSEHOLD_ID);
+    const expensesBefore = await repos.expenses.getByHousehold(DEMO_HOUSEHOLD_ID);
+    const contribBalBefore = calculateContributionBalances(contribsBefore, 'minutes', [], memberIds);
+    const moneyBalBefore = calculateFinancialBalancesByCurrency(expensesBefore, [], memberIds);
+
+    // Sam paid 4000 for both: Sam +2000 (advanced), Alex -2000 (owes)
+    const chfBefore = moneyBalBefore.get('CHF')!;
+    expect(chfBefore).toBeDefined();
+    expect(chfBefore.get(DEMO_SAM_MEMBER_ID)).toBe(2000);
+    expect(chfBefore.get(DEMO_ALEX_MEMBER_ID)).toBe(-2000);
+
+    // Create a cross-ledger settlement:
+    // Alex uses 10min contribution credit to offset 1500 centimes of money debt to Sam
+    const settlement = await repos.settlements.create({
+      householdId: DEMO_HOUSEHOLD_ID,
+      contributionCreditorMemberId: DEMO_ALEX_MEMBER_ID,
+      counterpartyMemberId: DEMO_SAM_MEMBER_ID,
+      contributionValue: 10,
+      contributionUnit: 'minutes',
+      moneyAmountMinor: 1500,
+      currency: 'CHF',
+      rateSnapshot: {
+        contributionValue: 10,
+        contributionUnit: 'minutes',
+        moneyAmountMinor: 1500,
+        currency: 'CHF',
+      },
+      occurredAt: '2026-09-17T13:00:00.000Z',
+      createdBy: DEMO_USER.userId,
+    });
+
+    expect(settlement.id).toBeDefined();
+    expect(settlement.contributionValue).toBe(10);
+    expect(settlement.moneyAmountMinor).toBe(1500);
+
+    // Verify: both ledgers remain zero-sum after settlement
+    const contribsAfter = await repos.contributions.getByHousehold(DEMO_HOUSEHOLD_ID);
+    const expensesAfter = await repos.expenses.getByHousehold(DEMO_HOUSEHOLD_ID);
+    const settlementsAll = await repos.settlements.getByHousehold(DEMO_HOUSEHOLD_ID);
+
+    const contribBalAfter = calculateContributionBalances(
+      contribsAfter, 'minutes', settlementsAll, memberIds
+    );
+    const moneyBalAfter = calculateFinancialBalancesByCurrency(
+      expensesAfter, settlementsAll, memberIds
+    );
+
+    expect(contributionLedgerIsZeroSum(contribBalAfter)).toBe(true);
+    for (const [, bal] of moneyBalAfter) {
+      expect(financialLedgerIsZeroSum(bal)).toBe(true);
+    }
+
+    // Verify settlement effect on contribution balances:
+    // Alex loses 10 contribution credit, Sam gains 10
+    const contribDeltaAlex = (contribBalAfter.get(DEMO_ALEX_MEMBER_ID) ?? 0) - (contribBalBefore.get(DEMO_ALEX_MEMBER_ID) ?? 0);
+    const contribDeltaSam = (contribBalAfter.get(DEMO_SAM_MEMBER_ID) ?? 0) - (contribBalBefore.get(DEMO_SAM_MEMBER_ID) ?? 0);
+    expect(contribDeltaAlex).toBe(-10);
+    expect(contribDeltaSam).toBe(10);
+
+    // Verify settlement effect on money balances:
+    // Alex gains 1500 (debt relieved), Sam loses 1500 (receivable reduced)
+    const chfAfter = moneyBalAfter.get('CHF')!;
+    const moneyDeltaAlex = (chfAfter.get(DEMO_ALEX_MEMBER_ID) ?? 0) - (chfBefore.get(DEMO_ALEX_MEMBER_ID) ?? 0);
+    const moneyDeltaSam = (chfAfter.get(DEMO_SAM_MEMBER_ID) ?? 0) - (chfBefore.get(DEMO_SAM_MEMBER_ID) ?? 0);
+    expect(moneyDeltaAlex).toBe(1500);
+    expect(moneyDeltaSam).toBe(-1500);
+  });
+
+  test('7. Complete todo atomically', async () => {
     const todos = await repos.todos.getByHousehold(DEMO_HOUSEHOLD_ID);
     expect(todos).toHaveLength(1);
     const todo = todos[0];
@@ -213,7 +298,7 @@ describe('V3-08 E2E Golden Path: full user journey', () => {
     expect(allContribs).toHaveLength(3);
   });
 
-  test('7. Edit contribution value and verify balance recalculation', async () => {
+  test('8. Edit contribution value and verify balance recalculation', async () => {
     const memberIds = [DEMO_ALEX_MEMBER_ID, DEMO_SAM_MEMBER_ID];
     const contribs = await repos.contributions.getByHousehold(DEMO_HOUSEHOLD_ID);
     const originalContrib = contribs.find((c) => c.label === 'Vaisselle du soir');
@@ -233,7 +318,7 @@ describe('V3-08 E2E Golden Path: full user journey', () => {
     expect(contributionLedgerIsZeroSum(balances)).toBe(true);
   });
 
-  test('8. Delete expense and verify financial balance recalculation', async () => {
+  test('9. Delete expense and verify financial balance recalculation', async () => {
     const memberIds = [DEMO_ALEX_MEMBER_ID, DEMO_SAM_MEMBER_ID];
 
     // Add an expense
@@ -257,7 +342,7 @@ describe('V3-08 E2E Golden Path: full user journey', () => {
     expect(remaining.find((e) => e.id === expense.id)).toBeUndefined();
   });
 
-  test('9. Activity log shows mixed entries', async () => {
+  test('10. Activity log shows mixed entries', async () => {
     const contribs = await repos.contributions.getByHousehold(DEMO_HOUSEHOLD_ID);
     const expenses = await repos.expenses.getByHousehold(DEMO_HOUSEHOLD_ID);
     const settlements = await repos.settlements.getByHousehold(DEMO_HOUSEHOLD_ID);
@@ -275,7 +360,7 @@ describe('V3-08 E2E Golden Path: full user journey', () => {
     }
   });
 
-  test('10. Authorization: member access is enforced', async () => {
+  test('11. Authorization: member access is enforced', async () => {
     const memberships = await repos.memberships.getByUserAndHousehold(
       DEMO_USER.userId,
       DEMO_HOUSEHOLD_ID

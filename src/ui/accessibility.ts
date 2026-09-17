@@ -11,7 +11,7 @@
  */
 
 import { AccessibilityProps, Platform } from 'react-native';
-import { typography, colors } from '../design-system/theme';
+import { typography, colors } from './design-system/theme';
 
 // ── Color contrast ──────────────────────────────────────────
 

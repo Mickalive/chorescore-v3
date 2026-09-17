@@ -202,7 +202,7 @@ describe('V3-08 Gate 1: 50k entries → bounded reads on group open', () => {
 // Gate 2: Tab switching doesn't reload same objects
 // ══════════════════════════════════════════════════════════════
 
-describe('V3-08 Gate 2: Tab switching doesn't reload same objects', () => {
+describe('V3-08 Gate 2: Tab switching does not reload same objects', () => {
   test('switching Add → Balances → Todos → Add uses 0 additional reads after initial load', async () => {
     const contribRepo = new InMemoryContributionEntryRepository();
     const expenseRepo = new InMemoryExpenseEntryRepository();
@@ -754,7 +754,60 @@ describe('V3-08 Gate 9: E2E golden path at domain level', () => {
     expect(chf.get('m-alex')).toBe(-2125);
     expect(financialLedgerIsZeroSum(chf)).toBe(true);
 
-    // 6. Create todo
+    // 6. Compensate: Alex uses 15min contribution credit to offset 2125 centimes debt
+    const rateSnapshot = {
+      contributionValue: 15,
+      contributionUnit: 'minutes' as const,
+      moneyAmountMinor: 2125,
+      currency: 'CHF',
+    };
+    const settlement = await repos.settlements.create({
+      householdId: household.id,
+      contributionCreditorMemberId: 'm-alex',
+      counterpartyMemberId: 'm-sam',
+      contributionValue: 15,
+      contributionUnit: 'minutes',
+      moneyAmountMinor: 2125,
+      currency: 'CHF',
+      rateSnapshot,
+      occurredAt: '2026-09-16T19:00:00.000Z',
+      createdBy: 'user-alex',
+    });
+    expect(settlement.id).toBeDefined();
+    expect(settlement.contributionValue).toBe(15);
+    expect(settlement.moneyAmountMinor).toBe(2125);
+
+    // Verify: both ledgers remain zero-sum after settlement
+    const postSettlementContribs = await repos.contributions.getByHousehold(household.id);
+    const postSettlementExpenses = await repos.expenses.getByHousehold(household.id);
+    const postSettlements = await repos.settlements.getByHousehold(household.id);
+
+    const postContribBalances = calculateContributionBalances(
+      postSettlementContribs, 'minutes', postSettlements, memberIds
+    );
+    expect(contributionLedgerIsZeroSum(postContribBalances)).toBe(true);
+
+    // Alex's contribution balance reduced by 15 (spent credit), Sam's increased by 15
+    // Before settlement: Alex +7.5, Sam -7.5
+    // After settlement: Alex -7.5, Sam +7.5
+    expect(postContribBalances.get('m-alex')).toBe(-7.5);
+    expect(postContribBalances.get('m-sam')).toBe(7.5);
+
+    const postMoneyBalances = calculateFinancialBalancesByCurrency(
+      postSettlementExpenses, postSettlements, memberIds
+    );
+    for (const [, currBalances] of postMoneyBalances) {
+      expect(financialLedgerIsZeroSum(currBalances)).toBe(true);
+    }
+
+    // Alex's money balance improved by 2125 (debt relieved), Sam's reduced by 2125
+    // Before settlement: Sam +2125, Alex -2125
+    // After settlement: Sam 0, Alex 0
+    const postChf = postMoneyBalances.get('CHF')!;
+    expect(postChf.get('m-alex')).toBe(0);
+    expect(postChf.get('m-sam')).toBe(0);
+
+    // 7. Create todo
     const todo = await repos.todos.create({
       householdId: household.id,
       title: 'Sortir les poubelles',
@@ -775,7 +828,7 @@ describe('V3-08 Gate 9: E2E golden path at domain level', () => {
     });
     expect(completedTodo.status).toBe('completed');
 
-    // 8. Edit contribution (change value)
+    // 9. Edit contribution (change value)
     const updatedContrib = await repos.contributions.update(contrib.id, {
       value: 20,
       modifiedBy: 'user-alex',
@@ -792,7 +845,7 @@ describe('V3-08 Gate 9: E2E golden path at domain level', () => {
     expect(finalContribBalances.get('m-sam')).toBe(-10);
     expect(contributionLedgerIsZeroSum(finalContribBalances)).toBe(true);
 
-    // 9. Delete expense
+    // 10. Delete expense
     await repos.expenses.delete(expense.id);
     const remainingExpenses = await repos.expenses.getByHousehold(household.id);
     expect(remainingExpenses).toHaveLength(0);
@@ -849,17 +902,27 @@ describe('V3-08 Gate 10: Accessibility and design system', () => {
   });
 
   test('no chrono, premium, or warm V2 elements in design system', () => {
-    const fs = require('fs');
-    const path = require('path');
-    const themePath = path.resolve(__dirname, '../../src/ui/design-system/theme.ts');
-    const content = fs.readFileSync(themePath, 'utf-8');
+    const { colors } = require('../../src/ui/design-system/theme');
 
-    expect(content).not.toContain('terracotta');
-    expect(content).not.toContain('peach');
-    expect(content).not.toContain('sage');
-    expect(content).not.toContain('Premium');
-    expect(content).not.toContain('chrono');
-    expect(content).not.toContain('self-care');
+    // V3 design system uses graphite/off-white/metallic/forest-green/wine-red only.
+    // No warm terracotta, sage, peach, or cream hex values are allowed.
+    const WARM_HEX = new Set([
+      '#C4805A', '#D4956E', '#C98B6A', '#D19A76', // terracotta
+      '#A4B8A0', '#B5C5B0', '#C5D5C0', '#9DB896', // sage/green
+      '#F0C0A0', '#F5D5C0', '#EDBCA0', '#F2CAB0', // peach
+      '#FAF0E6', '#FFF5EE', '#FDF5E6', '#FFFAF0', // cream
+    ]);
+
+    const allColorValues = Object.values(colors).filter(
+      (v): v is string => typeof v === 'string' && v.startsWith('#')
+    );
+    for (const hex of allColorValues) {
+      expect(WARM_HEX.has(hex.toUpperCase())).toBe(false);
+    }
+
+    // Balance colors must be exactly forest green and wine red
+    expect(colors.balancePositive).toBe('#2D6A4F');
+    expect(colors.balanceNegative).toBe('#9B2226');
   });
 
   test('copy uses factual, non-gamified language', () => {

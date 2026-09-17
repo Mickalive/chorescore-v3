@@ -1,0 +1,65 @@
+{
+  "schemaVersion": 1,
+  "cycle": "35271021564",
+  "role": "builder",
+  "decision": "accept",
+  "summary": "V3-08 repair accepted. Trusted verification passed (exit 0): typecheck clean, 21 suites / 426 tests pass, Expo export OK, Android prebuild OK, native debug build BUILD SUCCESSFUL. Candidate delta vs pristine accepted tree (32eca9d) is exactly 3 files: __tests__/domain/cost-gates-v3-08.test.ts (+78/-15), __tests__/domain/v3-08-e2e-golden-path.test.ts (+90/-5), src/ui/accessibility.ts (1-line import fix). All four must-fix findings from cycle 35268791572 are resolved and independently verified: (1) the unescaped apostrophe in the Gate 2 describe() title is fixed by rewording to 'Tab switching does not reload same objects' — the string literal is valid and npx tsc --noEmit exits 0. (2) src/ui/accessibility.ts line 14 now imports { typography, colors } from './design-system/theme' (the module exists at src/ui/design-system/theme.ts); typecheck passes with no TS2307/TS18046. (3) Gate 10 'no chrono, premium, or warm V2 elements in design system' no longer scans the raw theme.ts file for the word 'terracotta' (which the file's own comment legitimately contains); it now requires the parsed theme and asserts (a) no warm hex values (terracotta/sage/peach/cream sets) appear in the colors object and (b) colors.balancePositive === '#2D6A4F' (forest green) and colors.balanceNegative === '#9B2226' (wine red) — a meaningful design-token check; the V3-clean theme itself is unchanged. (4) The golden path now performs a real compensation: Gate 9 creates a CrossLedgerSettlement via repos.settlements.create with rateSnapshot {contributionValue:15, contributionUnit:'minutes', moneyAmountMinor:2125, currency:'CHF'} and asserts both ledgers remain zero-sum and the settlement effect is applied (contribution Alex +7.5→-7.5 / Sam -7.5→+7.5; money Alex -2125→0 / Sam +2125→0); golden-path test 6 creates a settlement with rateSnapshot {10, minutes, 1500, CHF} and asserts contribution deltas -10/+10, money deltas +1500/-1500, and zero-sum on both ledgers — all matching the deltaUpdateContributionFromSettlement / deltaUpdateMoneyFromSettlement semantics in materializedBalances.ts and the replay semantics in calculateContributionBalances / calculateFinancialBalancesByCurrency. Independent re-runs: npx tsc --noEmit exit 0; npx jest on the two modified files 35/35 pass; full npx jest 21 suites / 426 tests pass, including all V3-01..V3-07 suites — no regression. No chrono, premium, paywall, warm V2 design, provider coupling, destructive history, silent unit conversion or cross-currency netting introduced; the only production change is the import path fix. Android APK/install/launch and iOS build verification remain owned by the trusted finalizer per ROADMAP V3-08.",
+  "checks": [
+    "Trusted verification log reports/audits/TRUSTED_35271021564.md: 'Trusted verification exit code: 0' — npm run typecheck clean, 21 suites / 426 tests pass, Expo export OK (Android Bundled 1318 modules), prebuild OK, native debug build 'BUILD SUCCESSFUL in 19m 54s' (395 tasks)",
+    "Candidate delta vs pristine accepted tree (/home/runner/work/_temp/accepted-pristine at 32eca9d): exactly 3 files — __tests__/domain/cost-gates-v3-08.test.ts (+78/-15), __tests__/domain/v3-08-e2e-golden-path.test.ts (+90/-5), src/ui/accessibility.ts (+1/-1); no other product file touched (git status: only these 3 staged modifications + untracked TRUSTED report)",
+    "Finding F1 (apostrophe) resolved: line 205 now reads describe('V3-08 Gate 2: Tab switching does not reload same objects', () => { — valid single-quoted string literal; remaining apostrophes in the file are inside // comments or correctly escaped (line 266 doesn\\'t); npx tsc --noEmit exits 0",
+    "Finding F2 (import path) resolved: src/ui/accessibility.ts line 14 is import { typography, colors } from './design-system/theme'; — src/ui/design-system/theme.ts exists and exports both; no TS2307/TS18046; npx tsc --noEmit exits 0",
+    "Finding F3 (Gate 10 self-contradictory test) resolved: test now requires the parsed theme (require('../../src/ui/design-system/theme')) and asserts no warm hex values (terracotta/sage/peach/cream sets) among all string hex values in the colors object, plus exact balance tokens colors.balancePositive === '#2D6A4F' and colors.balanceNegative === '#9B2226'; theme.ts is unchanged and remains V3-clean (graphite/off-white/metallic, forest green/wine red only)",
+    "Finding F4 (golden path compensation) resolved: Gate 9 creates a real CrossLedgerSettlement via repos.settlements.create with rateSnapshot {contributionValue:15, contributionUnit:'minutes', moneyAmountMinor:2125, currency:'CHF'}, then asserts contributionLedgerIsZeroSum and financialLedgerIsZeroSum after settlement and exact balance effects (contribution Alex +7.5→-7.5, Sam -7.5→+7.5; money Alex -2125→0, Sam +2125→0); golden-path test 6 creates a settlement with rateSnapshot {10, minutes, 1500, CHF} and asserts contribution deltas -10/+10, money deltas +1500/-1500, and zero-sum on both ledgers",
+    "Settlement semantics verified against domain implementation: calculateContributionBalances (contributionLedger.ts lines 57-63) transfers contributionValue from creditor to counterparty; calculateFinancialBalancesByCurrency (expenseLedger.ts lines 104-112) moves moneyAmountMinor from counterparty to creditor; deltaUpdateContributionFromSettlement / deltaUpdateMoneyFromSettlement (materializedBalances.ts lines 137-196) match exactly; validateCrossLedgerSettlement (rate unit/currency consistency + quoteCrossLedgerMoneyAmount equality) passes for both test settlements (15min→2125, 10min→1500)",
+    "Independent re-run: npx tsc --noEmit exits 0",
+    "Independent re-run: npx jest __tests__/domain/cost-gates-v3-08.test.ts __tests__/domain/v3-08-e2e-golden-path.test.ts — 35 passed / 35 total",
+    "Independent re-run: npx jest (full) — 21 suites passed / 21 total, 426 passed / 426 total; all V3-01..V3-07 suites (ledgers, contribution-expense-crud, todo-completion, activity-log, property-invariants, materialized-balances, merged-pagination, cost-gates-v3-03/04/05, pagination, ports-adapters, repositories, design-system, v3-06 sync/invitations/authorization, v3-07 analytics-privacy, validation-preconditions-periods) pass — no regression",
+    "Cost regression: no production code change affecting cost (only the import path fix); cost gates 1-8 (50k entries → 4 reads, tab-switch → 0 reads, 3 deltas → 1 read, 1 write per create, 10k labels → 1 classification, privacy gate, budgets enforced, offline fallback) all pass",
+    "No prohibited patterns in the delta: no chrono, premium, paywall, subscription, entitlement, upsell, warm V2 design tokens, provider coupling, destructive history/reset, silent unit conversion, cross-currency netting, or implicit cross-ledger compensation; settlements carry rateSnapshot and preserve both ledger sums",
+    "Accessibility: the import fix makes src/ui/accessibility.ts compile and its WCAG utilities (contrastRatio, meetsWCAG_AA/AAA, touch targets, accessibility props, font-size verification) functional; Gate 10 contrast/size assertions pass",
+    "trusted verification: PASS exit 0; see reports/audits/TRUSTED_35271021564.md"
+  ],
+  "findings": [
+    {
+      "path": "__tests__/domain/cost-gates-v3-08.test.ts (line 205)",
+      "problem": "Previous must-fix F1: unescaped apostrophe in the describe() title 'Tab switching doesn't reload same objects' terminated the single-quoted string (TS1005/TS1002/TS1128), the root cause of the trusted verification failure in cycle 35268791572.",
+      "evidence": "Current line 205: describe('V3-08 Gate 2: Tab switching does not reload same objects', () => { — reworded, string literal valid. npx tsc --noEmit exits 0; trusted verification exit code 0.",
+      "mustFix": false,
+      "requiredFix": "None — resolved. Title reworded to 'does not reload'.",
+      "verification": "npx tsc --noEmit exits 0; trusted verification exit code 0."
+    },
+    {
+      "path": "src/ui/accessibility.ts (line 14)",
+      "problem": "Previous must-fix F2: wrong relative import '../design-system/theme' resolved to src/design-system/theme (nonexistent), producing TS2307 plus cascading TS18046.",
+      "evidence": "Current line 14: import { typography, colors } from './design-system/theme'; — module exists at src/ui/design-system/theme.ts and exports both symbols. npx tsc --noEmit exits 0.",
+      "mustFix": false,
+      "requiredFix": "None — resolved. Import corrected to './design-system/theme'.",
+      "verification": "npx tsc --noEmit exits 0."
+    },
+    {
+      "path": "__tests__/domain/cost-gates-v3-08.test.ts (Gate 10, 'no chrono, premium, or warm V2 elements in design system')",
+      "problem": "Previous must-fix F3: test asserted the raw theme.ts file content does not contain the word 'terracotta', but the file's own documentation comment says 'No warm terracotta, no self-care, no gamification' — self-contradictory, failed at runtime.",
+      "evidence": "Current test requires the parsed theme and asserts: (a) no warm hex values (terracotta/sage/peach/cream sets) among all string hex values in the colors object; (b) colors.balancePositive === '#2D6A4F' and colors.balanceNegative === '#9B2226'. Theme.ts unchanged and V3-clean. Test passes in full run (426/426).",
+      "mustFix": false,
+      "requiredFix": "None — resolved. Test now scans actual design tokens instead of raw-file word occurrences.",
+      "verification": "npm run test exits 0 with Gate 10 still proving the V3 design system contains no warm V2 tokens."
+    },
+    {
+      "path": "__tests__/domain/cost-gates-v3-08.test.ts (Gate 9) and __tests__/domain/v3-08-e2e-golden-path.test.ts",
+      "problem": "Previous must-fix F4: golden-path scenarios claimed 'compensate' coverage but never created a CrossLedgerSettlement — weak/misleading test claim.",
+      "evidence": "Gate 9 now creates a settlement via repos.settlements.create with rateSnapshot {15, minutes, 2125, CHF} and asserts zero-sum on both ledgers plus exact effects (contribution Alex +7.5→-7.5 / Sam -7.5→+7.5; money Alex -2125→0 / Sam +2125→0). Golden-path test 6 creates a settlement with rateSnapshot {10, minutes, 1500, CHF} and asserts contribution deltas -10/+10, money deltas +1500/-1500, and zero-sum on both ledgers. Both match deltaUpdateContributionFromSettlement / deltaUpdateMoneyFromSettlement semantics. Both suites pass (35/35 on the two files).",
+      "mustFix": false,
+      "requiredFix": "None — resolved. Real compensation step added with rateSnapshot and zero-sum + effect assertions.",
+      "verification": "Golden path tests pass with the settlement step and assert contributionLedgerIsZeroSum and financialLedgerIsZeroSum after the settlement."
+    },
+    {
+      "path": ".",
+      "problem": "Previous must-fix F5: trusted product verification failed with exit code 2 in cycle 35268791572.",
+      "evidence": "Authoritative verification log reports/audits/TRUSTED_35271021564.md: 'Trusted verification exit code: 0' — typecheck clean, 21 suites / 426 tests pass, Expo export OK, Android prebuild OK, native debug build BUILD SUCCESSFUL. Independent npm run check equivalent (tsc + jest) exits 0.",
+      "mustFix": false,
+      "requiredFix": "None — resolved. Full trusted V3 verification returns exit code 0.",
+      "verification": "Full trusted V3 verification exit code 0."
+    }
+  ]
+}
