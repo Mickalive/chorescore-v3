@@ -391,17 +391,19 @@ export class SqliteContributionEntryRepository implements ContributionEntryRepos
     }
 
     if (query.cursor) {
-      sql += ' AND occurredAt < ?';
-      params.push(query.cursor);
+      const c = JSON.parse(query.cursor!) as { o: string; i: string };
+      sql += ' AND (occurredAt < ? OR (occurredAt = ? AND id < ?))';
+      params.push(c.o, c.o, c.i);
     }
 
-    sql += ' ORDER BY occurredAt DESC LIMIT ?';
+    sql += ' ORDER BY occurredAt DESC, id DESC LIMIT ?';
     params.push(limit + 1); // fetch one extra to detect hasMore
 
     const rows = await db.getAllAsync<ContributionEntryRow>(sql, params);
     const hasMore = rows.length > limit;
     const items = rows.slice(0, limit).map(contributionFromRow);
-    const cursor = hasMore && items.length > 0 ? items[items.length - 1].occurredAt : null;
+    const last = items.length > 0 ? items[items.length - 1] : null;
+    const cursor = hasMore && last ? JSON.stringify({ o: last.occurredAt, i: last.id }) : null;
 
     return { items, cursor, hasMore };
   }
@@ -771,17 +773,19 @@ export class SqliteExpenseEntryRepository implements ExpenseEntryRepository {
     }
 
     if (query.cursor) {
-      sql += ' AND occurredAt < ?';
-      params.push(query.cursor);
+      const c = JSON.parse(query.cursor!) as { o: string; i: string };
+      sql += ' AND (occurredAt < ? OR (occurredAt = ? AND id < ?))';
+      params.push(c.o, c.o, c.i);
     }
 
-    sql += ' ORDER BY occurredAt DESC LIMIT ?';
+    sql += ' ORDER BY occurredAt DESC, id DESC LIMIT ?';
     params.push(limit + 1);
 
     const rows = await db.getAllAsync<ExpenseEntryRow>(sql, params);
     const hasMore = rows.length > limit;
     const items = rows.slice(0, limit).map(expenseFromRow);
-    const cursor = hasMore && items.length > 0 ? items[items.length - 1].occurredAt : null;
+    const last = items.length > 0 ? items[items.length - 1] : null;
+    const cursor = hasMore && last ? JSON.stringify({ o: last.occurredAt, i: last.id }) : null;
 
     return { items, cursor, hasMore };
   }
@@ -938,17 +942,19 @@ export class SqliteSettlementRepository implements SettlementRepository {
     }
 
     if (query.cursor) {
-      sql += ' AND occurredAt < ?';
-      params.push(query.cursor);
+      const c = JSON.parse(query.cursor!) as { o: string; i: string };
+      sql += ' AND (occurredAt < ? OR (occurredAt = ? AND id < ?))';
+      params.push(c.o, c.o, c.i);
     }
 
-    sql += ' ORDER BY occurredAt DESC LIMIT ?';
+    sql += ' ORDER BY occurredAt DESC, id DESC LIMIT ?';
     params.push(limit + 1);
 
     const rows = await db.getAllAsync<SettlementRow>(sql, params);
     const hasMore = rows.length > limit;
     const items = rows.slice(0, limit).map(settlementFromRow);
-    const cursor = hasMore && items.length > 0 ? items[items.length - 1].occurredAt : null;
+    const last = items.length > 0 ? items[items.length - 1] : null;
+    const cursor = hasMore && last ? JSON.stringify({ o: last.occurredAt, i: last.id }) : null;
 
     return { items, cursor, hasMore };
   }

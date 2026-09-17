@@ -93,7 +93,10 @@ describe('InMemoryContributionEntryRepository pagination', () => {
     expect(result.items[0].id).toBe('c4');
     expect(result.items[1].id).toBe('c3');
     expect(result.hasMore).toBe(true);
-    expect(result.cursor).toBe(result.items[1].occurredAt);
+    // Cursor is a composite JSON string encoding { o: occurredAt, i: id }
+    const cursor = JSON.parse(result.cursor!);
+    expect(cursor.o).toBe(result.items[1].occurredAt);
+    expect(cursor.i).toBe(result.items[1].id);
   });
 
   test('second page returns next batch via cursor', async () => {
@@ -124,9 +127,11 @@ describe('InMemoryContributionEntryRepository pagination', () => {
   });
 
   test('returns empty when cursor is before all entries', async () => {
+    // Cursor pointing to a position before all seeded entries
+    const cursor = JSON.stringify({ o: '2026-09-16T09:00:00.000Z', i: 'zzz' });
     const result = await repo.getByHouseholdPaginated(HH, {
       limit: 2,
-      cursor: '2026-09-16T09:00:00.000Z',
+      cursor,
     });
     expect(result.items).toHaveLength(0);
     expect(result.hasMore).toBe(false);

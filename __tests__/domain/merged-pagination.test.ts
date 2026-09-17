@@ -358,7 +358,7 @@ describe('Two-repo merged pagination', () => {
     expect(allEntries.every((e) => e.type === 'contribution')).toBe(true);
   });
 
-  test('entries with identical occurredAt are tie-broken deterministically', async () => {
+  test('entries with identical occurredAt are tie-broken by entry id', async () => {
     const ts = '2026-09-16T10:00:00.000Z';
     contribRepo.seed([makeContribution('c-1', ts)]);
     expenseRepo.seed([makeExpense('e-1', ts)]);
@@ -368,9 +368,107 @@ describe('Two-repo merged pagination', () => {
     const merged = paginateActivityLog(contribResult.items, expenseResult.items, [], { limit: 10_000 });
 
     expect(merged.entries).toHaveLength(2);
-    // Tie broken by type alphabetically: 'contribution' < 'expense'
-    expect(merged.entries[0].type).toBe('contribution');
-    expect(merged.entries[1].type).toBe('expense');
+    // Tie broken by entry id DESC: 'e-1' > 'c-1' alphabetically
+    expect(merged.entries[0].entry.id).toBe('e-1');
+    expect(merged.entries[1].entry.id).toBe('c-1');
+  });
+
+  test('entries with identical occurredAt spanning PAGE_SIZE boundary are all reachable', async () => {
+    // Seed PAGE_SIZE + 5 contributions with the SAME occurredAt plus 5 older entries
+    const sharedTs = '2026-09-16T10:00:00.000Z';
+    const olderTs = '2026-09-15T10:00:00.000Z';
+    const sharedIds: string[] = [];
+    for (let i = 0; i < PAGE_SIZE + 5; i++) {
+      const id = `shared-${i}`;
+      sharedIds.push(id);
+      contribRepo.seed([makeContribution(id, sharedTs)]);
+    }
+    // 5 older entries (different timestamp)
+    for (let i = 0; i < 5; i++) {
+      contribRepo.seed([makeContribution(`older-${i}`, olderTs)]);
+    }
+
+    // Page through until exhausted
+    const allFoundIds: string[] = [];
+    let cursor: string | undefined;
+    let hasMore = true;
+    while (hasMore) {
+      const result = await contribRepo.getByHouseholdPaginated(HH, {
+        limit: PAGE_SIZE,
+        cursor,
+      });
+      for (const item of result.items) {
+        allFoundIds.push(item.id);
+      }
+      hasMore = result.hasMore;
+      cursor = result.cursor ?? undefined;
+    }
+
+    // All 25 shared-timestamp entries + 5 older = 30 entries reachable
+    expect(allFoundIds).toHaveLength(PAGE_SIZE + 5 + 5);
+    // Every seeded id is reachable exactly once
+    const allSeededIds = [...sharedIds, ...Array.from({ length: 5 }, (_, i) => `older-${i}`)];
+    const foundSet = new Set(allFoundIds);
+    for (const seededId of allSeededIds) {
+      expect(foundSet.has(seededId)).toBe(true);
+    }
+    // No duplicates
+    expect(new Set(allFoundIds).size).toBe(allFoundIds.length);
+  });
+
+  test('concurrent load-more calls do not duplicate entries (in-flight guard)', async () => {
+    // Seed contributions
+    const base = new Date('2026-09-16T00:00:00.000Z').getTime();
+    for (let i = 0; i < 40; i++) {
+      const ts = new Date(base + i * 3600000).toISOString();
+      contribRepo.seed([makeContribution(`c-${i}`, ts)]);
+    }
+
+    // Simulate two concurrent load-more calls with same cursor state
+    let allContribs: ContributionEntry[] = [];
+    let cursor: string | null = null;
+    let exhausted = false;
+
+    // Fetch first page
+    const firstPage = await contribRepo.getByHouseholdPaginated(HH, {
+      limit: PAGE_SIZE,
+    });
+    allContribs = [...firstPage.items];
+    cursor = firstPage.cursor;
+    exhausted = firstPage.cursor === null && !firstPage.hasMore;
+
+    // Simulate two concurrent "load more" calls with the same cursor
+    const fetch1 = exhausted
+      ? { items: [], cursor: null, hasMore: false }
+      : await contribRepo.getByHouseholdPaginated(HH, { limit: PAGE_SIZE, cursor: cursor! });
+    const fetch2 = exhausted
+      ? { items: [], cursor: null, hasMore: false }
+      : await contribRepo.getByHouseholdPaginated(HH, { limit: PAGE_SIZE, cursor: cursor! });
+
+    // Both return the same page (simulating concurrent calls with same cursor)
+    expect(fetch1.items).toHaveLength(fetch2.items.length);
+
+    // Merge with dedup (simulating the in-flight guard in add.tsx)
+    const existingIds = new Set(allContribs.map((e) => e.id));
+    for (const item of fetch1.items) {
+      if (!existingIds.has(item.id)) {
+        allContribs.push(item);
+        existingIds.add(item.id);
+      }
+    }
+    // Second concurrent call should be blocked by guard, but if merged: no duplicates
+    for (const item of fetch2.items) {
+      if (!existingIds.has(item.id)) {
+        allContribs.push(item);
+        existingIds.add(item.id);
+      }
+    }
+
+    // No duplicates in final list
+    const ids = allContribs.map((e) => e.id);
+    expect(new Set(ids).size).toBe(ids.length);
+    // Should have PAGE_SIZE entries from page 1 + PAGE_SIZE from page 2 (not duplicated)
+    expect(ids.length).toBe(PAGE_SIZE + PAGE_SIZE);
   });
 
   test('cost gate: creating a contribution is O(1), not proportional to history', async () => {

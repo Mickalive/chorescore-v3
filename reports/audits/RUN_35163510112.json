@@ -1,0 +1,57 @@
+{
+  "schemaVersion": 1,
+  "cycle": "35163510112",
+  "role": "builder",
+  "decision": "accept",
+  "summary": "V3-03 repair accepted: all four audited must-fix findings are resolved. (1) Composite cursor (occurredAt + id, ORDER BY occurredAt DESC, id DESC, predicate (occurredAt < c.o OR (occurredAt = c.o AND id < c.i))) implemented in InMemory and SQLite repositories for contributions, expenses and settlements, plus in paginateActivityLog; new test seeds PAGE_SIZE+5 entries with one identical occurredAt plus older entries and asserts every seeded id is reachable exactly once (independent 50-trial fuzz of both algorithms confirms no missing/duplicate ids). (2) loadHistory guarded by an in-flight ref that skips concurrent load-more calls and the append step dedupes by entry id; concurrent load-more test asserts no duplicate ids. (3) Share message and history row display use the entry's stored unit (e.unit) instead of the current household unit, preserving historical unit labels after a Minutes<->Points switch. (4) Custom-split submit is blocked when sum(customShares) != amountMinor: button disabled via memoized validation and submitExpense early-returns, so an invalid custom-split expense can never be persisted. Trusted verification exit 0: typecheck, 138 tests green, Expo export Android, prebuild, native debug build BUILD SUCCESSFUL. No V3-01/V3-02 regression; no chrono/premium/paywall reintroduced; cost gates green.",
+  "checks": [
+    "trusted_verification_exit_0",
+    "typecheck_pass",
+    "tests_138_pass",
+    "expo_export_android_ok",
+    "android_prebuild_and_native_debug_build_ok",
+    "composite_cursor_inMemory_contributions_expenses_settlements",
+    "composite_cursor_sqlite_contributions_expenses_settlements",
+    "composite_cursor_predicate_occurredAt_id_DESC_consistent_both_repos_and_merge",
+    "equal_timestamp_pagination_test_PAGE_SIZE_plus_5_all_reachable_exactly_once",
+    "independent_fuzz_50_trials_no_missing_no_duplicates_inMemory_and_sqlite_algorithms",
+    "merged_paginateActivityLog_composite_cursor_consistent",
+    "loadHistory_in_flight_ref_skips_concurrent_load_more",
+    "append_step_dedupes_by_entry_id",
+    "concurrent_load_more_test_no_duplicate_ids",
+    "share_message_uses_entry_stored_unit",
+    "history_row_display_uses_entry_stored_unit",
+    "custom_split_submit_blocked_button_disabled_and_early_return",
+    "custom_split_inline_error_preserved",
+    "V3-01_ledger_invariants_still_green",
+    "V3-02_three_tabs_design_local_first_preserved",
+    "no_chrono_no_premium_no_paywall",
+    "cost_gates_bounded_reads_no_full_scan"
+  ],
+  "findings": [
+    {
+      "path": "app/(tabs)/add.tsx (handleShare)",
+      "problem": "Minor (pre-existing, out of repair scope): the share adapter is instantiated directly (new LocalSystemShareAdapter()) instead of using services.share from the app context, bypassing DI.",
+      "evidence": "add.tsx line 591: const shareAdapter = new LocalSystemShareAdapter(); await shareAdapter.share({ message });",
+      "mustFix": false,
+      "requiredFix": "Optional: use services.share from useApp() when the app context exposes it.",
+      "verification": "Not required for this cycle; port remains honest (expo-sharing lazy-loaded with fallback)."
+    },
+    {
+      "path": "app/(tabs)/add.tsx (date/heure selectors)",
+      "problem": "Minor (pre-existing, out of repair scope): the Alert offers 4 buttons; RN Alert on Android supports at most 3, so 'Hier' is dropped on Android.",
+      "evidence": "add.tsx lines 805-816 and 1045-1056: four Alert buttons (Maintenant / Il y a 1h / Hier / Annuler).",
+      "mustFix": false,
+      "requiredFix": "Optional: platform-conditional button list (<=3 on Android).",
+      "verification": "Not required for this cycle; occurredAt selection still works on Android with the remaining options."
+    },
+    {
+      "path": "app/(tabs)/add.tsx (activityEntries merge)",
+      "problem": "Minor (pre-existing, out of repair scope): the merge limit of 10 000 is technically still a cap beyond which older loaded pages would be hidden, and loadHistory fetches both repos regardless of the active filter.",
+      "evidence": "add.tsx line 302: limit: 10_000; loadHistory always queries contributions and expenses even when filter=contribution.",
+      "mustFix": false,
+      "requiredFix": "Optional: remove the limit/virtualize the list; skip the stream excluded by the active filter.",
+      "verification": "Not required for this cycle; no hard 150 cap and bounded per-page reads are satisfied."
+    }
+  ]
+}

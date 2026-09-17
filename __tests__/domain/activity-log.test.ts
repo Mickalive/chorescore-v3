@@ -124,7 +124,10 @@ describe('paginateActivityLog', () => {
     expect(page1.entries[0].entry.id).toBe('c-4'); // newest
     expect(page1.entries[1].entry.id).toBe('c-3');
     expect(page1.hasMore).toBe(true);
-    expect(page1.cursor).toBe('2026-09-16T13:00:00.000Z');
+    // Cursor is composite: { o: occurredAt, i: id }
+    const cursor1 = JSON.parse(page1.cursor!);
+    expect(cursor1.o).toBe('2026-09-16T13:00:00.000Z');
+    expect(cursor1.i).toBe('c-3');
 
     // Page 2: use cursor from page 1
     const page2 = paginateActivityLog(contributions, [], [], {
@@ -201,16 +204,16 @@ describe('paginateActivityLog', () => {
     expect(result.cursor).toBeNull();
   });
 
-  test('entries at the exact same occurredAt are tie-broken by type', () => {
+  test('entries at the exact same occurredAt are tie-broken by entry id', () => {
     const ts = '2026-09-16T10:00:00.000Z';
     const contributions = [contribution({ id: 'c-1', occurredAt: ts })];
     const expenses = [expense({ id: 'e-1', occurredAt: ts })];
 
     const result = paginateActivityLog(contributions, expenses, []);
     expect(result.entries).toHaveLength(2);
-    // Tie broken by type alphabetically: 'contribution' < 'expense'
-    expect(result.entries[0].type).toBe('contribution');
-    expect(result.entries[1].type).toBe('expense');
+    // Tie broken by entry id DESC: 'e-1' > 'c-1' alphabetically
+    expect(result.entries[0].entry.id).toBe('e-1');
+    expect(result.entries[1].entry.id).toBe('c-1');
   });
 });
 

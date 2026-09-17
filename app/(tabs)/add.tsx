@@ -164,6 +164,9 @@ export default function AddScreen() {
   // Track whether initial load is done so filter effect doesn't double-fetch
   const initialLoadDoneRef = useRef(false);
 
+  // Guard against concurrent loadHistory calls
+  const loadHistoryInFlightRef = useRef(false);
+
   // Edit state
   const [editingEntry, setEditingEntry] = useState<ActivityEntry | null>(null);
 
@@ -210,41 +213,57 @@ export default function AddScreen() {
     async (loadMore: boolean = false) => {
       if (!currentHouseholdId) return;
 
-      // Skip repos that are already exhausted (cursor=null, hasMore=false)
-      const contribCursor = loadMore ? historyContribCursor : null;
-      const expenseCursor = loadMore ? historyExpenseCursor : null;
+      // Guard: skip if a load is already in flight
+      if (loadMore && loadHistoryInFlightRef.current) return;
+      loadHistoryInFlightRef.current = true;
 
-      const contribResult =
-        loadMore && historyContribExhausted
-          ? { items: [], cursor: null, hasMore: false }
-          : await repos.contributions.getByHouseholdPaginated(
-              currentHouseholdId,
-              { limit: PAGE_SIZE, cursor: contribCursor ?? undefined }
-            );
-      const expenseResult =
-        loadMore && historyExpenseExhausted
-          ? { items: [], cursor: null, hasMore: false }
-          : await repos.expenses.getByHouseholdPaginated(
-              currentHouseholdId,
-              { limit: PAGE_SIZE, cursor: expenseCursor ?? undefined }
-            );
+      try {
+        // Skip repos that are already exhausted (cursor=null, hasMore=false)
+        const contribCursor = loadMore ? historyContribCursor : null;
+        const expenseCursor = loadMore ? historyExpenseCursor : null;
 
-      if (!loadMore) {
-        // First page — replace
-        setHistoryContributions(contribResult.items);
-        setHistoryExpenses(expenseResult.items);
-      } else {
-        // Append
-        setHistoryContributions((prev) => [...prev, ...contribResult.items]);
-        setHistoryExpenses((prev) => [...prev, ...expenseResult.items]);
+        const contribResult =
+          loadMore && historyContribExhausted
+            ? { items: [], cursor: null, hasMore: false }
+            : await repos.contributions.getByHouseholdPaginated(
+                currentHouseholdId,
+                { limit: PAGE_SIZE, cursor: contribCursor ?? undefined }
+              );
+        const expenseResult =
+          loadMore && historyExpenseExhausted
+            ? { items: [], cursor: null, hasMore: false }
+            : await repos.expenses.getByHouseholdPaginated(
+                currentHouseholdId,
+                { limit: PAGE_SIZE, cursor: expenseCursor ?? undefined }
+              );
+
+        if (!loadMore) {
+          // First page — replace
+          setHistoryContributions(contribResult.items);
+          setHistoryExpenses(expenseResult.items);
+        } else {
+          // Append — dedupe by entry id to prevent any residual duplicates
+          setHistoryContributions((prev) => {
+            const existingIds = new Set(prev.map((e) => e.id));
+            const newItems = contribResult.items.filter((e) => !existingIds.has(e.id));
+            return [...prev, ...newItems];
+          });
+          setHistoryExpenses((prev) => {
+            const existingIds = new Set(prev.map((e) => e.id));
+            const newItems = expenseResult.items.filter((e) => !existingIds.has(e.id));
+            return [...prev, ...newItems];
+          });
+        }
+
+        // Per-repo cursors: each advances independently
+        setHistoryContribCursor(contribResult.cursor);
+        setHistoryExpenseCursor(expenseResult.cursor);
+        setHistoryContribExhausted(contribResult.cursor === null && !contribResult.hasMore);
+        setHistoryExpenseExhausted(expenseResult.cursor === null && !expenseResult.hasMore);
+        setHistoryHasMore(contribResult.hasMore || expenseResult.hasMore);
+      } finally {
+        loadHistoryInFlightRef.current = false;
       }
-
-      // Per-repo cursors: each advances independently
-      setHistoryContribCursor(contribResult.cursor);
-      setHistoryExpenseCursor(expenseResult.cursor);
-      setHistoryContribExhausted(contribResult.cursor === null && !contribResult.hasMore);
-      setHistoryExpenseExhausted(expenseResult.cursor === null && !expenseResult.hasMore);
-      setHistoryHasMore(contribResult.hasMore || expenseResult.hasMore);
     },
     [currentHouseholdId, repos, historyContribCursor, historyExpenseCursor, historyContribExhausted, historyExpenseExhausted]
   );
@@ -346,6 +365,14 @@ export default function AddScreen() {
     const amountMinor = parseAmountToMinor(eForm.amountRaw);
     if (amountMinor === null) return;
     if (eForm.participantMemberIds.length === 0) return;
+
+    // Block: custom split sum must match amountMinor
+    if (eForm.splitMode === 'custom') {
+      const totalShares = eForm.participantMemberIds.reduce((sum, mid) => {
+        return sum + (parseAmountToMinor(eForm.customShares[mid] || '0') || 0);
+      }, 0);
+      if (totalShares !== amountMinor) return;
+    }
 
     setIsSubmitting(true);
     try {
@@ -554,7 +581,8 @@ export default function AddScreen() {
     let message = '';
     if (entry.type === 'contribution') {
       const e = entry.entry as ContributionEntry;
-      message = `${e.label} - ${e.value} ${householdUnit === 'minutes' ? 'min' : 'pts'} par ${memberName(e.performedByMemberId)} (${formatDateShort(e.occurredAt)})`;
+      const entryUnitLabel = e.unit === 'minutes' ? 'min' : 'pts';
+      message = `${e.label} - ${e.value} ${entryUnitLabel} par ${memberName(e.performedByMemberId)} (${formatDateShort(e.occurredAt)})`;
     } else if (entry.type === 'expense') {
       const e = entry.entry as ExpenseEntry;
       message = `${e.title} - ${formatAmountMinor(e.amountMinor, e.currency)} paye par ${memberName(e.paidByMemberId)} (${formatDateShort(e.occurredAt)})`;
@@ -584,6 +612,21 @@ export default function AddScreen() {
       return { ...prev, participantMemberIds: ids };
     });
   };
+
+  // ── Custom split validation (memoized for button disable + inline error) ──
+
+  const customSplitValidation = useMemo(() => {
+    if (eForm.splitMode !== 'custom') return { valid: true, totalShares: 0, totalAmount: 0 };
+    const amountMinor = parseAmountToMinor(eForm.amountRaw) || 0;
+    const totalShares = eForm.participantMemberIds.reduce((sum, mid) => {
+      return sum + (parseAmountToMinor(eForm.customShares[mid] || '0') || 0);
+    }, 0);
+    return {
+      valid: amountMinor === 0 || totalShares === amountMinor,
+      totalShares,
+      totalAmount: amountMinor,
+    };
+  }, [eForm.splitMode, eForm.participantMemberIds, eForm.customShares, eForm.amountRaw]);
 
   // ── Render ─────────────────────────────────────────────────
 
@@ -1018,24 +1061,17 @@ export default function AddScreen() {
           </View>
 
           {/* Custom split sum validation */}
-          {eForm.splitMode === 'custom' && (() => {
-            const totalShares = eForm.participantMemberIds.reduce((sum, mid) => {
-              return sum + (parseAmountToMinor(eForm.customShares[mid] || '0') || 0);
-            }, 0);
-            const totalAmount = parseAmountToMinor(eForm.amountRaw) || 0;
-            const isValid = totalAmount === 0 || totalShares === totalAmount;
-            return !isValid ? (
-              <Text variant="caption" color={colors.balanceNegative} style={{ marginBottom: spacing.sm }}>
-                Total parts ({(totalShares / 100).toFixed(2)}) != montant ({(totalAmount / 100).toFixed(2)})
-              </Text>
-            ) : null;
-          })()}
+          {eForm.splitMode === 'custom' && !customSplitValidation.valid && (
+            <Text variant="caption" color={colors.balanceNegative} style={{ marginBottom: spacing.sm }}>
+              Total parts ({(customSplitValidation.totalShares / 100).toFixed(2)}) != montant ({(customSplitValidation.totalAmount / 100).toFixed(2)})
+            </Text>
+          )}
 
           <Button
             title={editingEntry ? 'Mettre a jour' : 'Ajouter depense'}
             variant="primary"
             onPress={editingEntry ? submitEdit : submitExpense}
-            disabled={!eForm.title.trim() || !eForm.amountRaw || isSubmitting}
+            disabled={!eForm.title.trim() || !eForm.amountRaw || isSubmitting || (eForm.splitMode === 'custom' && !customSplitValidation.valid)}
             loading={isSubmitting}
             style={styles.submitButton}
           />
@@ -1095,7 +1131,7 @@ export default function AddScreen() {
                 </Text>
                 <Text variant="caption" numberOfLines={1}>
                   {entry.type === 'contribution'
-                    ? `${memberName((entry.entry as ContributionEntry).performedByMemberId)} · ${(entry.entry as ContributionEntry).value} ${unitLabel}`
+                    ? `${memberName((entry.entry as ContributionEntry).performedByMemberId)} · ${(entry.entry as ContributionEntry).value} ${(entry.entry as ContributionEntry).unit === 'minutes' ? 'min' : 'pts'}`
                     : entry.type === 'expense'
                     ? `${memberName((entry.entry as ExpenseEntry).paidByMemberId)} · ${formatAmountMinor((entry.entry as ExpenseEntry).amountMinor, (entry.entry as ExpenseEntry).currency)}`
                     : ''}

@@ -60,14 +60,18 @@ export interface MemberRepository extends SeedableRepository<Member> {
 
 export interface PaginatedResult<T> {
   items: T[];
-  /** Cursor: the occurredAt of the last item in this page, or null if no more. */
+  /**
+   * Opaque composite cursor encoding `{ o: occurredAt, i: id }` for stable
+   * tie-breaking when multiple entries share the same occurredAt.  Null when
+   * no more pages exist.
+   */
   cursor: string | null;
   hasMore: boolean;
 }
 
 export interface PaginatedQuery {
   limit?: number;
-  /** Exclusive cursor — fetch items with occurredAt < cursor. */
+  /** Exclusive composite cursor — items strictly older than the encoded position. */
   cursor?: string | null;
   /** Only include entries at or after this timestamp (inclusive). */
   after?: string;

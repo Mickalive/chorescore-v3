@@ -10,6 +10,9 @@
  *
  * Cursor-based pagination avoids full-history reads and keeps the cost
  * of opening the Add tab constant regardless of total history size.
+ *
+ * The composite cursor encodes `{ o: occurredAt, i: entryId }` so that
+ * entries sharing the same timestamp are never skipped across pages.
  */
 
 import {
@@ -26,7 +29,7 @@ export type ActivityFilter = 'all' | 'contribution' | 'expense' | 'settlement';
 export interface ActivityLogPage {
   /** Entries sorted by occurredAt DESC (newest first). */
   entries: ActivityEntry[];
-  /** Cursor: the occurredAt of the last entry in this page. */
+  /** Composite cursor: `{ o: occurredAt, i: entryId }` or null if no more. */
   cursor: string | null;
   /** Whether more pages exist beyond this one. */
   hasMore: boolean;
@@ -47,8 +50,8 @@ export interface ActivityLogPaginationOptions {
 
 /**
  * Merge contributions, expenses and settlements into a single
- * ActivityEntry[], sort by occurredAt DESC and return a cursor-paginated
- * slice.
+ * ActivityEntry[], sort by occurredAt DESC (with id tie-break) and return
+ * a cursor-paginated slice.
  *
  * This function is pure — it does not touch repositories or side effects.
  * The caller is responsible for fetching the raw entries from the local store.
@@ -85,13 +88,12 @@ export function paginateActivityLog(
     }
   }
 
-  // Sort by occurredAt DESC (newest first)
+  // Sort by occurredAt DESC (newest first), then entry id DESC for
+  // deterministic tie-breaking when timestamps are equal.
   merged.sort((a, b) => {
-    const aTime = a.entry.occurredAt;
-    const bTime = b.entry.occurredAt;
-    // DESC: newer first; tie-break by type for stability
-    if (aTime !== bTime) return bTime.localeCompare(aTime);
-    return a.type.localeCompare(b.type);
+    const cmp = b.entry.occurredAt.localeCompare(a.entry.occurredAt);
+    if (cmp !== 0) return cmp;
+    return b.entry.id.localeCompare(a.entry.id);
   });
 
   // Apply after filter (inclusive)
@@ -100,19 +102,22 @@ export function paginateActivityLog(
     filtered = merged.filter((e) => e.entry.occurredAt >= after);
   }
 
-  // Apply cursor (exclusive — skip entries with occurredAt >= cursor)
+  // Apply composite cursor (exclusive)
   let start = 0;
   if (cursor) {
-    start = filtered.findIndex((e) => e.entry.occurredAt < cursor);
+    const c = JSON.parse(cursor) as { o: string; i: string };
+    start = filtered.findIndex(
+      (e) => e.entry.occurredAt < c.o || (e.entry.occurredAt === c.o && e.entry.id < c.i)
+    );
     if (start === -1) {
-      // No entries older than the cursor
       return { entries: [], cursor: null, hasMore: false };
     }
   }
 
   const page = filtered.slice(start, start + limit);
-  const nextCursor = page.length === limit
-    ? page[page.length - 1].entry.occurredAt
+  const last = page.length > 0 ? page[page.length - 1] : null;
+  const nextCursor = page.length === limit && last
+    ? JSON.stringify({ o: last.entry.occurredAt, i: last.entry.id })
     : null;
   const hasMore = page.length === limit && start + limit < filtered.length;
 

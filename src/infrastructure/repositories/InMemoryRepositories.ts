@@ -209,20 +209,24 @@ export class InMemoryContributionEntryRepository implements ContributionEntryRep
       items = items.filter((e) => e.occurredAt >= query.after!);
     }
 
-    // Sort by occurredAt DESC
-    items.sort((a, b) => b.occurredAt.localeCompare(a.occurredAt));
+    // Sort by occurredAt DESC, then id DESC for deterministic tie-breaking
+    items.sort((a, b) => b.occurredAt.localeCompare(a.occurredAt) || b.id.localeCompare(a.id));
 
-    // Apply cursor (exclusive — skip entries with occurredAt >= cursor)
+    // Apply composite cursor (exclusive): (occurredAt < c.o OR (occurredAt = c.o AND id < c.i))
     let start = 0;
     if (query.cursor) {
-      start = items.findIndex((e) => e.occurredAt < query.cursor!);
+      const c = JSON.parse(query.cursor!) as { o: string; i: string };
+      start = items.findIndex(
+        (e) => e.occurredAt < c.o || (e.occurredAt === c.o && e.id < c.i)
+      );
       if (start === -1) {
         return { items: [], cursor: null, hasMore: false };
       }
     }
 
     const page = items.slice(start, start + limit);
-    const nextCursor = page.length === limit ? page[page.length - 1].occurredAt : null;
+    const last = page.length > 0 ? page[page.length - 1] : null;
+    const nextCursor = page.length === limit && last ? JSON.stringify({ o: last.occurredAt, i: last.id }) : null;
     const hasMore = page.length === limit && start + limit < items.length;
 
     return { items: page, cursor: nextCursor, hasMore };
@@ -348,18 +352,24 @@ export class InMemoryExpenseEntryRepository implements ExpenseEntryRepository {
       items = items.filter((e) => e.occurredAt >= query.after!);
     }
 
-    items.sort((a, b) => b.occurredAt.localeCompare(a.occurredAt));
+    // Sort by occurredAt DESC, then id DESC for deterministic tie-breaking
+    items.sort((a, b) => b.occurredAt.localeCompare(a.occurredAt) || b.id.localeCompare(a.id));
 
+    // Apply composite cursor (exclusive)
     let start = 0;
     if (query.cursor) {
-      start = items.findIndex((e) => e.occurredAt < query.cursor!);
+      const c = JSON.parse(query.cursor!) as { o: string; i: string };
+      start = items.findIndex(
+        (e) => e.occurredAt < c.o || (e.occurredAt === c.o && e.id < c.i)
+      );
       if (start === -1) {
         return { items: [], cursor: null, hasMore: false };
       }
     }
 
     const page = items.slice(start, start + limit);
-    const nextCursor = page.length === limit ? page[page.length - 1].occurredAt : null;
+    const last = page.length > 0 ? page[page.length - 1] : null;
+    const nextCursor = page.length === limit && last ? JSON.stringify({ o: last.occurredAt, i: last.id }) : null;
     const hasMore = page.length === limit && start + limit < items.length;
 
     return { items: page, cursor: nextCursor, hasMore };
@@ -413,18 +423,24 @@ export class InMemorySettlementRepository implements SettlementRepository {
       items = items.filter((s) => s.occurredAt >= query.after!);
     }
 
-    items.sort((a, b) => b.occurredAt.localeCompare(a.occurredAt));
+    // Sort by occurredAt DESC, then id DESC for deterministic tie-breaking
+    items.sort((a, b) => b.occurredAt.localeCompare(a.occurredAt) || b.id.localeCompare(a.id));
 
+    // Apply composite cursor (exclusive)
     let start = 0;
     if (query.cursor) {
-      start = items.findIndex((s) => s.occurredAt < query.cursor!);
+      const c = JSON.parse(query.cursor!) as { o: string; i: string };
+      start = items.findIndex(
+        (s) => s.occurredAt < c.o || (s.occurredAt === c.o && s.id < c.i)
+      );
       if (start === -1) {
         return { items: [], cursor: null, hasMore: false };
       }
     }
 
     const page = items.slice(start, start + limit);
-    const nextCursor = page.length === limit ? page[page.length - 1].occurredAt : null;
+    const last = page.length > 0 ? page[page.length - 1] : null;
+    const nextCursor = page.length === limit && last ? JSON.stringify({ o: last.occurredAt, i: last.id }) : null;
     const hasMore = page.length === limit && start + limit < items.length;
 
     return { items: page, cursor: nextCursor, hasMore };
