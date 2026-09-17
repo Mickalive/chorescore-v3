@@ -3,22 +3,28 @@
   "milestone": "v3-rc",
   "builder": {
     "enabled": true,
-    "criterionId": "V3-05",
-    "objective": "REPAIR V3-05: Execute the completion as a single atomic operation: add a repository-level transaction (e.g. SQLite withTransactionAsync wrapping the todo update + contribution insert, with an in-memory equivalent) or a completion use-case in the domain/application layer that writes both the todo status and the ContributionEntry in one transaction, and have the UI call that single operation. Add tests that verify failure atomicity: (a) when the todo update fails, no ContributionEntry is created; (b) when the contribution creation fails, the todo is not marked completed; (c) a retry after any failure cannot produce a second ContributionEntry.",
-    "scope": "Repair only the audited must-fix findings on the preserved V3 baseline; do not rebuild accepted work.",
+    "criterionId": "V3-06",
+    "objective": "Implement V3-06 — Groupes, invitations, identité, sync et backend frugal. Multi-groupes illimités, identité stable, isolation tenant, options groupe Minutes|Points et compensation, invitation réelle par lien/partage/deep-link quand disponible, acceptation simple, persistance/sync/offline robustes. La sync est delta-only avec révisions/cursors par groupe, signal léger de changement si temps réel, opérations couplées atomiques, conflits multi-appareils déterministes et règles backend hostiles. Firebase/Firestore, s'il est retenu, reste un adapter.",
+    "scope": "Work only on V3-06 and directly necessary migrations/repairs. Preserve every completed V3 criterion.",
     "acceptance": [
-      "création et suppression todo gratuites",
-      "complétion mini-form claire",
-      "exactement une ContributionEntry atomique",
-      "rappel/calendrier honnêtes derrière ports",
-      "aucune donnée détruite ni chrono",
-      "complétion offline cohérente et réconciliable"
+      "groupes illimités",
+      "invitation create/share/accept testable",
+      "identité stable et isolation groupe",
+      "changement d'unité ne réinterprète pas l'historique",
+      "persistance et conflits gérés",
+      "aucune restriction de plan",
+      "sync après quelques changements récupère seulement les deltas",
+      "aucun N+1 ni listener massif injustifié",
+      "aucun last-write-wins aveugle sur opérations comptables",
+      "règles backend empêchent lecture cross-tenant et falsification de balances",
+      "lectures/écritures distantes instrumentables et bornées"
     ],
     "previousCriteriaPreserved": [
       "V3-01: accepted and must not regress",
       "V3-02: accepted and must not regress",
       "V3-03: accepted and must not regress",
-      "V3-04: accepted and must not regress"
+      "V3-04: accepted and must not regress",
+      "V3-05: accepted and must not regress"
     ]
   }
 }
