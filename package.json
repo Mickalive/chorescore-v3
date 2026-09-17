@@ -27,10 +27,10 @@
     "expo-font": "~57.0.2",
     "expo-linking": "~57.0.9",
     "expo-router": "~57.0.18",
+    "expo-secure-store": "~57.0.2",
     "expo-sharing": "~57.0.17",
     "expo-splash-screen": "~57.0.8",
     "expo-sqlite": "~57.0.3",
-    "expo-secure-store": "~57.0.2",
     "expo-status-bar": "~57.0.1",
     "react": "19.2.3",
     "react-dom": "19.2.3",
@@ -61,15 +61,27 @@
     "transformIgnorePatterns": [
       "node_modules/(?!((jest-)?react-native|@react-native(-community)?)|expo(nent)?|@expo(nent)?/.*|@expo-google-fonts/.*|react-navigation|@react-navigation/.*|@sentry/react-native|native-base|react-native-svg)"
     ],
-    "moduleFileExtensions": ["ts", "tsx", "js", "jsx", "json"],
-    "testMatch": ["**/__tests__/**/*.{ts,tsx,js,jsx}", "**/*.{test,spec}.{ts,tsx,js,jsx}"]
+    "moduleFileExtensions": [
+      "ts",
+      "tsx",
+      "js",
+      "jsx",
+      "json"
+    ],
+    "testMatch": [
+      "**/__tests__/**/*.{ts,tsx,js,jsx}",
+      "**/*.{test,spec}.{ts,tsx,js,jsx}"
+    ]
   },
   "engines": {
     "node": ">=18"
   },
   "expo": {
     "install": {
-      "exclude": ["react-native-worklets", "typescript"]
+      "exclude": [
+        "react-native-worklets",
+        "typescript"
+      ]
     }
   }
 }

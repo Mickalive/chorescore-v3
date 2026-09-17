@@ -1,0 +1,52 @@
+{
+  "schemaVersion": 1,
+  "cycle": "35171935994",
+  "role": "builder",
+  "decision": "repair",
+  "summary": "V3-04 repair candidate substantially improves the baseline: the Compenser modal now exists (creditor selection, amount presets, quoteCrossLedgerMoneyAmount, Avant/Apres preview for both ledgers, validateSettlementPreconditions, repos.settlements.create with rateSnapshot, disabled when compensation is off or no rate), the Balances screen now has a filtered history section (Tout/Contributions/Depenses/Compensations) reusing paginateActivityLog with settlements included and UI pagination, settlements are period-filtered in both the screen and the materialized service with new tests proving an out-of-period settlement does not affect period views while remaining in all-time, and the wall-clock cost-gate assertions were replaced with repository call-count assertions. Trusted verification passed (exit 0: typecheck, 162 tests, Expo export Android, prebuild, native debug build BUILD SUCCESSFUL). Two must-fix findings remain. (1) The screen refresh contract is still a full re-read + full replay: useFocusEffect calls loadData() which re-reads all five collections and rebuilds the materialized snapshot via createBalanceSnapshot on every focus; the delta machinery is applied only to settlements created inside the screen, and AppContext exposes no data-change signal. The task-required test that renders the Balances screen against a fake repo, adds an entry, and asserts the view updates via delta without a full re-read (or asserts subscription to a data-change signal) is missing; the cost-gates test header claims 'The Balances screen uses materialized delta refresh, not full re-read' but no test renders the screen. (2) After confirming a compensation, the all-time money ledger view is stale: handleCompenserConfirm applies the delta only to snapshotRef.current.contribution and leaves moneyByCurrency unchanged ('Money is recomputed on next full load'), so the Argent block does not reflect the just-persisted settlement until the next focus/remount; independently verified (screen shows money a=-1500/b=+1500 while true ledger replay is a=-1000/b=+1000). No V3-01/V3-02/V3-03 regression; no chrono/premium/paywall reintroduced.",
+  "checks": [
+    "trusted_verification_exit_0",
+    "typecheck_pass",
+    "tests_162_pass",
+    "expo_export_android_ok",
+    "android_prebuild_and_native_debug_build_ok",
+    "compenser_modal_implemented_creditor_amount_quote_avant_apres",
+    "validateSettlementPreconditions_run_before_persist",
+    "settlement_persisted_via_repos_settlements_create_with_rateSnapshot",
+    "compenser_disabled_when_compensation_off_or_no_rate",
+    "filtered_history_section_tout_contributions_depenses_compensations",
+    "history_reuses_paginateActivityLog_with_settlements_included",
+    "history_rows_compact_per_section_10",
+    "settlements_period_filtered_in_screen_and_materialized_service",
+    "tests_settlement_outside_period_does_not_affect_period_view_but_remains_all_time",
+    "wall_clock_assertions_replaced_by_repository_call_counts",
+    "materialized_balances_equal_full_replay_tests",
+    "delta_functions_add_remove_settlement_match_full_replay",
+    "compensation_off_by_default_demo_and_createHousehold",
+    "no_implicit_conversion_minutes_points_distinct",
+    "no_cross_currency_netting_money_ledger_per_currency",
+    "local_first_reads_no_remote_full_scan",
+    "V3-01_ledger_invariants_preserved",
+    "V3-02_design_tabs_local_first_preserved",
+    "V3-03_add_history_pagination_preserved",
+    "no_chrono_no_premium_no_paywall"
+  ],
+  "findings": [
+    {
+      "path": "app/(tabs)/balances.tsx + __tests__/domain/cost-gates-v3-04.test.ts",
+      "problem": "The screen refresh contract is still a full re-read + full replay, and the task-required screen-level delta-refresh test is missing. The objective requires: 'maintain a materialized snapshot, apply deltas on entry add/remove/settlement, and refresh on focus or on a data-change signal from AppContext so Balances reflects new entries without full replay and without staleness' and 'Replace with a test that exercises the real refresh contract: render the Balances screen against a fake repo, add an entry, and assert the view updates via delta without a full re-read; or assert the screen subscribes to a data-change signal.' The candidate's useFocusEffect calls loadData() which re-reads all five collections (household, members, contributions, expenses, settlements) and rebuilds the snapshot via createBalanceSnapshot (full ledger replay) on every focus. The delta machinery is applied only to settlements created inside the screen; entries added in the Ajouter tab are picked up only through the full re-read. AppContext exposes no data-change signal. The cost-gates test file header claims 'The Balances screen uses materialized delta refresh, not full re-read' but no test renders the screen: the tests exercise only pure functions (deltaUpdateContribution, deltaUpdateContributionFromSettlement) and repository call counts on InMemory repos, never the screen component or its refresh contract.",
+      "evidence": "balances.tsx lines 167-201: loadData does 5 parallel getByHousehold/getById reads then createBalanceSnapshot (full replay); useFocusEffect(loadData) fires on every focus. AppContext.tsx has no data-change signal (grep for dataChange/subscribe/emit returns only the auth listener). cost-gates-v3-04.test.ts contains no react-test-renderer import and no screen render; header lines 5-8 claim delta refresh is proven while the tests only call pure functions; the 'delta refresh updates balances without full re-read' test (lines 193-230) never touches the screen.",
+      "mustFix": true,
+      "requiredFix": "Wire a delta-based refresh contract: maintain the materialized snapshot and apply deltas for entries added/removed in other tabs (via a data-change signal from AppContext, or a delta-aware focus refresh that fetches only new/changed entries), so Balances reflects new entries without a full re-read/full replay on every focus. Add the required test: render the Balances screen against a fake repo, add an entry, and assert the view updates via delta without a full re-read, using repository call counts (not wall-clock time); or assert the screen subscribes to a data-change signal. Remove the unproven claim in the test header.",
+      "verification": "The new test fails against the current full-reload-on-focus implementation and passes once the delta refresh wiring exists; repository call counts stay bounded after adding an entry (no full re-read of all collections on focus)."
+    },
+    {
+      "path": "app/(tabs)/balances.tsx (handleCompenserConfirm)",
+      "problem": "After confirming a compensation, the all-time money ledger view is stale. The objective requires 'persist an immutable CrossLedgerSettlement with rateSnapshot via repos.settlements.create, then refresh both ledger views' and 'without staleness'. handleCompenserConfirm applies the delta only to snapshotRef.current.contribution and leaves snapshotRef.current.moneyByCurrency unchanged (comment: 'Money is recomputed on next full load'). Because the all-time money view reads from the snapshot, the Argent block does not reflect the just-persisted settlement until the next focus/remount. Independently verified: after a 15-min/CHF 5.00 settlement (rate 60 min = CHF 20), the screen shows money a=-1500/b=+1500 while the true ledger replay including the settlement is a=-1000/b=+1000. Additionally, the screen ignores the settlement entity returned by repos.settlements.create and stores fake ids (pending-<ts> in state, sett-<ts> in the delta), so the in-session state id never matches the persisted ledger entry.",
+      "evidence": "balances.tsx lines 383-392: snapshotRef.current = { contribution: deltaUpdateContributionFromSettlement(...), moneyByCurrency: snapshotRef.current.moneyByCurrency }; line 390 comment admits money is recomputed only on next full load. Independent simulation (createBalanceSnapshot + deltaUpdateContributionFromSettlement + calculateFinancialBalancesByCurrency) confirms screen money view diverges from full replay after a settlement. repos.settlements.create returns a generated id (InMemoryRepositories.ts line 453-460) which the screen discards.",
+      "mustFix": true,
+      "requiredFix": "Apply the settlement's money delta to the materialized money snapshot (add a deltaUpdateMoneyFromSettlement or equivalent: creditor +moneyAmountMinor, counterparty -moneyAmountMinor) so both ledger views refresh immediately after repos.settlements.create, and use the settlement entity returned by repos.settlements.create (real id) for state and delta so the in-session state matches the persisted ledger.",
+      "verification": "Test: after creating a settlement through the screen flow, both contribution and money balances equal full replay including the settlement, both ledgers remain zero-sum, and no full re-read is required to refresh the all-time money view."
+    }
+  ]
+}

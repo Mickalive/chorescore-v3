@@ -59,6 +59,8 @@ export interface BalanceSnapshot {
 /**
  * Compute contribution balances for a given period.
  * Period is a VIEW — the underlying perpetual ledger is never mutated.
+ * Settlements are ALSO filtered by period: a settlement outside the period
+ * does not affect the period view (but it remains in all-time).
  */
 export function computePeriodContributionBalances(
   entries: ContributionEntry[],
@@ -69,11 +71,13 @@ export function computePeriodContributionBalances(
   referenceDate: Date = new Date()
 ): Map<string, number> {
   const filtered = filterByPeriod(entries, period, referenceDate);
-  return calculateContributionBalances(filtered, unit, settlements, memberIds);
+  const filteredSettlements = filterByPeriod(settlements, period, referenceDate);
+  return calculateContributionBalances(filtered, unit, filteredSettlements, memberIds);
 }
 
 /**
  * Compute financial balances for a given period.
+ * Settlements are filtered by period (same as contributions).
  */
 export function computePeriodFinancialBalances(
   expenses: ExpenseEntry[],
@@ -83,7 +87,8 @@ export function computePeriodFinancialBalances(
   referenceDate: Date = new Date()
 ): Map<string, Map<string, number>> {
   const filtered = filterByPeriod(expenses, period, referenceDate);
-  return calculateFinancialBalancesByCurrency(filtered, settlements, memberIds);
+  const filteredSettlements = filterByPeriod(settlements, period, referenceDate);
+  return calculateFinancialBalancesByCurrency(filtered, filteredSettlements, memberIds);
 }
 
 // ── Delta-based incremental update ─────────────────────────────

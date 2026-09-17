@@ -229,6 +229,92 @@ describe('V3-04 period views: never reset', () => {
     expect(entries[0].id).toBe(originalFirst.id);
     expect(entries[0].value).toBe(originalFirst.value);
   });
+
+  test('settlement outside the period does not affect the period view while remaining in all-time', () => {
+    const entries = [
+      contribution({ id: 'c-1', value: 60, occurredAt: '2026-09-16T10:00:00.000Z' }),
+    ];
+    // Settlement from 2020 — outside the current period
+    const oldSettlement = settlement({
+      id: 's-old',
+      contributionValue: 15,
+      moneyAmountMinor: 500,
+      occurredAt: '2020-01-01T00:00:00.000Z',
+    });
+    // Settlement from today — inside the current period
+    const newSettlement = settlement({
+      id: 's-new',
+      contributionValue: 10,
+      moneyAmountMinor: 333,
+      occurredAt: '2026-09-16T12:00:00.000Z',
+    });
+    const allSettlements = [oldSettlement, newSettlement];
+
+    // All-time: both settlements affect balances
+    const allTimeBalances = computePeriodContributionBalances(
+      entries, 'minutes', allSettlements, MEMBER_IDS, 'all-time'
+    );
+    // a gets +60 - 20 = +40 from contribution alone
+    // s-old: a loses 15 → +25; b gains 15 → b goes from -20 to -5
+    // s-new: a loses 10 → +15; b gains 10 → -5 to +5
+    // Net: a = +15, b = +5, c = -20
+    expect(allTimeBalances.get('a')).toBe(15);
+    expect(allTimeBalances.get('b')).toBe(5);
+    expect(allTimeBalances.get('c')).toBe(-20);
+    expect(contributionLedgerIsZeroSum(allTimeBalances)).toBe(true);
+
+    // Week view: only the new settlement affects balances
+    const weekBalances = computePeriodContributionBalances(
+      entries, 'minutes', allSettlements, MEMBER_IDS, 'week'
+    );
+    // a = +40 from contribution, s-new: -10 → +30
+    // b = -20 from contribution, s-new: +10 → -10
+    // c = -20 from contribution
+    expect(weekBalances.get('a')).toBe(30);
+    expect(weekBalances.get('b')).toBe(-10);
+    expect(weekBalances.get('c')).toBe(-20);
+    expect(contributionLedgerIsZeroSum(weekBalances)).toBe(true);
+  });
+
+  test('financial balances: settlement outside the period does not affect the period view', () => {
+    const expenses = [
+      expense({ id: 'e-1', amountMinor: 3000, paidByMemberId: 'a', participantMemberIds: ['a', 'b'], occurredAt: '2026-09-16T10:00:00.000Z' }),
+    ];
+    const oldSettlement = settlement({
+      id: 's-old',
+      contributionValue: 15,
+      moneyAmountMinor: 500,
+      occurredAt: '2020-01-01T00:00:00.000Z',
+    });
+    const newSettlement = settlement({
+      id: 's-new',
+      contributionValue: 10,
+      moneyAmountMinor: 333,
+      occurredAt: '2026-09-16T12:00:00.000Z',
+    });
+    const allSettlements = [oldSettlement, newSettlement];
+
+    // All-time: both settlements affect financial balances
+    const allTimeFinancial = computePeriodFinancialBalances(
+      expenses, allSettlements, ['a', 'b'], 'all-time'
+    );
+    const allTimeChf = allTimeFinancial.get('CHF')!;
+    // a paid 3000, split equally: a = +1500, b = -1500
+    // s-old: a gets +500, b gets -500 → a = +2000, b = -2000
+    // s-new: a gets +333, b gets -333 → a = +2333, b = -2333
+    expect(allTimeChf.get('a')).toBe(2333);
+    expect(allTimeChf.get('b')).toBe(-2333);
+
+    // Week: only new settlement
+    const weekFinancial = computePeriodFinancialBalances(
+      expenses, allSettlements, ['a', 'b'], 'week'
+    );
+    const weekChf = weekFinancial.get('CHF')!;
+    // a = +1500 from expense, s-new: +333 → +1833
+    // b = -1500 from expense, s-new: -333 → -1833
+    expect(weekChf.get('a')).toBe(1833);
+    expect(weekChf.get('b')).toBe(-1833);
+  });
 });
 
 // ── Tests: Delta updates ──────────────────────────────────────
