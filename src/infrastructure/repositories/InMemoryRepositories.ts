@@ -261,7 +261,7 @@ export class InMemoryContributionEntryRepository implements ContributionEntryRep
   async create(entry: Omit<ContributionEntry, 'id'>): Promise<ContributionEntry> {
     const created: ContributionEntry = {
       ...entry,
-      id: generateId('contribution'),
+      id: (entry as any).id || generateId('contribution'),
     };
     this.items.set(created.id, { ...created });
     return created;
@@ -300,7 +300,7 @@ export class InMemoryPersistentTaskRepository implements PersistentTaskRepositor
   async create(task: Omit<PersistentTask, 'id' | 'createdAt'>): Promise<PersistentTask> {
     const created: PersistentTask = {
       ...task,
-      id: generateId('persistent-task'),
+      id: (task as any).id || generateId('persistent-task'),
       createdAt: new Date().toISOString(),
     };
     this.items.set(created.id, { ...created });
@@ -347,7 +347,7 @@ export class InMemoryTodoRepository implements TodoRepository {
   async create(todo: Omit<TodoItem, 'id' | 'createdAt'>): Promise<TodoItem> {
     const created: TodoItem = {
       ...todo,
-      id: generateId('todo'),
+      id: (todo as any).id || generateId('todo'),
       createdAt: new Date().toISOString(),
     };
     this.items.set(created.id, { ...created });
@@ -419,7 +419,7 @@ export class InMemoryExpenseEntryRepository implements ExpenseEntryRepository {
   async create(entry: Omit<ExpenseEntry, 'id'>): Promise<ExpenseEntry> {
     const created: ExpenseEntry = {
       ...entry,
-      id: generateId('expense'),
+      id: (entry as any).id || generateId('expense'),
     };
     this.items.set(created.id, { ...created });
     return created;
@@ -490,7 +490,7 @@ export class InMemorySettlementRepository implements SettlementRepository {
   async create(settlement: Omit<CrossLedgerSettlement, 'id'>): Promise<CrossLedgerSettlement> {
     const created: CrossLedgerSettlement = {
       ...settlement,
-      id: generateId('settlement'),
+      id: (settlement as any).id || generateId('settlement'),
     };
     this.items.set(created.id, { ...created });
     return created;

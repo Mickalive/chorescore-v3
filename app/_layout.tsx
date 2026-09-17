@@ -23,6 +23,9 @@ export default function RootLayout() {
         >
           <Stack.Screen name="index" />
           <Stack.Screen name="(tabs)" />
+          <Stack.Screen name="group-options" />
+          <Stack.Screen name="invite" />
+          <Stack.Screen name="join/[token]" />
         </Stack>
       </AppProvider>
     </SafeAreaProvider>

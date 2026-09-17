@@ -179,7 +179,33 @@ export default function HomeScreen() {
                       {item.contributionUnit === 'minutes' ? 'Minutes' : 'Points'}
                     </Text>
                   </View>
-                  <Text variant="caption" style={styles.chevron}>{'>'}</Text>
+                  <View style={styles.householdActions}>
+                    <TouchableOpacity
+                      onPress={(e) => {
+                        e.stopPropagation?.();
+                        setCurrentHouseholdId(item.id);
+                        router.push('/invite');
+                      }}
+                      style={styles.actionChip}
+                    >
+                      <Text variant="caption" color={colors.textSecondary}>
+                        Inviter
+                      </Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      onPress={(e) => {
+                        e.stopPropagation?.();
+                        setCurrentHouseholdId(item.id);
+                        router.push('/group-options');
+                      }}
+                      style={styles.actionChip}
+                    >
+                      <Text variant="caption" color={colors.textSecondary}>
+                        Options
+                      </Text>
+                    </TouchableOpacity>
+                    <Text variant="caption" style={styles.chevron}>{'>'}</Text>
+                  </View>
                 </View>
               </Card>
             </TouchableOpacity>
@@ -279,6 +305,17 @@ const styles = StyleSheet.create({
   },
   householdInfo: {
     flex: 1,
+  },
+  householdActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  actionChip: {
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
+    borderRadius: borderRadius.sm,
+    backgroundColor: colors.surfaceAlt,
   },
   chevron: {
     color: colors.textMuted,

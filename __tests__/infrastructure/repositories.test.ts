@@ -679,11 +679,16 @@ describe('V3-02 RepositoryFactory selection', () => {
     expect(repos.memberships).toBeInstanceOf(InMemoryMembershipRepository);
     expect(repos.households).toBeInstanceOf(InMemoryHouseholdRepository);
     expect(repos.members).toBeInstanceOf(InMemoryMemberRepository);
-    expect(repos.contributions).toBeInstanceOf(InMemoryContributionEntryRepository);
+    // contributions, todos, expenses, settlements are sync-recording wrappers
+    // that delegate to InMemory repos — verify they implement the interface
+    expect(typeof repos.contributions.create).toBe('function');
+    expect(typeof repos.contributions.getById).toBe('function');
+    expect(typeof repos.contributions.getByHousehold).toBe('function');
     expect(repos.tasks).toBeInstanceOf(InMemoryPersistentTaskRepository);
-    expect(repos.todos).toBeInstanceOf(InMemoryTodoRepository);
-    expect(repos.expenses).toBeInstanceOf(InMemoryExpenseEntryRepository);
-    expect(repos.settlements).toBeInstanceOf(InMemorySettlementRepository);
+    expect(typeof repos.todos.create).toBe('function');
+    expect(typeof repos.todos.getById).toBe('function');
+    expect(typeof repos.expenses.create).toBe('function');
+    expect(typeof repos.settlements.create).toBe('function');
   });
 
   test('business data written through factory-selected repos can be read back', async () => {

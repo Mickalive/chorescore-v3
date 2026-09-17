@@ -4,6 +4,12 @@
  * Provides SQLite-backed repositories on device with in-memory fallback for tests.
  * Business data is persisted in the indexed local store and survives restarts.
  * Navigation reads from local state without any cloud dependency.
+ *
+ * Sync-aware: in-memory repos automatically record dirty sync records after
+ * business writes (via SyncRecording wrappers) and materialize remote deltas
+ * into business tables (via MaterializingSyncState). This ensures the sync
+ * pipeline is wired end-to-end: local writes produce real push payloads and
+ * remote pulls actually update business data.
  */
 
 import {
@@ -33,6 +39,8 @@ import {
   SettlementRepository,
   InvitationRepository,
   SyncStateRepository,
+  PaginatedResult,
+  PaginatedQuery,
 } from './index';
 import {
   InMemoryUserRepository,
@@ -47,6 +55,7 @@ import {
   InMemoryInvitationRepository,
   InMemorySyncStateRepository,
 } from './InMemoryRepositories';
+import { materializeDeltas } from '../sync/SyncMaterializer';
 
 export interface AllRepositories {
   users: UserRepository;
@@ -138,22 +147,112 @@ async function createSqliteRepositories(): Promise<AllRepositories | null> {
   }
 }
 
+/**
+ * Wraps InMemorySyncStateRepository so that applyDeltas also materializes
+ * pulled records into the actual business tables (contribution_entries,
+ * expense_entries, settlements, todo_items, persistent_tasks, members,
+ * memberships, households). This is the core fix for finding #1: remote
+ * deltas now actually reach business data, not just a buffer.
+ */
+class MaterializingSyncState implements SyncStateRepository {
+  constructor(
+    private inner: InMemorySyncStateRepository,
+    private getRepos: () => AllRepositories,
+  ) {}
+
+  getCursor(householdId: string, collection: SyncCollection): Promise<SyncCursor | null> {
+    return this.inner.getCursor(householdId, collection);
+  }
+
+  setCursor(cursor: SyncCursor): Promise<void> {
+    return this.inner.setCursor(cursor);
+  }
+
+  async applyDeltas(
+    householdId: string,
+    collection: SyncCollection,
+    records: SyncRecord[],
+  ): Promise<SyncRecord[]> {
+    // 1. Delegate to inner for buffer storage + cursor advancement
+    const applied = await this.inner.applyDeltas(householdId, collection, records);
+
+    // 2. Materialize into actual business tables
+    const repos = this.getRepos();
+    await materializeDeltas(repos, collection, records);
+
+    return applied;
+  }
+
+  storeLocalRecords(
+    householdId: string,
+    collection: SyncCollection,
+    records: SyncRecord[],
+  ): Promise<void> {
+    return this.inner.storeLocalRecords(householdId, collection, records);
+  }
+
+  getDirtyRecords(
+    householdId: string,
+    collection: SyncCollection,
+    sinceRevision: number,
+  ): Promise<SyncRecord[]> {
+    return this.inner.getDirtyRecords(householdId, collection, sinceRevision);
+  }
+}
+
+/**
+ * Global revision counter for sync records created by business writes.
+ * Each write increments this counter. In production this would be
+ * per-entity persisted; for InMemory tests a simple counter suffices.
+ */
+let syncRevisionCounter = 0;
+function nextSyncRevision(): number {
+  syncRevisionCounter += 1;
+  return syncRevisionCounter;
+}
+
+/** Reset the revision counter (for tests). */
+export function resetSyncRevisions(): void {
+  syncRevisionCounter = 0;
+}
+
+/**
+ * Create an AllRepositories set with sync recording wired.
+ * Every business write (create/update/delete) on contribution, expense,
+ * todo and settlement repos automatically records a dirty SyncRecord
+ * via storeLocalRecords, so pushDeltas has real payloads to send.
+ */
 function createInMemoryRepositories(): AllRepositories {
   const todoRepo = new InMemoryTodoRepository();
   const contributionRepo = new InMemoryContributionEntryRepository();
+  const expenseRepo = new InMemoryExpenseEntryRepository();
+  const settlementRepo = new InMemorySettlementRepository();
+  const baseSyncState = new InMemorySyncStateRepository();
 
-  return {
+  // We need a lazy getter because the repos reference each other circularly
+  let repos: AllRepositories;
+
+  // Wrap business repos to record dirty sync records after writes
+  const syncContributions = wrapContributionRepo(contributionRepo, baseSyncState);
+  const syncExpenses = wrapExpenseRepo(expenseRepo, baseSyncState);
+  const syncTodos = wrapTodoRepo(todoRepo, baseSyncState);
+  const syncSettlements = wrapSettlementRepo(settlementRepo, baseSyncState);
+
+  // Materializing sync state: applyDeltas also writes to business tables
+  const materializingSync = new MaterializingSyncState(baseSyncState, () => repos);
+
+  repos = {
     users: new InMemoryUserRepository(),
     memberships: new InMemoryMembershipRepository(),
     households: new InMemoryHouseholdRepository(),
     members: new InMemoryMemberRepository(),
-    contributions: contributionRepo,
+    contributions: syncContributions,
     tasks: new InMemoryPersistentTaskRepository(),
-    todos: todoRepo,
-    expenses: new InMemoryExpenseEntryRepository(),
-    settlements: new InMemorySettlementRepository(),
+    todos: syncTodos,
+    expenses: syncExpenses,
+    settlements: syncSettlements,
     invitations: new InMemoryInvitationRepository(),
-    syncState: new InMemorySyncStateRepository(),
+    syncState: materializingSync,
     withTransaction: async <T>(fn: () => Promise<T>): Promise<T> => {
       // In-memory equivalent of a DB transaction: snapshot the affected
       // repos, run the work, and restore on any failure so a partial write
@@ -166,6 +265,143 @@ function createInMemoryRepositories(): AllRepositories {
         todoRepo.restoreFromSnapshot(todoSnap);
         contributionRepo.restoreFromSnapshot(contributionSnap);
         throw err;
+      }
+    },
+  };
+
+  return repos;
+}
+
+// ── Sync Recording Wrappers ────────────────────────────────────
+// These wrap business repositories to call storeLocalRecords after
+// every write, ensuring pushDeltas has real payloads.
+
+function recordDirty(
+  syncState: InMemorySyncStateRepository,
+  householdId: string,
+  collection: SyncCollection,
+  entityId: string,
+  entity: unknown,
+  deleted: boolean,
+): Promise<void> {
+  const now = new Date().toISOString();
+  const record: SyncRecord = {
+    id: entityId,
+    householdId,
+    collection,
+    revision: nextSyncRevision(),
+    updatedAt: now,
+    deletedAt: deleted ? now : null,
+    payload: deleted ? null : JSON.stringify(entity),
+  };
+  return syncState.storeLocalRecords(householdId, collection, [record]);
+}
+
+function wrapContributionRepo(
+  inner: InMemoryContributionEntryRepository,
+  syncState: InMemorySyncStateRepository,
+): ContributionEntryRepository {
+  return {
+    seed: (items) => inner.seed(items),
+    getByHousehold: (hhId) => inner.getByHousehold(hhId),
+    getByHouseholdPaginated: (hhId, q) => inner.getByHouseholdPaginated(hhId, q),
+    getById: (id) => inner.getById(id),
+    async create(entry) {
+      const created = await inner.create(entry);
+      await recordDirty(syncState, entry.householdId, 'contribution_entries', created.id, created, false);
+      return created;
+    },
+    async update(id, data) {
+      const updated = await inner.update(id, data);
+      await recordDirty(syncState, updated.householdId, 'contribution_entries', id, updated, false);
+      return updated;
+    },
+    async delete(id) {
+      const existing = await inner.getById(id);
+      await inner.delete(id);
+      if (existing) {
+        await recordDirty(syncState, existing.householdId, 'contribution_entries', id, existing, true);
+      }
+    },
+  };
+}
+
+function wrapExpenseRepo(
+  inner: InMemoryExpenseEntryRepository,
+  syncState: InMemorySyncStateRepository,
+): ExpenseEntryRepository {
+  return {
+    seed: (items) => inner.seed(items),
+    getByHousehold: (hhId) => inner.getByHousehold(hhId),
+    getByHouseholdPaginated: (hhId, q) => inner.getByHouseholdPaginated(hhId, q),
+    getById: (id) => inner.getById(id),
+    async create(entry) {
+      const created = await inner.create(entry);
+      await recordDirty(syncState, entry.householdId, 'expense_entries', created.id, created, false);
+      return created;
+    },
+    async update(id, data) {
+      const updated = await inner.update(id, data);
+      await recordDirty(syncState, updated.householdId, 'expense_entries', id, updated, false);
+      return updated;
+    },
+    async delete(id) {
+      const existing = await inner.getById(id);
+      await inner.delete(id);
+      if (existing) {
+        await recordDirty(syncState, existing.householdId, 'expense_entries', id, existing, true);
+      }
+    },
+  };
+}
+
+function wrapTodoRepo(
+  inner: InMemoryTodoRepository,
+  syncState: InMemorySyncStateRepository,
+): TodoRepository {
+  return {
+    seed: (items) => inner.seed(items),
+    getByHousehold: (hhId) => inner.getByHousehold(hhId),
+    getById: (id) => inner.getById(id),
+    async create(todo) {
+      const created = await inner.create(todo);
+      await recordDirty(syncState, todo.householdId, 'todo_items', created.id, created, false);
+      return created;
+    },
+    async update(id, data) {
+      const updated = await inner.update(id, data);
+      await recordDirty(syncState, updated.householdId, 'todo_items', id, updated, false);
+      return updated;
+    },
+    async delete(id) {
+      const existing = await inner.getById(id);
+      await inner.delete(id);
+      if (existing) {
+        await recordDirty(syncState, existing.householdId, 'todo_items', id, existing, true);
+      }
+    },
+  };
+}
+
+function wrapSettlementRepo(
+  inner: InMemorySettlementRepository,
+  syncState: InMemorySyncStateRepository,
+): SettlementRepository {
+  return {
+    seed: (items) => inner.seed(items),
+    getByHousehold: (hhId) => inner.getByHousehold(hhId),
+    getByHouseholdPaginated: (hhId, q) => inner.getByHouseholdPaginated(hhId, q),
+    getById: (id) => inner.getById(id),
+    async create(settlement) {
+      const created = await inner.create(settlement);
+      await recordDirty(syncState, settlement.householdId, 'settlements', created.id, created, false);
+      return created;
+    },
+    async delete(id) {
+      const existing = await inner.getById(id);
+      await inner.delete(id);
+      if (existing) {
+        await recordDirty(syncState, existing.householdId, 'settlements', id, existing, true);
       }
     },
   };

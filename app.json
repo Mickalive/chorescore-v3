@@ -21,7 +21,20 @@
       "adaptiveIcon": {
         "backgroundColor": "#F5F5F7"
       },
-      "package": "app.chorescore.v3"
+      "package": "app.chorescore.v3",
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "data": [
+            {
+              "scheme": "https",
+              "host": "chorescore.app",
+              "pathPrefix": "/join"
+            }
+          ],
+          "category": ["BROWSABLE", "DEFAULT"]
+        }
+      ]
     },
     "web": {
       "bundler": "metro"
@@ -29,6 +42,9 @@
     "plugins": [
       "expo-router",
       "expo-font"
-    ]
+    ],
+    "experiments": {
+      "typedRoutes": true
+    }
   }
 }

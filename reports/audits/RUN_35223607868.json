@@ -1,0 +1,86 @@
+{
+  "schemaVersion": 1,
+  "cycle": "35223607868",
+  "role": "builder",
+  "decision": "repair",
+  "summary": "V3-06 repair cycle: invitation flow, group-options screen, sync pipeline materialization and e2e/hostile tests were added and trusted verification passed (exit 0, 17 suites / 260 tests, typecheck, Expo export, native debug build; V3-06 suites independently re-run: 60/60 pass). However the sync pipeline is wired only into the in-memory (test) repository path: the production SQLite path used on device still buffers applyDeltas into sync_records without materializing into business tables and never records dirty records for pushDeltas. applyDeltas advances the cursor before materialization and runs outside any transaction. Tenant isolation and balance-integrity rules (requireHouseholdMembership/requireRole/assertLedgerWrite) still have zero callers in the data-access path. Conflict resolution is incomplete: households are blind-overwritten in the materializer, local revisions are fabricated as 0 so remote always wins, and the SQLite applyDeltas remains blind. Decision: repair.",
+  "checks": [
+    "Trusted verification exit code is 0 (TRUSTED_35223607868.md: 17 suites / 260 tests, typecheck, Expo export, Android debug build)",
+    "Independent re-run of __tests__/domain/v3-06-sync-e2e.test.ts and v3-06-groups-invitations-sync.test.ts: 60/60 pass",
+    "Candidate delta vs pristine: 13 files, +2353/-18; no chrono/premium/paywall/entitlement/Firebase reintroduced in new or changed files",
+    "Invitation flow present: app/invite.tsx (email + share sheet via LocalSystemShareAdapter, honest expo-sharing fallback), app/join/[token].tsx (validateAcceptInvitation + planInvitationAcceptance, atomic accept via withTransaction), deep-link scheme 'chorescore' in app.json + AndroidManifest, routes registered in app/_layout.tsx, Inviter/Options chips in app/index.tsx, no plan gating",
+    "Group-options screen present: app/group-options.tsx with Minutes|Points toggle + provenance warning, compensation toggle + group-defined rate, wired to planUnitChange/validateUnitChange and household settings, reachable from group root",
+    "Sync pipeline wired in createInMemoryRepositories(): MaterializingSyncState.applyDeltas calls materializeDeltas; inline wrappers call storeLocalRecords for contributions/expenses/todos/settlements",
+    "FAIL: createSqliteRepositories() returns plain SqliteSyncStateRepository + plain Sqlite business repos - no materialization, no dirty-record recording on the production path",
+    "FAIL: MaterializingSyncState.applyDeltas calls inner.applyDeltas (advances cursor) then materializeDeltas outside any transaction",
+    "FAIL: requireHouseholdMembership/requireRole/assertLedgerWrite have zero callers outside authorizationRules.ts; repositories take no caller-membership context",
+    "FAIL: materializeDeltas case 'households' uses blind repos.households.update without resolveConflict; local revision hardcoded 0 in resolveConflict calls (remote always wins); SQLite applyDeltas is blind INSERT OR REPLACE",
+    "No regression of previously accepted V3-01..V3-05 invariants (full suite green in trusted verification)"
+  ],
+  "findings": [
+    {
+      "path": "src/infrastructure/repositories/RepositoryFactory.ts (createSqliteRepositories) + src/infrastructure/repositories/SqliteRepositories.ts",
+      "problem": "The sync pipeline is wired only into the in-memory (test) path. The production SQLite path used on device returns plain SqliteSyncStateRepository and plain Sqlite business repositories: applyDeltas still only buffers pulled records into sync_records (cursor advances) and never materializes them into business tables, and local business writes never call storeLocalRecords, so pushDeltas has no payloads. This is the previous audit's must-fix finding #1, still unfixed for the production path. Additionally, even in the in-memory path only contributions/expenses/todos/settlements are wrapped: writes to persistent_tasks, members, memberships and households never record dirty records.",
+      "evidence": "RepositoryFactory.ts: createSqliteRepositories() constructs syncState: new SqliteSyncStateRepository() and plain Sqlite business repos with no MaterializingSyncState and no sync-recording wrappers; MaterializingSyncState + inline storeLocalRecords wrappers exist only in createInMemoryRepositories(); grep shows storeLocalRecords callers only in RepositoryFactory.ts (in-memory) and the unused SyncRecordingWrapper.ts; pullDeltas/pushDeltas/syncHousehold have zero callers in app/ or src/features; AppContext uses LocalSyncAdapter (honest no-op, isAvailable()===false).",
+      "mustFix": true,
+      "requiredFix": "Wire the same materialization + dirty-record recording into the SQLite path (e.g. SqliteSyncStateRepository.applyDeltas materializes into Sqlite business tables, and Sqlite business repos record dirty sync records after writes), covering all 8 SYNC_COLLECTIONS including persistent_tasks, members, memberships and households. Add a test that exercises the SQLite repository path (or a shared contract test run against both implementations) proving remote delta -> business record readable + local write -> getDirtyRecords payload.",
+      "verification": "Run the V3-06 e2e suites against the SQLite repository implementation (not only in-memory); assert applyDeltas on SqliteSyncStateRepository leaves the business row readable and a local Sqlite business write appears in getDirtyRecords."
+    },
+    {
+      "path": "src/infrastructure/repositories/RepositoryFactory.ts (MaterializingSyncState.applyDeltas)",
+      "problem": "applyDeltas does not materialize inside a transaction and advances the cursor before materialization: inner.applyDeltas (which advances the cursor) runs first, then materializeDeltas runs outside any transaction. A failure during materialization leaves the cursor advanced with records present only in the sync_records buffer; the next pull will not re-fetch them, silently losing business data. This violates the criterion 'applyDeltas materializes pulled records into business tables inside a transaction, then advance the cursor'.",
+      "evidence": "MaterializingSyncState.applyDeltas: const applied = await this.inner.applyDeltas(householdId, collection, records); await materializeDeltas(repos, collection, records); return applied; - no withTransaction/withTransactionAsync wrapper around the pair; in-memory withTransaction snapshots only todoRepo and contributionRepo (RepositoryFactory.ts lines 257-266).",
+      "mustFix": true,
+      "requiredFix": "Wrap cursor advance + materialization in a single transaction (extend in-memory withTransaction snapshot coverage to all affected repos, and use withTransactionAsync on SQLite): materialize first, then advance the cursor, atomically; on failure roll back both so the delta is re-fetched on the next pull.",
+      "verification": "Add a test that injects a failing materialization (e.g. malformed/unsupported payload causing a repo error) and asserts the cursor did not advance and the business tables were not partially updated."
+    },
+    {
+      "path": "src/domain/services/authorizationRules.ts + src/infrastructure/repositories/*",
+      "problem": "Tenant isolation and balance integrity are still not enforced in the data-access path. requireHouseholdMembership, requireRole and assertLedgerWrite have zero callers outside authorizationRules.ts; repositories accept any householdId without any caller-membership context, so a cross-tenant read/write is not blocked at the repository or use-case level. The hostile tests exercise the pure functions directly, not the data-access path. This is the previous audit's must-fix finding #4, still unfixed.",
+      "evidence": "grep -rn 'requireHouseholdMembership|requireRole(|assertLedgerWrite' src/ excluding authorizationRules.ts returns nothing; repositories (InMemoryRepositories.ts, SqliteRepositories.ts) take no userId/membership parameter; hostile tests in v3-06-sync-e2e.test.ts call the rule functions directly rather than through repository reads/writes.",
+      "mustFix": true,
+      "requiredFix": "Enforce membership scoping in the data-access path: repository or use-case layer must verify the caller's membership for every read/write (e.g. a scoped repository facade taking the caller userId and checking memberships before getByHousehold/create/update/delete), and ledger mutations must go through append/revision/tombstone with assertLedgerWrite-style validation. Hostile tests must prove a non-member read/write is rejected through the actual repository path.",
+      "verification": "Run hostile tests that call the repository path (not the pure functions) with a non-member caller and assert AuthorizationError(CROSS_TENANT) / BALANCE_FALSIFICATION is thrown."
+    },
+    {
+      "path": "src/infrastructure/sync/SyncMaterializer.ts + src/infrastructure/repositories/SqliteRepositories.ts",
+      "problem": "Conflict resolution is incomplete and still effectively blind in places. (1) materializeDeltas case 'households' does repos.households.update(record.id, incoming) with no resolveConflict. (2) For the other collections, resolveConflict is called with the local entity fabricated as { id, revision: 0, updatedAt: existing.occurredAt } - local revisions are never tracked, so any remote record with revision >= 1 always wins and a local offline edit of the same id is silently discarded (de facto blind last-write-wins for accounting operations). (3) The SQLite applyDeltas remains blind INSERT OR REPLACE into the buffer.",
+      "evidence": "SyncMaterializer.ts: case 'households': await repos.households.update(record.id, incoming); (no resolveConflict); resolveConflict calls pass revision: 0 for the local side (lines 134-203); SqliteSyncStateRepository.applyDeltas upserts sync_records by id without conflict resolution; the e2e conflict test exercises the pure resolveConflict function, not the materializer path.",
+      "mustFix": true,
+      "requiredFix": "Track and persist the local revision of each synchronized entity (revision column on business tables or sync metadata), pass the real local revision to resolveConflict in the materializer, apply resolveConflict to households (and members/memberships) as well, and make the SQLite applyDeltas use the same deterministic revision/timestamp/id resolution instead of blind overwrite. Add a materializer-level test where the local revision is higher than the remote and assert the local version wins.",
+      "verification": "Run a materializer-level conflict test (local revision > remote revision on the same id) asserting the local entity is preserved, and a households delta test asserting a remote household update is resolved deterministically rather than blindly overwritten."
+    },
+    {
+      "path": "src/infrastructure/sync/SyncRecordingWrapper.ts",
+      "problem": "Dead code: the SyncRecordingWrapper classes are never instantiated anywhere; RepositoryFactory implements its own inline wrappers with the same storeLocalRecords logic. Duplicated logic risks divergence and obscures which path is actually wired.",
+      "evidence": "grep for SyncRecordingWrapper/SyncRecordingContributionRepository/SyncRecordingExpenseRepository/SyncRecordingTodoRepository/SyncRecordingSettlementRepository outside SyncRecordingWrapper.ts returns no instantiation; RepositoryFactory.ts lines 276-297 contain inline wrappers calling storeLocalRecords.",
+      "mustFix": false,
+      "requiredFix": "Either delete SyncRecordingWrapper.ts or make RepositoryFactory use it, so there is a single implementation of dirty-record recording.",
+      "verification": "grep confirms no dead-code duplication remains; full test suite still green."
+    },
+    {
+      "path": "src/infrastructure/repositories/RepositoryFactory.ts (in-memory withTransaction)",
+      "problem": "The in-memory withTransaction snapshots only todoRepo and contributionRepo, so the 'atomic' invitation acceptance (membership + member + invitation) is not actually rolled back in the in-memory path used by tests; the atomicity claim is only real in the SQLite path and is never exercised under failure.",
+      "evidence": "RepositoryFactory.ts lines 257-266: const todoSnap = todoRepo.snapshot(); const contributionSnap = contributionRepo.snapshot(); ... restoreFromSnapshot only for those two; join/[token].tsx handleAccept wraps membership+member creation in repos.withTransaction; no test injects a failure mid-accept.",
+      "mustFix": false,
+      "requiredFix": "Extend in-memory withTransaction snapshot coverage to memberships/members/invitations (or document the limitation) and add a failure-injection test proving the accept rolls back atomically.",
+      "verification": "Run a test that fails the member creation after membership creation and asserts no partial state remains."
+    },
+    {
+      "path": "app/join/[token].tsx",
+      "problem": "handleAccept re-fetches the invitation and household but does not re-run validateAcceptInvitation before accepting; an invitation that expired or was revoked between the initial resolve and the accept tap can still be accepted (minor race).",
+      "evidence": "app/join/[token].tsx: resolveInvitation calls validateAcceptInvitation; handleAccept fetches invitation + household and proceeds without re-validation.",
+      "mustFix": false,
+      "requiredFix": "Re-validate the invitation inside handleAccept (or inside the atomic accept transaction) and surface a clear error if it is no longer valid.",
+      "verification": "Test: revoke the invitation after resolve, then accept; assert acceptance is rejected."
+    },
+    {
+      "path": "app/invite.tsx",
+      "problem": "The invite screen instantiates new LocalSystemShareAdapter() directly instead of going through the application port (services.share), bypassing the port/adapter boundary the constitution requires for integrations.",
+      "evidence": "app/invite.tsx constructs the adapter inline; AppContext exposes services.share via the SystemShareGateway port.",
+      "mustFix": false,
+      "requiredFix": "Use the share gateway from the application context/port so the screen depends on the abstraction, not the concrete adapter.",
+      "verification": "grep confirms app/invite.tsx no longer imports the concrete adapter; share flow still works in tests."
+    }
+  ]
+}
