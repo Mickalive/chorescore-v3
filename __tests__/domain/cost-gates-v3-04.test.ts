@@ -10,7 +10,7 @@
  * 5. Settlement delta is applied exactly once (no double-apply from emit)
  * 6. Expense delta uses allocateExpense (splitMode-aware) for both equal and custom splits
  * 7. Edits and deletes in Add tab produce correct delta updates
- * 8. Screen-level: delta handler re-reads only the changed collection, proving
+ * 8. Data-level: delta handler re-reads only the changed collection, proving
  *    bounded repo calls (no full re-read on focus or signal)
  *
  * These are release gates per V3_BACKEND_FRUGAL.md §12.
@@ -956,7 +956,214 @@ describe('V3-04 repair: edit and delete emit data-change signals', () => {
   });
 });
 
-describe('V3-04 repair: screen-level delta refresh with bounded repo calls', () => {
+describe('V3-04 repair: currency-only expense edit triggers remove-old + apply-new', () => {
+  test('currency-only expense edit (CHF→EUR) matches full replay', () => {
+    const memberIds = ['a', 'b'];
+    const e1 = expenseEntry('e-1', '2026-09-01T10:00:00.000Z', {
+      amountMinor: 2000,
+      currency: 'CHF',
+      paidByMemberId: 'a',
+      participantMemberIds: ['a', 'b'],
+      splitMode: 'equal',
+    });
+
+    // Build snapshot with original CHF entry
+    const snapshot = createBalanceSnapshot([], [e1], [], 'minutes', memberIds, 'all-time');
+
+    // Verify initial CHF balances
+    const chfBefore = snapshot.moneyByCurrency.get('CHF');
+    expect(chfBefore).toBeDefined();
+    expect(chfBefore!.get('a')).toBe(1000);  // a paid, a is participant among 2: +2000 - 1000 = +1000
+    expect(chfBefore!.get('b')).toBe(-1000); // b owes: -1000
+
+    // No EUR balance yet
+    expect(snapshot.moneyByCurrency.has('EUR')).toBe(false);
+
+    // Simulate edit: only currency changed from CHF to EUR (amount/paidBy/participants/splitMode identical)
+    const editedE1: ExpenseEntry = { ...e1, currency: 'EUR' };
+
+    // ── Delta handler logic (same as balances.tsx) ──
+    // Remove old effect (CHF)
+    const oldShares = allocateExpense(e1);
+    let currBal = new Map(snapshot.moneyByCurrency.get(e1.currency) ?? []);
+    currBal.set(e1.paidByMemberId, (currBal.get(e1.paidByMemberId) ?? 0) - e1.amountMinor);
+    for (const share of oldShares) {
+      currBal.set(share.memberId, (currBal.get(share.memberId) ?? 0) + share.amountMinor);
+    }
+    const tempByCurrency = new Map(snapshot.moneyByCurrency);
+    tempByCurrency.set(e1.currency, currBal);
+
+    // Apply new effect (EUR)
+    const newShares = allocateExpense(editedE1);
+    let currBal2 = new Map(tempByCurrency.get(editedE1.currency) ?? []);
+    currBal2.set(editedE1.paidByMemberId, (currBal2.get(editedE1.paidByMemberId) ?? 0) + editedE1.amountMinor);
+    for (const share of newShares) {
+      currBal2.set(share.memberId, (currBal2.get(share.memberId) ?? 0) - share.amountMinor);
+    }
+    const finalByCurrency = new Map(tempByCurrency);
+    finalByCurrency.set(editedE1.currency, currBal2);
+
+    // ── Full replay verification ──
+    const fullMoney = calculateFinancialBalancesByCurrency([editedE1], [], memberIds);
+    const fullChf = fullMoney.get('CHF');
+    const fullEur = fullMoney.get('EUR');
+
+    // CHF: after removing old effect, should be zero (or empty)
+    const deltaChf = finalByCurrency.get('CHF');
+    if (deltaChf) {
+      expect(deltaChf.get('a') ?? 0).toBe(0);
+      expect(deltaChf.get('b') ?? 0).toBe(0);
+    }
+    // No CHF in full replay either
+    expect(fullChf).toBeUndefined();
+
+    // EUR: new effect applied
+    const deltaEur = finalByCurrency.get('EUR');
+    expect(deltaEur).toBeDefined();
+    expect(deltaEur!.get('a')).toBe(fullEur!.get('a'));
+    expect(deltaEur!.get('b')).toBe(fullEur!.get('b'));
+    // a paid 2000 EUR, a is participant among 2: +2000 - 1000 = +1000
+    expect(deltaEur!.get('a')).toBe(1000);
+    expect(deltaEur!.get('b')).toBe(-1000);
+    expect(financialLedgerIsZeroSum(deltaEur!)).toBe(true);
+  });
+
+  test('currency-only edit with amount+currency change matches full replay', () => {
+    const memberIds = ['a', 'b'];
+    const e1 = expenseEntry('e-1', '2026-09-01T10:00:00.000Z', {
+      amountMinor: 2000,
+      currency: 'CHF',
+      paidByMemberId: 'a',
+      participantMemberIds: ['a', 'b'],
+      splitMode: 'equal',
+    });
+
+    // Build snapshot with original CHF entry
+    const snapshot = createBalanceSnapshot([], [e1], [], 'minutes', memberIds, 'all-time');
+
+    // Simulate edit: amount AND currency changed
+    const editedE1: ExpenseEntry = { ...e1, amountMinor: 3000, currency: 'EUR' };
+
+    // Remove old effect (CHF 2000)
+    const oldShares = allocateExpense(e1);
+    let currBal = new Map(snapshot.moneyByCurrency.get(e1.currency) ?? []);
+    currBal.set(e1.paidByMemberId, (currBal.get(e1.paidByMemberId) ?? 0) - e1.amountMinor);
+    for (const share of oldShares) {
+      currBal.set(share.memberId, (currBal.get(share.memberId) ?? 0) + share.amountMinor);
+    }
+    const tempByCurrency = new Map(snapshot.moneyByCurrency);
+    tempByCurrency.set(e1.currency, currBal);
+
+    // Apply new effect (EUR 3000)
+    const newShares = allocateExpense(editedE1);
+    let currBal2 = new Map(tempByCurrency.get(editedE1.currency) ?? []);
+    currBal2.set(editedE1.paidByMemberId, (currBal2.get(editedE1.paidByMemberId) ?? 0) + editedE1.amountMinor);
+    for (const share of newShares) {
+      currBal2.set(share.memberId, (currBal2.get(share.memberId) ?? 0) - share.amountMinor);
+    }
+    const finalByCurrency = new Map(tempByCurrency);
+    finalByCurrency.set(editedE1.currency, currBal2);
+
+    // Full replay
+    const fullMoney = calculateFinancialBalancesByCurrency([editedE1], [], memberIds);
+    const fullEur = fullMoney.get('EUR');
+    expect(fullEur).toBeDefined();
+
+    const deltaEur = finalByCurrency.get('EUR');
+    expect(deltaEur).toBeDefined();
+    expect(deltaEur!.get('a')).toBe(fullEur!.get('a'));
+    expect(deltaEur!.get('b')).toBe(fullEur!.get('b'));
+    // a paid 3000 EUR, a is participant among 2: +3000 - 1500 = +1500
+    expect(deltaEur!.get('a')).toBe(1500);
+    expect(deltaEur!.get('b')).toBe(-1500);
+    expect(financialLedgerIsZeroSum(deltaEur!)).toBe(true);
+  });
+
+  test('currency detection in balances.tsx matches full replay (data-level handler simulation)', () => {
+    const memberIds = ['a', 'b'];
+
+    // Start with a CHF expense
+    const e1 = expenseEntry('e-1', '2026-09-01T10:00:00.000Z', {
+      amountMinor: 2000,
+      currency: 'CHF',
+      paidByMemberId: 'a',
+      participantMemberIds: ['a', 'b'],
+      splitMode: 'equal',
+    });
+
+    const expenses: ExpenseEntry[] = [e1];
+
+    // Build initial snapshot
+    let snap = createBalanceSnapshot([], expenses, [], 'minutes', memberIds, 'all-time');
+
+    // Simulate the modification detection logic from balances.tsx lines 322-355
+    const editedE1: ExpenseEntry = { ...e1, currency: 'EUR' };
+    const newExps: ExpenseEntry[] = [editedE1];
+
+    const oldExpMap = new Map(expenses.map((e) => [e.id, e]));
+    for (const newEntry of newExps) {
+      const oldEntry = oldExpMap.get(newEntry.id);
+      if (!oldEntry) continue;
+
+      // The condition from balances.tsx (with currency fix)
+      if (
+        oldEntry.amountMinor !== newEntry.amountMinor ||
+        oldEntry.currency !== newEntry.currency ||
+        oldEntry.paidByMemberId !== newEntry.paidByMemberId ||
+        JSON.stringify(oldEntry.participantMemberIds) !== JSON.stringify(newEntry.participantMemberIds) ||
+        oldEntry.splitMode !== newEntry.splitMode ||
+        JSON.stringify(oldEntry.customShares) !== JSON.stringify(newEntry.customShares)
+      ) {
+        // Remove old effect
+        const oldShares = allocateExpense(oldEntry);
+        let currBal = new Map(snap.moneyByCurrency.get(oldEntry.currency) ?? []);
+        currBal.set(oldEntry.paidByMemberId, (currBal.get(oldEntry.paidByMemberId) ?? 0) - oldEntry.amountMinor);
+        for (const share of oldShares) {
+          currBal.set(share.memberId, (currBal.get(share.memberId) ?? 0) + share.amountMinor);
+        }
+        const tempByCurrency = new Map(snap.moneyByCurrency);
+        tempByCurrency.set(oldEntry.currency, currBal);
+        snap = { ...snap, moneyByCurrency: tempByCurrency };
+
+        // Apply new effect
+        const newShares = allocateExpense(newEntry);
+        let currBal2 = new Map(snap.moneyByCurrency.get(newEntry.currency) ?? []);
+        currBal2.set(newEntry.paidByMemberId, (currBal2.get(newEntry.paidByMemberId) ?? 0) + newEntry.amountMinor);
+        for (const share of newShares) {
+          currBal2.set(share.memberId, (currBal2.get(share.memberId) ?? 0) - share.amountMinor);
+        }
+        const tempByCurrency2 = new Map(snap.moneyByCurrency);
+        tempByCurrency2.set(newEntry.currency, currBal2);
+        snap = { ...snap, moneyByCurrency: tempByCurrency2 };
+      }
+    }
+
+    // Full replay with edited entry
+    const fullMoney = calculateFinancialBalancesByCurrency(newExps, [], memberIds);
+    const fullEur = fullMoney.get('EUR');
+    expect(fullEur).toBeDefined();
+
+    // Delta snapshot must match full replay
+    const deltaEur = snap.moneyByCurrency.get('EUR');
+    expect(deltaEur).toBeDefined();
+    expect(deltaEur!.get('a')).toBe(fullEur!.get('a'));
+    expect(deltaEur!.get('b')).toBe(fullEur!.get('b'));
+
+    // CHF should be zeroed out
+    const deltaChf = snap.moneyByCurrency.get('CHF');
+    if (deltaChf) {
+      expect(deltaChf.get('a') ?? 0).toBe(0);
+      expect(deltaChf.get('b') ?? 0).toBe(0);
+    }
+    expect(fullMoney.has('CHF')).toBe(false);
+
+    expect(deltaEur!.get('a')).toBe(1000);
+    expect(deltaEur!.get('b')).toBe(-1000);
+    expect(financialLedgerIsZeroSum(deltaEur!)).toBe(true);
+  });
+});
+
+describe('V3-04 repair: data-level delta refresh with bounded repo calls', () => {
   test('Balances delta handler processes additions with bounded repo reads (no full re-read on focus)', async () => {
     // This test proves that the delta handler re-reads only the changed
     // collection (not all collections) and applies the delta correctly.

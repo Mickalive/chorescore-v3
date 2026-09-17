@@ -325,6 +325,7 @@ export default function BalancesScreen() {
           if (!oldEntry) continue;
           if (
             oldEntry.amountMinor !== newEntry.amountMinor ||
+            oldEntry.currency !== newEntry.currency ||
             oldEntry.paidByMemberId !== newEntry.paidByMemberId ||
             JSON.stringify(oldEntry.participantMemberIds) !== JSON.stringify(newEntry.participantMemberIds) ||
             oldEntry.splitMode !== newEntry.splitMode ||
