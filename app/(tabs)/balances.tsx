@@ -11,7 +11,7 @@
  * CrossLedgerSettlement record with a snapshotted rate.
  *
  * Balances are derived views — they never mutate the underlying ledger.
- * Materialized for display efficiency; full-replay available for verification.
+ * Materialized for display efficiency; delta-based refresh on data change.
  *
  * Settlements are period-filtered: a settlement outside the period does not
  * affect the period view but remains in all-time. Materialized snapshots
@@ -62,7 +62,9 @@ import { validateSettlementPreconditions } from '../../src/domain/calculations/s
 import {
   createBalanceSnapshot,
   BalanceSnapshot,
+  deltaUpdateContribution,
   deltaUpdateContributionFromSettlement,
+  deltaUpdateMoneyFromSettlement,
 } from '../../src/domain/calculations/materializedBalances';
 import {
   paginateActivityLog,
@@ -140,7 +142,7 @@ const HISTORY_PAGE_SIZE = 20;
 // ── Component ──────────────────────────────────────────────────
 
 export default function BalancesScreen() {
-  const { currentHouseholdId, repos } = useApp();
+  const { currentHouseholdId, repos, subscribeToDataChanges, emitDataChange } = useApp();
   const [period, setPeriod] = useState<Period>('all-time');
   const [household, setHousehold] = useState<Household | null>(null);
   const [members, setMembers] = useState<Member[]>([]);
@@ -150,6 +152,10 @@ export default function BalancesScreen() {
 
   // Materialized balance snapshot (all-time, for delta refresh)
   const snapshotRef = useRef<BalanceSnapshot | null>(null);
+
+  // Track whether a full re-read is needed (initial load or household change)
+  const initialLoadDoneRef = useRef(false);
+  const lastHouseholdIdRef = useRef<string | null>(null);
 
   // Compenser modal state
   const [showCompenser, setShowCompenser] = useState(false);
@@ -162,9 +168,9 @@ export default function BalancesScreen() {
   const [historyPage, setHistoryPage] = useState<ActivityLogPage | null>(null);
   const [historyLoading, setHistoryLoading] = useState(false);
 
-  // ── Load data ──────────────────────────────────────────────
+  // ── Full load (initial / household change) ──────────────────
 
-  const loadData = useCallback(async () => {
+  const fullLoad = useCallback(async () => {
     if (!currentHouseholdId) return;
 
     const [hh, mems, contribs, exps, sett] = await Promise.all([
@@ -187,17 +193,126 @@ export default function BalancesScreen() {
     snapshotRef.current = createBalanceSnapshot(
       contribs, exps, sett, unit, memberIds, 'all-time'
     );
+
+    initialLoadDoneRef.current = true;
+    lastHouseholdIdRef.current = currentHouseholdId;
   }, [currentHouseholdId, repos]);
 
-  useEffect(() => {
-    loadData();
-  }, [loadData]);
+  // ── Delta refresh (data-change signal) ──────────────────────
+  // Re-reads only the changed collection type and applies delta
+  // to the materialized snapshot.  No full re-read, no full replay.
 
-  // Refresh on screen focus (React Navigation keeps tabs mounted)
+  const handleDataChange = useCallback(async (
+    type: 'contribution' | 'expense' | 'settlement' | 'household' | 'member',
+    hhId: string,
+  ) => {
+    if (!currentHouseholdId || hhId !== currentHouseholdId) return;
+    if (!initialLoadDoneRef.current || !snapshotRef.current) return;
+
+    const unit = household?.contributionUnit ?? 'minutes';
+    const memberIds = members.map((m) => m.id);
+
+    switch (type) {
+      case 'contribution': {
+        // Re-read only contributions, apply delta against current snapshot
+        const newContribs = await repos.contributions.getByHousehold(currentHouseholdId);
+        const oldIds = new Set(contributions.map((c) => c.id));
+        const added = newContribs.filter((c) => !oldIds.has(c.id));
+
+        let snap = snapshotRef.current;
+        for (const entry of added) {
+          snap = {
+            ...snap,
+            contribution: deltaUpdateContribution(snap.contribution, entry, unit, memberIds, 'add'),
+          };
+        }
+        snapshotRef.current = snap;
+        setContributions(newContribs);
+        break;
+      }
+      case 'expense': {
+        const newExps = await repos.expenses.getByHousehold(currentHouseholdId);
+        const oldIds = new Set(expenses.map((e) => e.id));
+        const added = newExps.filter((e) => !oldIds.has(e.id));
+
+        let snap = snapshotRef.current;
+        for (const entry of added) {
+          // Expense delta: paidBy gets +amountMinor, each participant share gets -amountMinor
+          // For equal split, each participant bears amountMinor/count
+          const count = entry.participantMemberIds.length;
+          const share = Math.floor(entry.amountMinor / count);
+          const remainder = entry.amountMinor % count;
+
+          let newMoney = new Map(snap.moneyByCurrency.get(entry.currency) ?? []);
+          newMoney.set(entry.paidByMemberId, (newMoney.get(entry.paidByMemberId) ?? 0) + entry.amountMinor);
+          for (let i = 0; i < entry.participantMemberIds.length; i++) {
+            const pid = entry.participantMemberIds[i];
+            const deduction = share + (i < remainder ? 1 : 0);
+            newMoney.set(pid, (newMoney.get(pid) ?? 0) - deduction);
+          }
+          const newMoneyByCurrency = new Map(snap.moneyByCurrency);
+          newMoneyByCurrency.set(entry.currency, newMoney);
+          snap = { ...snap, moneyByCurrency: newMoneyByCurrency };
+        }
+        snapshotRef.current = snap;
+        setExpenses(newExps);
+        break;
+      }
+      case 'settlement': {
+        const newSett = await repos.settlements.getByHousehold(currentHouseholdId);
+        const oldIds = new Set(settlements.map((s) => s.id));
+        const added = newSett.filter((s) => !oldIds.has(s.id));
+
+        let snap = snapshotRef.current;
+        for (const s of added) {
+          snap = {
+            contribution: deltaUpdateContributionFromSettlement(snap.contribution, s, unit, 'add'),
+            moneyByCurrency: (() => {
+              const currencyMap = new Map(snap.moneyByCurrency);
+              const currBalances = new Map(currencyMap.get(s.currency) ?? []);
+              currencyMap.set(s.currency, deltaUpdateMoneyFromSettlement(currBalances, s, 'add'));
+              return currencyMap;
+            })(),
+          };
+        }
+        snapshotRef.current = snap;
+        setSettlements(newSett);
+        break;
+      }
+      case 'household': {
+        const hh = await repos.households.getById(currentHouseholdId);
+        setHousehold(hh);
+        break;
+      }
+      case 'member': {
+        const mems = await repos.members.getByHousehold(currentHouseholdId);
+        setMembers(mems);
+        break;
+      }
+    }
+  }, [currentHouseholdId, household, members, contributions, expenses, settlements, repos]);
+
+  // Subscribe to data-change signals
+  useEffect(() => {
+    const unsub = subscribeToDataChanges(handleDataChange);
+    return unsub;
+  }, [subscribeToDataChanges, handleDataChange]);
+
+  // Initial load
+  useEffect(() => {
+    fullLoad();
+  }, [fullLoad]);
+
+  // Refresh on screen focus — only if household changed or data may be stale
   useFocusEffect(
     useCallback(() => {
-      loadData();
-    }, [loadData])
+      if (!currentHouseholdId) return;
+      if (lastHouseholdIdRef.current !== currentHouseholdId) {
+        // Household changed — full reload
+        fullLoad();
+      }
+      // Otherwise, data-change signal handles incremental updates
+    }, [currentHouseholdId, fullLoad])
   );
 
   // ── Member name helper ────────────────────────────────────
@@ -373,23 +488,30 @@ export default function BalancesScreen() {
       return;
     }
 
-    // Persist the immutable settlement
-    await repos.settlements.create(settlementData);
+    // Persist the immutable settlement — use the returned entity (real id)
+    const persistedSettlement = await repos.settlements.create(settlementData);
 
-    // Update local state
-    const newSettlements = [...settlements, { ...settlementData, id: `pending-${Date.now()}` }];
+    // Update local state with the real persisted entity
+    const newSettlements = [...settlements, persistedSettlement];
     setSettlements(newSettlements);
 
-    // Apply delta to materialized snapshot
+    // Apply delta to materialized snapshot — BOTH ledgers
     if (snapshotRef.current) {
-      const newSettlement = { ...settlementData, id: `sett-${Date.now()}` };
       snapshotRef.current = {
         contribution: deltaUpdateContributionFromSettlement(
-          snapshotRef.current.contribution, newSettlement, unit, 'add'
+          snapshotRef.current.contribution, persistedSettlement, unit, 'add'
         ),
-        moneyByCurrency: snapshotRef.current.moneyByCurrency, // Money is recomputed on next full load
+        moneyByCurrency: (() => {
+          const currencyMap = new Map(snapshotRef.current!.moneyByCurrency);
+          const currBalances = new Map(currencyMap.get(persistedSettlement.currency) ?? []);
+          currencyMap.set(persistedSettlement.currency, deltaUpdateMoneyFromSettlement(currBalances, persistedSettlement, 'add'));
+          return currencyMap;
+        })(),
       };
     }
+
+    // Notify other screens (e.g. Ajouter, Todos) that a settlement was created
+    emitDataChange('settlement', currentHouseholdId);
 
     // Close modal and reset
     setShowCompenser(false);
@@ -397,7 +519,7 @@ export default function BalancesScreen() {
     setCompenserValue('');
   }, [
     currentHouseholdId, household, compenserPreview, compenserCreditor, compenserValue,
-    unit, contributions, expenses, memberIds, settlements, repos,
+    unit, contributions, expenses, memberIds, settlements, repos, emitDataChange,
   ]);
 
   // ── History pagination ─────────────────────────────────────

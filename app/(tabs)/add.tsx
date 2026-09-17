@@ -120,7 +120,7 @@ function formatDateTimeShort(d: Date): string {
 // ── Component ──────────────────────────────────────────────────
 
 export default function AddScreen() {
-  const { currentHouseholdId, repos, currentUser } = useApp();
+  const { currentHouseholdId, repos, currentUser, emitDataChange } = useApp();
   const [mode, setMode] = useState<EntryMode>('contribution');
   const [members, setMembers] = useState<Member[]>([]);
   const [householdUnit, setHouseholdUnit] = useState<ContributionUnit>('minutes');
@@ -342,6 +342,9 @@ export default function AddScreen() {
       // Update local history immediately (optimistic UI)
       setHistoryContributions((prev) => [created, ...prev]);
 
+      // Notify other screens (e.g. Balances) of the new contribution
+      emitDataChange('contribution', currentHouseholdId);
+
       // Reset form
       setCForm({
         label: '',
@@ -405,6 +408,9 @@ export default function AddScreen() {
 
       // Update local history immediately
       setHistoryExpenses((prev) => [created, ...prev]);
+
+      // Notify other screens (e.g. Balances) of the new expense
+      emitDataChange('expense', currentHouseholdId);
 
       // Reset form
       setEForm({

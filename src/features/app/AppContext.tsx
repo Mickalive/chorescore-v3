@@ -8,6 +8,10 @@
  * Repository readiness is consumed: sign-in and loadHouseholds wait for the
  * repository initialization promise, so an early sign-in can never skip the
  * demo fixture or permanently miss the user's groups.
+ *
+ * Data-change signals: screens emit lightweight events when they write data.
+ * Other screens (e.g. Balances) subscribe and apply incremental deltas
+ * instead of performing a full re-read + full replay on every focus.
  */
 
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
@@ -31,6 +35,12 @@ import {
   DEMO_HOUSEHOLD_ID,
 } from './demoFixture';
 
+/** Types of data-change events that screens can emit. */
+export type DataChangeType = 'contribution' | 'expense' | 'settlement' | 'household' | 'member';
+
+/** Callback signature for data-change subscribers. */
+export type DataChangeCallback = (type: DataChangeType, householdId: string) => void;
+
 interface AppState {
   currentUser: AuthUser | null;
   isLoading: boolean;
@@ -49,6 +59,10 @@ interface AppState {
 
   // Repositories (exposed for screens)
   repos: AllRepositories;
+
+  // Data-change signals (lightweight pub/sub for cross-tab delta refresh)
+  emitDataChange: (type: DataChangeType, householdId: string) => void;
+  subscribeToDataChanges: (callback: DataChangeCallback) => () => void;
 
   // Services
   services: {
@@ -114,6 +128,23 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     sync: new LocalSyncAdapter(),
     analytics: new LocalResearchAnalyticsAdapter(),
   });
+
+  // ── Data-change signal (pub/sub) ──────────────────────────────
+  // Lightweight mechanism so screens can notify each other of writes
+  // without full re-reads.  Each subscriber receives the change type
+  // and the affected householdId so it can decide whether to refresh.
+  const dataChangeListenersRef = useRef<Set<DataChangeCallback>>(new Set());
+
+  const emitDataChange = useCallback((type: DataChangeType, householdId: string) => {
+    for (const listener of dataChangeListenersRef.current) {
+      try { listener(type, householdId); } catch { /* swallow */ }
+    }
+  }, []);
+
+  const subscribeToDataChanges = useCallback((callback: DataChangeCallback): (() => void) => {
+    dataChangeListenersRef.current.add(callback);
+    return () => { dataChangeListenersRef.current.delete(callback); };
+  }, []);
 
   // Auth state listener
   useEffect(() => {
@@ -204,6 +235,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     loadHouseholds,
     getMembersForHousehold,
     repos: reposRef.current,
+    emitDataChange,
+    subscribeToDataChanges,
     services: {
       share: servicesRef.current.share,
     },

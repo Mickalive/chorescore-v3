@@ -159,6 +159,42 @@ export function deltaUpdateContributionFromSettlement(
   return next;
 }
 
+/**
+ * Apply a settlement delta to money balances (single currency map).
+ *
+ * Convention from expenseLedger: positive = advanced/is owed; negative = owes.
+ *
+ * The contribution creditor used their contribution credit to obtain relief
+ * from money debt. Their money balance moves upward (less negative / more
+ * positive) by moneyAmountMinor.  The counterparty's money balance moves
+ * downward by the same amount.
+ *
+ * @param current   The money balance map for the settlement's currency.
+ * @param settlement The cross-ledger settlement to apply.
+ * @param type      'add' to apply the settlement, 'remove' to reverse it.
+ */
+export function deltaUpdateMoneyFromSettlement(
+  current: Map<string, number>,
+  settlement: CrossLedgerSettlement,
+  type: 'add' | 'remove'
+): Map<string, number> {
+  const next = new Map(current);
+  const sign = type === 'add' ? 1 : -1;
+
+  // Creditor gains money credit (debt relieved)
+  next.set(
+    settlement.contributionCreditorMemberId,
+    (next.get(settlement.contributionCreditorMemberId) ?? 0) + sign * settlement.moneyAmountMinor
+  );
+  // Counterparty loses money credit (receivable reduced)
+  next.set(
+    settlement.counterpartyMemberId,
+    (next.get(settlement.counterpartyMemberId) ?? 0) - sign * settlement.moneyAmountMinor
+  );
+
+  return next;
+}
+
 // ── Snapshot helpers ───────────────────────────────────────────
 
 /**
