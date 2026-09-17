@@ -1,9 +1,9 @@
 {
   "schemaVersion": 1,
   "milestone": "v3-rc",
-  "lastCycle": "35257638071",
+  "lastCycle": "35261053897",
   "activeCriteria": [
-    "V3-07"
+    "V3-08"
   ],
   "pendingArtifact": null,
   "progressSummary": "Audited V3-07 requires repair; WIP baseline preserved when a safe delta existed.",
@@ -62,73 +62,25 @@
     },
     {
       "id": "V3-07",
-      "status": "in_progress",
+      "status": "complete",
       "evidence": [
         "audit-repair-35257638071",
         "candidate-retained-as-WIP-12-new-files-60-of-70-tests-pass",
-        "mustFix-5-findings-identified-for-repair"
+        "mustFix-5-findings-identified-for-repair",
+        "audit-accepted-35261053897"
       ]
     },
     {
       "id": "V3-08",
-      "status": "pending",
+      "status": "in_progress",
       "evidence": []
     }
   ],
-  "openFindings": [
-    {
-      "path": ".",
-      "problem": "Trusted product verification failed with exit code 2: 8 TypeScript errors in __tests__/domain/v3-07-analytics-privacy.test.ts. Line 434 passes { label, taxonomyCategoryId } into ResearchDataProduct.data (typed as AnonymousAnalyticsEvent | AnonymousHouseholdAggregate | AnonymousCohortAggregate) — 'label' does not exist in the union. Lines 501-505 pass partial records { taxonomyCategoryId, month, beneficiaryCount } missing required union fields (type, unit, value, hasPersistentTask, wasPlanned, timestamp). Line 730 passes 'commercial-use' which is not a DataProcessingPurpose. Line 870 casts AnonymousAnalyticsEvent directly to Record<string, unknown> (needs 'as unknown as').",
-      "evidence": "Trusted log TRUSTED_35257638071.md: 'error TS2353' line 434, 'error TS2322' lines 501-505, 'error TS2345' line 730, 'error TS2352' line 870. Independent npx tsc --noEmit reproduces all 8 errors identically.",
-      "mustFix": true,
-      "requiredFix": "Fix the test file types: cast intentionally-malformed records with 'as unknown as' or 'as any' where the test deliberately injects forbidden fields (line 434, 870); use full valid event shapes or casts for the clean-product records (lines 501-505); replace 'commercial-use' with a valid DataProcessingPurpose (e.g. 'synthetic-data-generation') or cast the argument (line 730). Then rerun the full trusted gate.",
-      "verification": "npx tsc --noEmit exits 0; trusted verification exit code 0."
-    },
-    {
-      "path": "src/analytics/pipeline.ts (validateNoOperationalIds lines 131-151 vs transformContributionCreated lines 252-292 / transformEntryCreated lines 205-247)",
-      "problem": "Fundamental pipeline contradiction: validateNoOperationalIds lists 'label' (and 'title', 'notes') as forbidden input fields, but transformContributionCreated and transformEntryCreated REQUIRE a label for classification. Every contribution_created and entry_created fact is therefore rejected at stage 1 with 'Operational/free-text field label detected in input data' before the transform functions are reached. The contribution and V2-entry transform paths are dead code, breaking the core V3-07 acceptance 'événements V3 couvrent contributions dépenses settlements usage' and the constitution's classification-ready raw operational data requirement (label must be consumed for classification but never emitted).",
-      "evidence": "Independent npx jest: 'rejects entry with free text in forbidden fields' receives 'Operational/free-text field label detected in input data' instead of the expected 'notes'; 'transforms contribution_created correctly', 'transforms V2 entry_created (backward compatible)', 'batch transform handles mixed valid and invalid facts', 'pipeline input (OperationalFact) never reaches output', and 'V3 events cover contributions, expenses, settlements, usage' all fail with result.success=false for labeled facts. Code inspection confirms 'label' is in forbiddenFields (line 137) and required at lines 221-226 and 268-270.",
-      "mustFix": true,
-      "requiredFix": "Allow label as pipeline INPUT (it is consumed for classification and never emitted): remove 'label'/'title'/'notes' from the input-forbidden list (or restrict input validation to operational IDs only) and rely on the output event types + PrivacyReleaseGate to guarantee no free text in outputs. Add a test proving a labeled contribution fact transforms successfully AND the emitted AnonymousContributionEvent contains no label/title/notes field.",
-      "verification": "All contribution/entry pipeline tests pass: labeled contribution_created and entry_created facts transform with success=true; emitted events contain no free-text fields; the free-text rejection test still rejects a fact carrying notes."
-    },
-    {
-      "path": "__tests__/domain/v3-07-analytics-privacy.test.ts (lines 492-520 'approves clean product with proper provenance'; lines 531-555 'audit log entry is generated')",
-      "problem": "The two gate tests expecting approved=true can never pass with the current gate logic. assessReIdentificationRisk flags any dataset with fewer than minCohortSize*2 (10) records with re_identification_risk (high severity), and high violations block approval. The clean-product test uses 5 records (also triggering reconstruction_risk and 4 rare_cell violations) and the audit-log test uses empty data — both are rejected (approved=false), so the tests fail at runtime even after the typecheck errors are fixed.",
-      "evidence": "Independent execution of PrivacyReleaseGate.validate on the exact test data: 'approves clean product' → approved=false, violations [rare_cell x4 (medium), reconstruction_risk (medium), re_identification_risk (high)], riskScore 0.7; 'audit log entry is generated' (data: []) → re_identification_risk (high) → approved=false. Jest confirms both tests fail with Expected true / Received false.",
-      "mustFix": true,
-      "requiredFix": "Make the test data satisfy the gate's own anti-reconstruction rules: use >= 10 records with repeated (category, month, beneficiaryCount) combinations so combinations.size <= facts.length * 0.8 and facts.length >= minCohortSize*2, and use non-empty data for the audit-log test (or assert the gate's actual conservative behavior instead of approval). Do not weaken the gate's re-identification protections.",
-      "verification": "Both tests pass with approved=true while the gate's anti-reconstruction checks remain intact (a genuinely small/unique dataset is still rejected)."
-    },
-    {
-      "path": "__tests__/domain/v3-07-analytics-privacy.test.ts (line 642) / src/analytics/queryBudget.ts (line 92)",
-      "problem": "Test/implementation mismatch: 'allows queries within budget' expects remainingQueriesThisMinute=1 after the first query with rateLimitPerMinute=3, but QueryBudgetService.checkBudget returns rateLimitPerMinute - queriesThisMinute - 1 = 3 - 0 - 1 = 2 (two queries remain after this one). The test fails at runtime.",
-      "evidence": "Independent npx jest: 'allows queries within budget' fails — Expected: 1, Received: 2. Code inspection: queryBudget.ts line 92 computes remainingQueriesThisMinute as limit - queriesThisMinute - 1.",
-      "mustFix": true,
-      "requiredFix": "Align test and implementation: either assert 2 (queries remaining after this query) in the test, or change the service to report remaining-including-current (limit - queriesThisMinute - 1 is the 'after this query' count; if the intended semantics is 'remaining including this one', return limit - queriesThisMinute). Pick one documented semantic and make the test match it.",
-      "verification": "The query-budget test passes and the reported remaining count matches the documented semantics."
-    },
-    {
-      "path": "__tests__/domain/v3-07-analytics-privacy.test.ts (lines 1112-1140) / src/analytics/consentPolicy.ts (getExpiredRecords lines 161-168)",
-      "problem": "Flaky consent-expiry test: retentionDays:0 makes cutoff = Date.now() and getExpiredRecords uses a strict '<' comparison (new Date(r.timestamp).getTime() < cutoff). When recordConsent and getExpiredRecords execute within the same millisecond (as in jest), the record timestamp equals the cutoff and the record is NOT expired — the test fails with expired=0. Standalone execution with a 1ms gap passes, proving the race.",
-      "evidence": "Independent npx jest: 'expired consent records can be purged' fails — Expected >= 1, Received 0. Standalone execution of the same consentPolicy.ts code path returns expired=1 (record ts ...065, cutoff ...066).",
-      "mustFix": true,
-      "requiredFix": "Make the test deterministic: use a negative retentionDays (e.g. -1) so cutoff is strictly in the future of any just-created record, or change getExpiredRecords to '<=' so a zero-retention record created in the same millisecond is expired, or inject a clock. Keep the retention semantics documented and deterministic.",
-      "verification": "The consent-expiry test passes reliably across repeated runs (no same-millisecond race)."
-    },
-    {
-      "path": ".",
-      "problem": "Trusted product verification failed",
-      "evidence": "Authoritative verification log: reports/audits/TRUSTED_35257638071.md (exit 2)",
-      "mustFix": true,
-      "requiredFix": "Resolve the concrete failing trusted check without discarding already-correct candidate work, then rerun the full gate.",
-      "verification": "Full trusted V3 verification must return exit code 0."
-    }
-  ],
+  "openFindings": [],
   "factoryHealth": {
     "stalled": false,
     "consecutiveNoProgress": 0,
-    "lastProductSha": "ccfdba3ee7844041e32ad2d06f4674cddb5c0d17",
+    "lastProductSha": "411497efa62908ed54d36e592cc021feeccd4201",
     "reason": null
   }
 }
