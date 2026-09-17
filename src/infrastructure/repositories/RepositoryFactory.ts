@@ -211,7 +211,7 @@ async function getExistingEntityTimestamp(
   }
 }
 
-class MaterializingSyncState implements SyncStateRepository {
+export class MaterializingSyncState implements SyncStateRepository {
   constructor(
     private inner: SyncStateRepository,
     private getRepos: () => AllRepositories,

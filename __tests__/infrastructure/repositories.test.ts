@@ -1018,6 +1018,7 @@ describe('V3-06 REPAIR Finding #5: SQLite sync pipeline with factory wiring', ()
       SyncRecordingHouseholdRepository,
       SyncRecordingMembershipRepository,
     } = require('../../src/infrastructure/sync/SyncRecordingWrapper');
+    const { MaterializingSyncState } = require('../../src/infrastructure/repositories/RepositoryFactory');
 
     const rawContributions = new SqliteContributionEntryRepository();
     const rawHouseholds = new SqliteHouseholdRepository();
@@ -1036,6 +1037,26 @@ describe('V3-06 REPAIR Finding #5: SQLite sync pipeline with factory wiring', ()
     const syncHouseholds = new SyncRecordingHouseholdRepository(rawHouseholds, baseSyncState);
     const syncMemberships = new SyncRecordingMembershipRepository(rawMemberships, baseSyncState);
 
+    // Build the repos object that MaterializingSyncState will see via getRepos()
+    const repos = {
+      users: null as any,
+      memberships: syncMemberships,
+      households: syncHouseholds,
+      members: new SqliteMemberRepository() as any,
+      contributions: syncContributions,
+      tasks: rawTasks as any,
+      todos: rawTodos as any,
+      expenses: rawExpenses as any,
+      settlements: rawSettlements as any,
+      invitations: null as any,
+      syncState: null as any,
+      withTransaction: async <T>(fn: () => Promise<T>): Promise<T> => fn(),
+    };
+
+    // Wrap baseSyncState in MaterializingSyncState exactly as the factory does
+    const materializingSync = new MaterializingSyncState(baseSyncState, () => repos);
+    repos.syncState = materializingSync;
+
     // Seed a household
     await syncHouseholds.create({
       name: 'Factory Test', ownerId: 'user-1', contributionUnit: 'minutes',
@@ -1052,7 +1073,7 @@ describe('V3-06 REPAIR Finding #5: SQLite sync pipeline with factory wiring', ()
     const householdDirty = dirtyHousehold.length > 0 ? dirtyHousehold : await baseSyncState.getDirtyRecords(allHouseholds[0].id, 'households', 0);
     expect(householdDirty.length).toBeGreaterThanOrEqual(1);
 
-    // Pull a remote contribution via pullDeltas
+    // Pull a remote contribution via pullDeltas using the MaterializingSyncState
     const remotePayload = JSON.stringify({
       id: 'c-factory-remote', householdId: HH, label: 'Remote via factory',
       performedByMemberId: 'm-1', beneficiaryMemberIds: ['m-1'],
@@ -1061,7 +1082,7 @@ describe('V3-06 REPAIR Finding #5: SQLite sync pipeline with factory wiring', ()
     });
 
     const { pullDeltas: pull } = require('../../src/domain/services/syncEngine');
-    await pull(baseSyncState, HH, async (coll: string) => {
+    await pull(materializingSync, HH, async (coll: string) => {
       if (coll !== 'contribution_entries') return [];
       return [{
         id: 'c-factory-remote', householdId: HH, collection: 'contribution_entries',
@@ -1093,7 +1114,7 @@ describe('V3-06 REPAIR Finding #5: SQLite sync pipeline with factory wiring', ()
     // pushDeltas should send the local payload
     const { pushDeltas: push } = require('../../src/domain/services/syncEngine');
     const pushedRecords: any[] = [];
-    await push(baseSyncState, HH, async (_coll: string, records: any[]) => {
+    await push(materializingSync, HH, async (_coll: string, records: any[]) => {
       pushedRecords.push(...records);
       return records.map((r: any, i: number) => ({ ...r, revision: 200 + i }));
     });

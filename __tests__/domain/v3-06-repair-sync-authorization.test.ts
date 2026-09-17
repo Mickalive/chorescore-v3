@@ -19,6 +19,8 @@
 
 import { createInMemoryRepositories, resetSyncRevisions, AllRepositories } from '../../src/infrastructure/repositories/RepositoryFactory';
 import {
+  ScopedContributionRepository,
+  ScopedExpenseRepository,
   createScopedRepositories,
 } from '../../src/infrastructure/repositories/ScopedRepositoryFacade';
 import {
@@ -941,15 +943,6 @@ describe('V3-06 REPAIR Finding #1: failing materialization rolls back cursor AND
       householdId: HH, name: 'Existing task', defaultValue: 15, defaultUnit: 'minutes',
     });
 
-    // Snapshot the state of ALL business tables before the failing pull
-    const contribsBefore = (await repos.contributions.getByHousehold(HH)).map(e => e.id);
-    const expensesBefore = (await repos.expenses.getByHousehold(HH)).map(e => e.id);
-    const settlementsBefore = (await repos.settlements.getByHousehold(HH)).map(s => s.id);
-    const todosBefore = (await repos.todos.getByHousehold(HH)).map(t => t.id);
-    const tasksBefore = (await repos.tasks.getByHousehold(HH)).map(t => t.id);
-    const membersBefore = (await repos.members.getByHousehold(HH)).map(m => m.id);
-    const householdsBefore = await repos.households.getById(HH);
-
     // Apply a valid record first to set the pull cursor at revision 1
     const validPayload = JSON.stringify({
       id: 'c-ok', householdId: HH, label: 'Valid',
@@ -966,15 +959,29 @@ describe('V3-06 REPAIR Finding #1: failing materialization rolls back cursor AND
     const cursorAfterFirst = await repos.syncState.getCursor(HH, '__pull__:contribution_entries' as any);
     expect(cursorAfterFirst?.lastRevision).toBe(1);
 
+    // Snapshot the state of ALL business tables AFTER the valid pull but
+    // BEFORE the failing pull. The valid pull committed c-ok, so the
+    // failing pull's rollback should restore to this state (not the
+    // pre-valid-pull state).
+    const contribsBefore = (await repos.contributions.getByHousehold(HH)).map(e => e.id);
+    const expensesBefore = (await repos.expenses.getByHousehold(HH)).map(e => e.id);
+    const settlementsBefore = (await repos.settlements.getByHousehold(HH)).map(s => s.id);
+    const todosBefore = (await repos.todos.getByHousehold(HH)).map(t => t.id);
+    const tasksBefore = (await repos.tasks.getByHousehold(HH)).map(t => t.id);
+    const membersBefore = (await repos.members.getByHousehold(HH)).map(m => m.id);
+    const householdsBefore = await repos.households.getById(HH);
+
     // V3-06 REPAIR Finding #2: Inject a FAILING repo into the REAL repository set.
     // The MaterializingSyncState.getRepos closure captures `repos` by reference,
     // so mutating repos.contributions changes what applyDeltas sees.
+    // IMPORTANT: Use Object.create() to preserve the prototype chain. Spreading
+    // a class instance copies only own enumerable fields and loses prototype methods
+    // like getById, getByHousehold, etc. The materializer calls getById BEFORE
+    // seed, so we must preserve it.
     const originalContributions = repos.contributions;
-    const failingContributionRepo = {
-      ...originalContributions,
-      seed: (_items: any[]) => { throw new Error('Simulated materialization failure'); },
-      create: async () => { throw new Error('Simulated materialization failure'); },
-    };
+    const failingContributionRepo = Object.create(originalContributions);
+    failingContributionRepo.seed = (_items: any[]) => { throw new Error('Simulated materialization failure'); };
+    failingContributionRepo.create = async () => { throw new Error('Simulated materialization failure'); };
     (repos as any).contributions = failingContributionRepo;
 
     // Capture the expense count right before the failing pull — the transaction
