@@ -4,14 +4,15 @@
   "builder": {
     "enabled": true,
     "criterionId": "V3-08",
-    "objective": "REPAIR V3-08: Make the APK path optional when the package is already installed: check 'pm list packages <packageName>' first and only require/use apkPath when an install is actually needed, or auto-locate the APK under android/app/build/outputs/apk/release/ when CHORESCORE_APK_PATH is unset. The implementation must match the documented contract ('optional if already installed').",
+    "objective": "REPAIR V3-08: Fix the waitFor('Contribution') call to pass a numeric timeout, e.g. waitFor('Contribution', 15000) — the options object is meaningless for waitFor (it accepts only label and timeoutMs); if scrolling is required before the check, use findVisible/tapLabel semantics or a numeric timeout. Keep the APK-path repair intact.",
     "scope": "Repair only the audited must-fix findings on the preserved V3 baseline; do not rebuild accepted work.",
     "acceptance": [
-      "scripts/e2e-android.js runs without CHORESCORE_APK_PATH when package is pre-installed",
+      "scripts/e2e-android.js passes numeric timeout to waitFor('Contribution', ...) at line 287",
+      "Mocked-adb simulation no longer throws at the Contribution golden-path step",
       "tsc --noEmit exits 0",
       "All 426 tests pass across 21 suites",
       "No regression on V3-01 through V3-07",
-      "Script reaches golden-path steps instead of throwing at first guard"
+      "Script reaches writeResult('pass') in golden-path simulation"
     ],
     "previousCriteriaPreserved": [
       "V3-01: accepted and must not regress",

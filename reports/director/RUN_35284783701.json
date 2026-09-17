@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "cycle": "35284783701",
+  "decision": "continue",
+  "reason": "V3-08 repair. Trusted verification passed (exit 0): typecheck clean, 21 suites / 426 tests pass, privacy:check PASS (static contract + 71 tests), cost:check PASS (21 cost-gate tests), expo install --check OK, expo export android OK, prebuild OK, native debug build BUILD SUCCESSFUL. The APK-path repair is correct: the script now checks 'pm list packages <packageName>' first, only resolves/uses an APK path when an install is actually needed, auto-locates the APK under android/app/build/outputs/apk/release/ when CHORESCORE_APK_PATH is unset, and the documented contract ('optional if already installed') now matches the implementation. Independent mocked-adb simulation confirms all five scenarios pass. However, a new must-fix finding blocks the finalizer: scripts/e2e-android.js line 287 calls waitFor('Contribution', { exact: false, scroll: true, waitMs: 500 }) passing an options object as the timeoutMs parameter; waitFor computes 'until = Date.now() + timeoutMs' which string-concatenates to '<timestamp>[object Object]', so 'Date.now() < until' is always false, the polling loop never executes, and the function throws 'Timed out waiting for Contribution' immediately. The golden path E2E — a V3-08 acceptance criterion and the trusted finalizer's last step — is guaranteed to fail at step 6 in the real emulator environment. This bug is pre-existing in the accepted baseline (identical line in the pristine tree at line 258) and was never reached by previous audits because the APK-path guard threw first; the current candidate's fix now lets the script reach this step, exposing it. The WIP baseline for V3-08 must be preserved and the next cycle must fix the waitFor('Contribution') call to pass a numeric timeout.",
+  "progressEvidence": [
+    "V3-08-repair-apk-path-correct-exposed-waitFor-bug",
+    "trusted-verification-exit-0-typecheck-clean-426-tests-pass",
+    "privacy-check-pass-static-contract-71-tests",
+    "cost-check-pass-21-cost-gate-tests",
+    "expo-install-check-dependencies-up-to-date",
+    "expo-export-android-1318-modules",
+    "expo-prebuild-android-ok",
+    "native-debug-build-successful-395-tasks",
+    "apk-path-repair-verified-all-5-mocked-adb-scenarios-pass",
+    "apk-path-repair-matches-documented-contract",
+    "no-product-code-delta-vs-pristine-accepted-tree",
+    "no-regression-V3-01-through-V3-07-426-tests-pass",
+    "mustFix-2-waitFor-Contribution-passes-options-object-as-timeoutMs-golden-path-guaranteed-fail",
+    "pre-existing-bug-exposed-by-apk-path-fix",
+    "WIP-baseline-preserved-for-next-repair-cycle"
+  ]
+}
