@@ -1,49 +1,43 @@
 # Next cycle
 
-Active criterion: **V3-05 — À faire** (new criterion after V3-04 accepted).
+Active criterion: **V3-07 — Data product, privacy plane et pipeline frugale** (repair).
 
 ## Objective
 
-Migrate `TodoScreen.tsx` from V2 as a direct evolution. Build the "À faire" tab with full todo lifecycle: creation, assignment, scheduling, completion, and integration with the contribution ledger.
+Repair the 5 must-fix findings in the existing V3-07 WIP delta. Do not rebuild — the candidate baseline (12 new files, 1151-line test suite, 60/70 tests pass) is the starting point.
 
-### Requirements (from roadmap §V3-05 and constitution §11)
+## Must-fix findings
 
-1. **TodoScreen migration**: Preserve title, assignee (Fait par), beneficiaries (Fait pour), due date, reminder, note, PersistentTask integration, creation, deletion, and completion via mini-formula.
-2. **Atomic completion**: When a task is completed:
-   - Confirm `Fait par` (who did it)
-   - Confirm value (minutes or points based on group unit)
-   - Confirm `Fait pour` (who benefits)
-   - Create atomically exactly one `ContributionEntry`
-   - Update contribution ledger
-   - Mark todo as completed
-3. **Unit-aware**: If group is in Minutes → ask value in minutes. If group is in Points → ask value in points.
-4. **No chrono**: Zero chrono references anywhere in the todo flow.
-5. **Data-change signal**: Completed tasks emit `data-change` signal so Balances tab reflects the new contribution without full reload.
-6. **Free**: All todo functionality is free — no paywall, no restrictions, no premium gating.
-7. **Local-first**: Todo creation and completion work offline; sync queue handles remote persistence.
-8. **PersistentTask**: Default value can come from the PersistentTask template.
+### F1 — Test-file type errors (trusted exit 2)
+8 TypeScript errors in `__tests__/domain/v3-07-analytics-privacy.test.ts`:
+- Line 434: `label` not in anonymous event union → use `as unknown as` cast
+- Lines 501–505: partial records missing required fields → use full valid event shapes or casts
+- Line 730: `'commercial-use'` not a `DataProcessingPurpose` → replace with valid purpose or cast
+- Line 870: invalid cast to `Record<string, unknown>` → use `as unknown as`
 
-### Acceptance criteria
+### F2 — Pipeline label contradiction (core broken path)
+`validateNoOperationalIds` (pipeline.ts) forbids `label` as input, but `transformContributionCreated` and `transformEntryCreated` require `label` for classification. All contribution/entry facts are rejected at stage 1 — transforms are dead code.
 
-- TodoScreen renders within the "À faire" tab with V3 design system
-- Creation form accepts title, assignee, beneficiaries, due date, value, PersistentTask
-- Completion flow asks for Fait par, value, Fait pour, then creates ContributionEntry atomically
-- Unit is respected: group Points → points input; group Minutes → minutes input
-- No chrono anywhere in the file or its imports
-- Completion emits data-change signal
-- Existing V3-01/V3-02/V3-03/V3-04 tests remain green
-- Todo-specific tests cover: create, complete, unit-aware value, ledger integration
-- No regressions on balances, contribution, expense, or settlement logic
+**Fix:** Remove `label`/`title`/`notes` from the input-forbidden list. These are consumed for classification and never emitted — rely on output event types + PrivacyReleaseGate to guarantee no free text in outputs. Add a test proving a labeled contribution transforms successfully with no text in the emitted event.
 
-## Preserve
+### F3 — Gate tests unpassable
+`assessReIdentificationRisk` flags datasets < 10 records with `re_identification_risk` (high), blocking approval. Tests use 5 records and empty data expecting `approved=true`.
 
-- V3-01 domain untouched (zero-sum ledgers, integer minor units, rate snapshot, Minutes/Points distinct).
-- V3-02 accepted work (expo-sqlite local-first base, RepositoryFactory, three-tab shell, V3 design system).
-- V3-03 accepted work (Contribution|Expense switch, contribution without chrono, expense entry, unified history).
-- V3-04 accepted work (dual ledger balances, period views, settlement, currency detection, data-level delta handler).
+**Fix:** Use ≥10 records with repeated (category, month, beneficiaryCount) combinations so `combinations.size ≤ facts.length * 0.8` and `facts.length ≥ minCohortSize * 2`. Do not weaken the gate.
+
+### F4 — Query budget mismatch
+Test expects `remainingQueriesThisMinute=1` but service returns 2 (`limit - used - 1`).
+
+**Fix:** Align test and implementation on one documented semantic.
+
+### F5 — Consent expiry race
+`retentionDays: 0` with strict `<` comparison fails in same-millisecond jest execution.
+
+**Fix:** Use negative retentionDays (e.g. `-1`) or change comparison to `<=`. Make deterministic.
 
 ## Verification
 
-- `npm run check` green (typecheck + tests).
-- Trusted verification: Expo export Android, prebuild, native debug build.
-- Required evidence for V3-05: tests covering todo create, todo complete with ledger integration, unit-aware value input, data-change signal emission, no chrono references.
+- `npx tsc --noEmit` exits 0
+- All 70+ tests pass (no new failures)
+- All V3-01 through V3-06 regression suites pass (380+ tests)
+- Contribution/entry pipeline path proven functional with no free text in output events
