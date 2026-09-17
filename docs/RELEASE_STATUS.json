@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "milestone": "v3-rc",
-  "lastCycle": "35240808197",
+  "lastCycle": "35248510646",
   "activeCriteria": [
     "V3-06"
   ],
@@ -66,58 +66,42 @@
   ],
   "openFindings": [
     {
-      "path": "src/infrastructure/repositories/RepositoryFactory.ts (createInMemoryRepositories.withTransaction, lines 356-374)",
-      "problem": "The in-memory withTransaction still snapshots/restores only contributionRepo, todoRepo and the sync buffer/cursor state. Expenses, settlements, persistent tasks, members, memberships and households are NOT snapshotted, so a mid-transaction failure leaves partial writes in those business tables. The objective explicitly requires: 'Extend the in-memory withTransaction to snapshot/restore ALL affected repos (expenses, settlements, tasks, members, memberships, households, and the sync buffer/cursor state).' Only InMemoryContributionEntryRepository and InMemoryTodoRepository implement snapshot()/restoreFromSnapshot(); the other in-memory repos have no snapshot support.",
-      "evidence": "RepositoryFactory.ts lines 360-371: 'const contribSnap = contributionRepo.snapshot(); const todoSnap = todoRepo.snapshot(); const syncCursorsSnap = baseSyncState.snapshotCursors(); const syncRecordsSnap = baseSyncState.snapshotRecords(); ... contributionRepo.restoreFromSnapshot(contribSnap); todoRepo.restoreFromSnapshot(todoSnap); baseSyncState.restoreCursors(syncCursorsSnap); baseSyncState.restoreRecords(syncRecordsSnap);'. Independent verification: a transaction that writes an expense then a contribution then throws leaves the expense in the business table ('expenses after rollback: 1 (expected 0)') while the contribution is rolled back ('contributions after rollback: 0') — a partial update survives.",
+      "path": "__tests__/domain/v3-06-repair-sync-authorization.test.ts (import block lines 20-23; usages at lines 637, 652, 672, 687, 707, 724, 745)",
+      "problem": "The candidate removed ScopedContributionRepository and ScopedExpenseRepository from the import statement but the test body still instantiates them directly (new ScopedContributionRepository(...) / new ScopedExpenseRepository(...)) in the 'authorization enforced through repository path' describe block. This breaks the typecheck (trusted verification exit code 2) and causes 7 runtime test failures with ReferenceError: ScopedContributionRepository is not defined. The classes are still exported from ScopedRepositoryFacade.ts, so only the import is missing.",
+      "evidence": "Trusted log TRUSTED_35248510646.md: 'error TS2304: Cannot find name ScopedContributionRepository' x5 and 'ScopedExpenseRepository' x2. Independent npx tsc --noEmit reproduces the same 7 errors. Independent npx jest: 7 tests in 'V3-06 REPAIR: authorization enforced through repository path' fail with 'ReferenceError: ScopedContributionRepository is not defined'.",
       "mustFix": true,
-      "requiredFix": "Add snapshot()/restoreFromSnapshot() to InMemoryExpenseEntryRepository, InMemorySettlementRepository, InMemoryPersistentTaskRepository, InMemoryMemberRepository, InMemoryMembershipRepository and InMemoryHouseholdRepository, and include all of them (plus the sync buffer/cursor state) in the in-memory withTransaction snapshot/restore so any throw rolls back every business table.",
-      "verification": "Add a failure-injection test that writes to multiple business tables (e.g. expense + contribution + settlement) inside withTransaction, throws, and asserts ALL business tables are unchanged after rollback."
+      "requiredFix": "Restore the import of ScopedContributionRepository and ScopedExpenseRepository from '../../src/infrastructure/repositories/ScopedRepositoryFacade' (or rewrite the 7 tests to use createScopedRepositories). Then re-run tsc and the full jest suite.",
+      "verification": "npx tsc --noEmit exits 0 and npx jest passes the 'authorization enforced through repository path' describe block."
     },
     {
-      "path": "__tests__/domain/v3-06-repair-sync-authorization.test.ts (Finding #1 describe block, lines 33-191)",
-      "problem": "The failure-injection test does not exercise the production data path and does not assert 'no business table was partially updated'. The test builds a hand-rolled replica of MaterializingSyncState inside the test (an anonymous class with its own applyDeltas implementation) instead of calling the production repos.syncState.applyDeltas, and it only asserts the contribution table (failedEntry null) plus cursor <= 1. The objective requires: 'Add a test that injects a real failing materialization (a repo error, not a silently-skipped malformed payload) and asserts the cursor did not advance AND no business table was partially updated.' The test would pass even if the production MaterializingSyncState.applyDeltas advanced the cursor outside the transaction or left partial writes in other tables.",
-      "evidence": "Test lines 88-110 construct 'new (class { inner = baseSyncState; getRepos = () => failingRepos; ... async applyDeltas(...) { ... return repos.withTransaction(async () => { await materializeDeltas(...); await baseSyncState.storeLocalRecords(...); if (pullCursorToAdvance) await baseSyncState.setCursor(...); }); } })()' — a replica, not the production applyDeltas. The assertions only check cursorAfterFail <= 1 and failedEntry null for the contribution table.",
+      "path": "__tests__/domain/v3-06-repair-sync-authorization.test.ts (Finding #1 failure-injection test, lines 972-978 and assertion at 1013)",
+      "problem": "The rewritten failure-injection test injects a failing repo built as {...originalContributions, seed: throw, create: throw}. originalContributions is a SyncRecordingContributionRepository class instance; spreading a class instance copies only own enumerable fields (inner, syncState) and loses all prototype methods (getById, getByHousehold, ...). The production MaterializingSyncState.applyDeltas -> materializeDeltas -> upsertWithConflictResolution calls repos.contributions.getById(record.id) BEFORE seed, so the actual error is 'repos.contributions.getById is not a function' instead of the intended 'Simulated materialization failure'. The assertion expect(caughtError.message).toContain('Simulated materialization failure') fails, so the test does not prove the intended scenario (a repo error during materialization rolling back cursor + all business tables).",
+      "evidence": "Independent npx jest: 'repo error during materialization does NOT advance cursor and does NOT partially update ANY business table' fails — 'Expected substring: Simulated materialization failure / Received string: repos.contributions.getById is not a function'. SyncMaterializer.ts line 213 calls repos.contributions.getById(record.id) before seed at line 219.",
       "mustFix": true,
-      "requiredFix": "Inject the failing repo into the real repository set (e.g. replace repos.contributions/repos.expenses with a throwing implementation before calling repos.syncState.applyDeltas or pullDeltas on the production MaterializingSyncState) and assert the cursor did not advance AND every business table (contributions, expenses, settlements, todos, persistent_tasks, members, memberships, households) is unchanged.",
-      "verification": "The new test fails if the production applyDeltas is reverted to non-transactional behavior or if withTransaction snapshot coverage is incomplete."
+      "requiredFix": "Inject the failing repo while preserving the prototype chain, e.g. const failing = Object.create(originalContributions); failing.seed = () => { throw new Error('Simulated materialization failure'); }; failing.create = async () => { throw new Error('Simulated materialization failure'); }; (or a Proxy), then assign (repos as any).contributions = failing before pullDeltas and restore afterwards. Keep the assertions that the cursor did not advance and every business table is unchanged.",
+      "verification": "The test passes with the intended 'Simulated materialization failure' error and still asserts cursor <= 1 and all 7 business tables unchanged after rollback."
     },
     {
-      "path": "__tests__/domain/v3-06-repair-sync-authorization.test.ts (Finding #3 describe block, lines 348-466)",
-      "problem": "Hostile tests still only construct the scoped facade manually (createScopedRepositories(repos, 'user-stranger')) and never exercise the path the app actually uses. The objective requires: 'Hostile tests must exercise the path the app uses (e.g. through AppContext or the use-case layer), not only a manually constructed facade.' No AppProvider/useApp test exists anywhere in the suite, so nothing proves the AppContext wiring actually rejects cross-tenant access or that the app path is scoped.",
-      "evidence": "grep for AppProvider/useApp in __tests__ returns no matches; all Finding #3 tests call createScopedRepositories directly with a manually chosen callerUserId.",
+      "path": "__tests__/infrastructure/repositories.test.ts (V3-06 REPAIR Finding #5 describe block, lines 1013-1105; pull call at line 1064, assertion at line 1075)",
+      "problem": "The new SQLite factory-wiring test does not wire the repos 'exactly as the factory does'. It constructs raw SQLite repos + SyncRecording wrappers but passes the raw SqliteSyncStateRepository (baseSyncState) directly to pullDeltas instead of wrapping it in a MaterializingSyncState as the factory does (RepositoryFactory.ts lines 441-442: materializingSync = new MaterializingSyncState(baseSyncState, () => repos)). The raw SqliteSyncStateRepository.applyDeltas is buffer-only (SqliteRepositories.ts lines 1168-1201: writes sync_records, never materializes into business tables), so the remote delta never becomes a readable business record and the assertion expect(entry).not.toBeNull() fails.",
+      "evidence": "Independent npx jest: 'factory-wired SQLite repos: remote delta materializes into business table' fails at line 1075 (entry is null). Test line 1064: 'await pull(baseSyncState, HH, ...)' — baseSyncState is a raw SqliteSyncStateRepository, not a MaterializingSyncState. The objective explicitly requires 'raw SQLite repos + SyncRecording* wrappers + MaterializingSyncState' or an exported testable factory path.",
       "mustFix": true,
-      "requiredFix": "Add hostile tests that drive the app-level data-access path: render AppProvider, sign in as a user, and assert cross-tenant reads/writes through the repos exposed by useApp() are rejected with CROSS_TENANT while legitimate member reads/writes succeed (or drive the use-case layer, e.g. completeTodoAtomic).",
-      "verification": "The hostile test fails if AppContext stops wrapping repos with the scoped facade."
+      "requiredFix": "Wrap baseSyncState in a MaterializingSyncState (export the class from RepositoryFactory or replicate the factory wiring in the test) and pass that wrapped sync state to pullDeltas, so applyDeltas materializes the remote delta into the business table. Keep the assertions: remote delta -> business record readable; local write via wrapped repo -> getDirtyRecords returns the payload; pushDeltas sends it.",
+      "verification": "The test passes with entry.label === 'Remote via factory' and entry.value === 30, and the local-write/push assertions still hold."
     },
     {
-      "path": "src/features/app/AppContext.tsx (signIn lines 182-194, signOut lines 196-200) / app/join/[token].tsx (lines 60, 77, 110, 122)",
-      "problem": "The AppContext scoping wiring breaks the invitation-acceptance flow and stale-scopes across sign-in/sign-out. (a) join/[token].tsx reads repos.households.getById(invitation.householdId) and repos.memberships.getByHousehold(...) BEFORE the user is a member; with the scoped facade these throw AuthorizationError(CROSS_TENANT), so a signed-in user can never resolve or accept an invitation — a regression of the V3-06 'atomic acceptance (membership + member)' criterion. (b) signOut does not reset reposRef, so a second user signing in wraps the already-scoped repos again; the inner stale caller (previous user) blocks legitimate access.",
-      "evidence": "Independent verification: 'JOIN FLOW BREAKS: AuthorizationError CROSS_TENANT User joiner is not a member of household h-join' on repos.households.getById; 'MEMBERSHIP CREATE BLOCKED: AuthorizationError CROSS_TENANT' on memberships.create (the first-membership exception does not apply because the household already has the owner's membership); double-wrap check: 'B reads own group h-B BLOCKED (BUG): CROSS_TENANT' after A signed out and B signed in.",
+      "path": ".",
+      "problem": "Trusted product verification failed",
+      "evidence": "Authoritative verification log: reports/audits/TRUSTED_35248510646.md (exit 2)",
       "mustFix": true,
-      "requiredFix": "Allow the invitation-acceptance path to read the invited household and create the invitee's membership (e.g. invitation-token-scoped read + membership creation authorized by the invitation, or a dedicated join use-case), and re-scope from the raw repos on every sign-in (reset reposRef on signOut, or keep the raw repos and wrap exactly once per sign-in) so the callerUserId is always the current user.",
-      "verification": "Add a test: sign in as a non-member, resolve an invitation, complete atomic acceptance (membership + member) through the app path; and a test: sign in as A, sign out, sign in as B, then B can read B's own group and is blocked from A's group."
-    },
-    {
-      "path": "__tests__/infrastructure/repositories.test.ts (Finding #4 describe block, lines 546-700)",
-      "problem": "The SQLite sync tests do not run the actual sync pipeline. They use raw SqliteSyncStateRepository + SqliteContributionEntryRepository: test 1 calls the raw applyDeltas (buffer-only, no materialization) and then manually seeds the business table ('Materialize into business table manually'); test 2 manually constructs the dirty record and calls storeLocalRecords instead of going through the SyncRecording wrapper. The objective requires: 'Add a test that runs the sync pipeline (applyDeltas materialization + wrapper dirty recording + pushDeltas) against the SQLite-backed repositories ... proving remote delta -> business record readable and local write -> getDirtyRecords payload' (or a shared contract test on both implementations). The factory's SQLite wiring (MaterializingSyncState + SyncRecording wrappers around raw SQLite repos) is never exercised.",
-      "evidence": "Test lines 591-593: 'await contributions.seed([{ ...entity, id: 'c-sql-remote' }])' — manual materialization; lines 616-626 manually build dirtyRecord and call syncState.storeLocalRecords — the wrapper is bypassed.",
-      "mustFix": true,
-      "requiredFix": "Wire the SQLite repos exactly as the factory does in the test (raw SQLite repos + SyncRecording* wrappers + MaterializingSyncState, using the mocked expo-sqlite driver), or export a testable factory path, then prove: remote delta via applyDeltas -> business record readable; local write via the wrapped repo -> getDirtyRecords returns the payload; pushDeltas sends it.",
-      "verification": "The new test fails if the SQLite path drops the MaterializingSyncState/wrapper wiring."
-    },
-    {
-      "path": "src/infrastructure/repositories/ScopedRepositoryFacade.ts (createScopedRepositories, lines 67-86)",
-      "problem": "Persistent tasks and invitations remain unscoped in the app path. The objective requires 'every getByHousehold/create/update/delete verifies membership'. repos.tasks (PersistentTaskRepository: getByHousehold/create/delete) and repos.invitations (InvitationRepository: getByHousehold/create) are household-scoped repos used by the screens (app/(tabs)/add.tsx line 186, app/(tabs)/todos.tsx line 115, app/invite.tsx line 42, app/join/[token].tsx line 53), but createScopedRepositories leaves them unscoped, so a caller can read/write another household's persistent tasks or invitations without any membership check.",
-      "evidence": "createScopedRepositories comment lines 80-84 explicitly leaves 'tasks' and 'invitations' unscoped; no ScopedPersistentTaskRepository exists; PersistentTaskRepository has getByHousehold/create/delete (index.ts lines 93-98).",
-      "mustFix": true,
-      "requiredFix": "Add a ScopedPersistentTaskRepository (membership check on getByHousehold/create/delete) and scope invitation reads (getByHousehold requires membership; token-based getByLinkToken/getById remain invitation-authorized) or apply equivalent membership checks in the app path.",
-      "verification": "Add a hostile test: a non-member reading another household's persistent tasks through the app path is blocked with CROSS_TENANT."
+      "requiredFix": "Resolve the concrete failing trusted check without discarding already-correct candidate work, then rerun the full gate.",
+      "verification": "Full trusted V3 verification must return exit code 0."
     }
   ],
   "factoryHealth": {
     "stalled": false,
     "consecutiveNoProgress": 0,
-    "lastProductSha": "fa1dc1eea9e5cc91da75bba6a5c7436d354ea731",
+    "lastProductSha": "a5034a2906ab17f7dc34b8fb57fcceb718904c56",
     "reason": null
   }
 }

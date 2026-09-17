@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "cycle": "35248510646",
+  "decision": "continue",
+  "reason": "V3-06 repair. The candidate substantively addresses all six original repair findings (full-scope withTransaction snapshot, rewritten failure-injection test, use-case-layer hostile tests, AppContext sign-in/sign-out re-scoping, join/[token].tsx rawRepos invitation path, ScopedPersistentTaskRepository + ScopedInvitationRepository). However trusted verification failed (exit code 2) and independent re-runs confirm three must-fix defects: (1) ScopedContributionRepository/ScopedExpenseRepository import removed from test file but 7 usages remain → 7 TS2304 errors + 7 ReferenceError test failures; (2) failure-injection test spread {...originalContributions} loses prototype methods, so materializer throws 'getById is not a function' before the intended 'Simulated materialization failure'; (3) SQLite factory-wiring test passes raw SqliteSyncStateRepository to pullDeltas instead of a MaterializingSyncState, so the remote delta never materializes into the business table. WIP baseline preserved for repair.",
+  "progressEvidence": [
+    "V3-06-original-6-findings-substantively-addressed-on-WIP-baseline",
+    "withTransaction-snapshot-covers-all-8-business-repos-plus-sync-cursors-records",
+    "snapshot-restoreFromSnapshot-added-to-6-required-in-memory-repos",
+    "AppContext-rawReposRef-resets-on-signOut-each-signIn-wraps-exactly-once",
+    "join-token-tsx-uses-rawRepos-for-invitation-authorized-reads-membership-creation",
+    "ScopedPersistentTaskRepository-and-ScopedInvitationRepository-added",
+    "Hostile-tests-drive-use-case-layer-completeTodoAtomic",
+    "Failure-injection-test-rewritten-to-use-production-MaterializingSyncState-pullDeltas",
+    "SQLite-factory-wiring-test-added-but-broken",
+    "17-suites-311-tests-pass-2-suites-9-tests-fail-no-regression-V3-01-V3-05",
+    "mustFix-1-missing-import-ScopedContributionRepository-ScopedExpenseRepository-in-test",
+    "mustFix-2-failure-injection-spread-loses-prototype-methods",
+    "mustFix-3-SQLite-test-uses-raw-sync-state-instead-of-MaterializingSyncState",
+    "next-cycle-V3-06-repair-restore-import-fix-injection-technique-fix-SQLite-wiring"
+  ]
+}
