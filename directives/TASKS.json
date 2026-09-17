@@ -4,7 +4,7 @@
   "builder": {
     "enabled": true,
     "criterionId": "V3-04",
-    "objective": "REPAIR V3-04: Ensure the settlement delta is applied exactly once. Options: (a) do not emit 'settlement' from handleCompenserConfirm (the screen already applied the delta and updated state), or (b) make handleDataChange idempotent by computing oldIds from a ref that is updated synchronously when the delta is applied (e.g. a settlementsRef updated in handleCompenserConfirm before the emit), or (c) pass the created entity in the signal payload and skip the re-read for self-created settlements. Add a test that renders the screen (or simulates the exact handler wiring with React closure semantics) and asserts the all-time contribution AND money balances equal full ledger replay after repos.settlements.create.; Apply the expense delta using the same allocation as the ledger: reuse allocateExpense(entry) (or replicate its splitMode-aware logic) so the delta equals full replay for both equal and custom splits. Add a test asserting delta == full replay for a custom-split expense.; Emit the appropriate data-change signal after successful edit and delete in the Add tab (e.g. emitDataChange('contribution'|'expense', currentHouseholdId)), and make the Balances delta handler process removals/modifications (not only additions): detect removed ids and apply 'remove' deltas, and detect modified entries (same id, changed fields) by removing the old effect and applying the new one. Add a test asserting the all-time snapshot equals full replay after a delete and after an edit.; Add a test that either (a) renders the Balances screen against fake repositories, adds an entry via the repo, emits the data-change signal, and asserts the view updates via delta with bounded repository call counts (no full re-read on focus), or (b) imports the real AppContext/Balances wiring and asserts the screen subscribes to subscribeToDataChanges and applies deltas. Remove or substantiate the header claim.",
+    "objective": "REPAIR V3-04: Include currency (and any other ledger-affecting field) in the expense modification detection in balances.tsx, so a changed currency triggers the remove-old + apply-new delta path. Add a test that performs a currency-only edit (e.g. CHF→EUR with identical amount/paidBy/participants/splitMode) and asserts the all-time moneyByCurrency snapshot equals calculateFinancialBalancesByCurrency full replay: the old currency entry is removed/zeroed and the new currency balance is created, with zero-sum on each currency.; Either (a) add a test that imports app/(tabs)/balances.tsx (jest.mock('expo-router'); mock or provide AppContext with fake repos whose getByHousehold calls are counted), drives an add/edit/delete through the emitted data-change signal, and asserts the rendered view's all-time snapshot updates by delta with bounded reads and no full re-read on focus; or (b) remove the word 'Screen-level' from claim #8 and reword it to an explicitly data-level/handler claim that the tests actually prove. Do not leave a header claim that the tests do not exercise.",
     "scope": "Repair only the audited must-fix findings on the preserved V3 baseline; do not rebuild accepted work.",
     "acceptance": [
       "deux blocs de ledger distincts",
@@ -17,8 +17,9 @@
       "ouvrir Balances ne nécessite pas de full scan historique distant",
       "settlement delta applied exactly once (no double-apply)",
       "expense delta matches full replay for equal AND custom splits",
+      "currency-only expense edit triggers remove-old + apply-new, snapshot == full replay",
       "edits and deletes in Add tab emit data-change signal; Balances reflects changes",
-      "screen-level test renders Balances, proves delta refresh with bounded repo calls"
+      "screen-level test proves delta refresh with bounded repo calls OR header claim corrected"
     ],
     "previousCriteriaPreserved": [
       "V3-01: accepted and must not regress",
