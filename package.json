@@ -17,7 +17,10 @@
     "prebuild": "expo prebuild",
     "prebuild:android": "expo prebuild --platform android",
     "export": "expo export",
-    "export:android": "expo export --platform android"
+    "export:android": "expo export --platform android",
+    "privacy:check": "node scripts/privacy-check.js",
+    "cost:check": "node scripts/cost-check.js",
+    "e2e:android": "node scripts/e2e-android.js"
   },
   "dependencies": {
     "@react-native-async-storage/async-storage": "2.2.0",
