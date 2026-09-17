@@ -443,16 +443,16 @@ describe('V3-06 delta-only sync', () => {
     expect(result.signal).not.toBeNull();
     expect(result.signal?.collections).toContain('contribution_entries');
 
-    // Cursor is advanced
-    const cursor = await syncState.getCursor(HH, 'contribution_entries');
-    expect(cursor?.lastRevision).toBe(2);
+    // Pull cursor is advanced (pull uses separate __pull__: prefix)
+    const pullCursor = await syncState.getCursor(HH, '__pull__:contribution_entries' as any);
+    expect(pullCursor?.lastRevision).toBe(2);
   });
 
   test('subsequent pull only fetches delta after cursor', async () => {
-    // Set initial cursor at revision 5
+    // Set initial pull cursor at revision 5
     await syncState.setCursor({
       householdId: HH,
-      collection: 'contribution_entries',
+      collection: '__pull__:contribution_entries' as any,
       lastRevision: 5,
       lastSyncedAt: '2026-09-16T10:00:00Z',
     });
@@ -467,8 +467,8 @@ describe('V3-06 delta-only sync', () => {
       return remoteRecords;
     });
 
-    const cursor = await syncState.getCursor(HH, 'contribution_entries');
-    expect(cursor?.lastRevision).toBe(6);
+    const pullCursor = await syncState.getCursor(HH, '__pull__:contribution_entries' as any);
+    expect(pullCursor?.lastRevision).toBe(6);
   });
 
   test('sync across all collections has bounded cost', async () => {

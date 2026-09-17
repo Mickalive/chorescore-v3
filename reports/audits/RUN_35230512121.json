@@ -1,0 +1,77 @@
+{
+  "schemaVersion": 1,
+  "cycle": "35230512121",
+  "role": "builder",
+  "decision": "repair",
+  "summary": "The candidate wires materialization + dirty-record recording into both repository paths for all 8 SYNC_COLLECTIONS, passes real local revisions to deterministic conflict resolution, and adds a scoped repository facade with hostile tests. Trusted verification passed (exit 0: typecheck, 294 tests, Android export/prebuild and native debug build). However, four must-fix gaps remain against the V3-06 repair objective: (1) the cursor advance still happens in pullDeltas AFTER applyDeltas commits, outside the single transaction, and the in-memory withTransaction snapshot coverage was not extended to all affected repos (only contribution + todo), with no test that injects a real materialization failure and asserts the cursor did not advance; (2) when a local dirty record wins a conflict, storeLocalRecords replaces it in the sync buffer with the remote record, so the local edit is silently lost from the push queue; (3) the ScopedRepositoryFacade is not wired into the app's data-access path (AppContext and screens still use unscoped repos), so membership enforcement is not actually applied to product reads/writes; (4) no test exercises the SQLite repository path proving remote delta -> business record readable + local write -> getDirtyRecords payload. Decision: repair, preserving this coherent baseline.",
+  "checks": [
+    "Trusted verification log TRUSTED_35230512121.md reports exit code 0 (typecheck, jest 294 tests / 18 suites, expo export, prebuild, gradle assembleDebug BUILD SUCCESSFUL)",
+    "Independent re-run: npx tsc --noEmit passes; npx jest __tests__/domain/v3-06-repair-sync-authorization.test.ts passes (34/34)",
+    "applyDeltas materializes pulled records into business tables for all 8 SYNC_COLLECTIONS via MaterializingSyncState on both in-memory and SQLite paths (RepositoryFactory.ts)",
+    "storeLocalRecords has callers (all 8 SyncRecording wrappers) and getDirtyRecords returns real payloads; pushDeltas sends actual local writes (verified by test and code reading)",
+    "Real local revisions are extracted from the sync buffer and passed to didRemoteWin (revision -> updatedAt -> remote-loses) for contributions, expenses, settlements, todos, persistent_tasks, memberships, households",
+    "Materializer-level test asserts local version wins when local revision is higher than remote",
+    "Hostile tests prove non-member read/write rejection through the scoped facade with CROSS_TENANT error code",
+    "Separate pull (__pull__:collection) and push cursor namespaces prevent pull from hiding local dirty records from push",
+    "No regression found in V3-01..V3-05 test suites (full suite green in trusted log)",
+    "Cost instrumentation budgets exist (sync-delta <= 8 reads / 8 writes / 2 network calls; tab-switch 0 network calls)"
+  ],
+  "findings": [
+    {
+      "path": "src/domain/services/syncEngine.ts / src/infrastructure/repositories/RepositoryFactory.ts",
+      "problem": "Cursor advance + materialization are not in a single transaction. pullDeltas calls syncState.applyDeltas(...) and then, after it returns, calls syncState.setCursor(...) (syncEngine.ts lines 90-102). MaterializingSyncState.applyDeltas wraps only materializeDeltas + storeLocalRecords in repos.withTransaction (RepositoryFactory.ts lines 195-205); the cursor write commits separately. Additionally, the in-memory withTransaction still snapshots only contributionRepo and todoRepo (RepositoryFactory.ts lines 278-279) — it was NOT extended to all affected repos (expenses, settlements, tasks, members, memberships, households, sync buffer), so a mid-transaction failure leaves partial writes in those repos and in the sync buffer. The criterion explicitly requires 'Wrap cursor advance + materialization in a single transaction (extend in-memory withTransaction snapshot coverage to all affected repos, and use withTransactionAsync on SQLite): materialize first, then advance the cursor, atomically; on failure roll back both so the delta is re-fetched on the next pull.'",
+      "evidence": "syncEngine.ts: 'await syncState.applyDeltas(householdId, collection, remoteRecords); ... await syncState.setCursor({...})' are sequential top-level statements; RepositoryFactory.ts withTransaction body contains only 'const contribSnap = contributionRepo.snapshot(); const todoSnap = todoRepo.snapshot();'",
+      "mustFix": true,
+      "requiredFix": "Move the cursor advance inside the same transaction as materialization (e.g. applyDeltas advances the pull cursor before committing, or pullDeltas passes the cursor update into the transactional callback). Extend the in-memory withTransaction to snapshot/restore ALL affected repos (expenses, settlements, tasks, members, memberships, households, and the sync buffer/cursor state). Add a test that injects a real failing materialization (a repo error, not a silently-skipped malformed payload) and asserts the cursor did not advance AND no business table was partially updated.",
+      "verification": "Re-run the transactional materialization tests; add a failure-injection test that throws inside materialization and asserts cursor unchanged and all business tables unchanged."
+    },
+    {
+      "path": "src/infrastructure/repositories/RepositoryFactory.ts / src/infrastructure/repositories/InMemoryRepositories.ts / src/infrastructure/repositories/SqliteRepositories.ts",
+      "problem": "When a local dirty record wins a conflict (local revision higher than remote), the local edit is silently lost from the push queue. MaterializingSyncState.applyDeltas calls this.inner.storeLocalRecords(householdId, collection, records) with the REMOTE records after materialization (RepositoryFactory.ts line 202). Both storeLocalRecords implementations replace the buffer row by id (InMemoryRepositories.ts lines 611-618 'existing[idx] = { ...record }'; SqliteRepositories.ts lines 1204-1208 'INSERT OR REPLACE INTO sync_records'). The local dirty record (higher revision, local winner in the business table) is overwritten by the remote record, so pushDeltas either pushes the remote payload or nothing — the local offline edit is never propagated to the remote. This defeats the criterion's intent that local offline edits are not silently discarded.",
+      "evidence": "Trace: local create -> wrapper recordDirty stores {id, revision: N, payload: LOCAL}; pull of same id with revision < N -> materializeDeltas keeps LOCAL in business table (didRemoteWin false) but storeLocalRecords replaces buffer row with {id, revision: <N, payload: REMOTE}; pushDeltas then sends REMOTE payload (or nothing when the remote revision is not > push cursor).",
+      "mustFix": true,
+      "requiredFix": "When the local record wins the conflict, preserve the local dirty record in the buffer (do not overwrite it with the remote record); only store the remote record when the remote wins. Add a test: local write -> pull of same id with lower remote revision -> assert business entity is LOCAL AND getDirtyRecords still returns the LOCAL payload which pushDeltas sends.",
+      "verification": "Add/extend a materializer-level test asserting the buffer retains the local payload after a local-wins pull, and that pushDeltas transmits the local payload."
+    },
+    {
+      "path": "src/infrastructure/repositories/ScopedRepositoryFacade.ts / src/features/app/AppContext.tsx",
+      "problem": "Membership scoping is not enforced in the app's actual data-access path. The ScopedRepositoryFacade exists and hostile tests prove it rejects non-member reads/writes, but it is imported only by the test file. AppContext.tsx and the screens use the unscoped repos directly (repos.households.create, repos.memberships.create, repos.members.create, repos.contributions.*, etc.), so no membership verification happens for product reads/writes. The criterion requires 'Enforce membership scoping in the data-access path: repository or use-case layer must verify the caller's membership for every read/write' and 'Hostile tests must prove a non-member read/write is rejected through the actual repository path'.",
+      "evidence": "grep shows ScopedRepositoryFacade referenced only in __tests__/domain/v3-06-repair-sync-authorization.test.ts; AppContext.tsx lines 202-215 call repos.households/memberships/members directly.",
+      "mustFix": true,
+      "requiredFix": "Wire the scoped facade (or equivalent membership check) into the data-access path actually used by the app: AppContext/use-cases must obtain repos scoped to the current user (caller userId) so every getByHousehold/create/update/delete verifies membership, and ledger mutations go through assertLedgerWrite-style validation. Hostile tests must exercise the path the app uses (e.g. through AppContext or the use-case layer), not only a manually constructed facade.",
+      "verification": "Add a hostile test that drives the app-level data-access path (AppContext/use-case) with a non-member caller and asserts CROSS_TENANT rejection; verify screens receive scoped repos."
+    },
+    {
+      "path": "__tests__/domain/v3-06-repair-sync-authorization.test.ts / __tests__/infrastructure/repositories.test.ts",
+      "problem": "No test exercises the SQLite repository path for the sync pipeline. The criterion requires 'Add a test that exercises the SQLite repository path (or a shared contract test run against both implementations) proving remote delta -> business record readable + local write -> getDirtyRecords payload.' The new test file only uses createInMemoryRepositories(); repositories.test.ts exercises raw Sqlite*Repository CRUD and the demo fixture, but never the MaterializingSyncState + SyncRecording wrapper wiring on the SQLite path (no remote delta materializing into a SQLite business table, no local write appearing in SQLite getDirtyRecords).",
+      "evidence": "v3-06-repair-sync-authorization.test.ts beforeEach uses createInMemoryRepositories() exclusively; repositories.test.ts constructs raw Sqlite*Repository instances without MaterializingSyncState or SyncRecording wrappers.",
+      "mustFix": true,
+      "requiredFix": "Add a test that runs the sync pipeline (applyDeltas materialization + wrapper dirty recording + pushDeltas) against the SQLite-backed repositories (using the mocked expo-sqlite driver already used in repositories.test.ts), or a shared contract test executed against both implementations, proving remote delta -> business record readable and local write -> getDirtyRecords payload.",
+      "verification": "Run the new SQLite-path sync test with the existing expo-sqlite mock; assert business record readable after applyDeltas and dirty payload present after local create."
+    },
+    {
+      "path": "src/infrastructure/sync/SyncMaterializer.ts",
+      "problem": "Members conflict resolution is incomplete: for an existing member, upsertWithConflictResolution does nothing (no update path exists), so a remote member update is never applied even when the remote wins; deleteBusinessRecord for members is a no-op and SyncRecordingMemberRepository has no update/delete, so member changes cannot be synced beyond creation. The criterion requires 'apply resolveConflict to households (and members/memberships) as well'.",
+      "evidence": "SyncMaterializer.ts lines 273-281: 'case members: ... if (existing) { // Members don't have update — if remote wins, accept via seed (idempotent) }' — no action; lines 105-107: member delete is a no-op.",
+      "mustFix": false,
+      "requiredFix": "Give the member repository an update/delete path (or seed-based replace) and apply didRemoteWin for members so remote wins are materialized; record member tombstones on delete.",
+      "verification": "Add a materializer test: remote member update with higher revision is applied; member tombstone deletes the local member."
+    },
+    {
+      "path": "src/infrastructure/repositories/RepositoryFactory.ts",
+      "problem": "extractLocalRevisions performs a full sync-buffer scan per collection on every pull: inner.getDirtyRecords(householdId, collection, 0) fetches every record ever stored for the collection (the buffer is never pruned) to find a handful of ids. A common action (pull) therefore costs O(total sync history) local reads, contrary to V3_BACKEND_FRUGAL §4 ('Une action courante ne doit jamais avoir un coût proportionnel à l'historique total') and the no-full-scan rule.",
+      "evidence": "RepositoryFactory.ts lines 144-161: 'const existingRecords = await inner.getDirtyRecords(householdId, collection, 0); for (const record of existingRecords) { if (incomingRecordIds.includes(record.id)) ... }'",
+      "mustFix": false,
+      "requiredFix": "Bound the lookup to the incoming ids (e.g. a getDirtyRecordsByIds(householdId, collection, ids) query or per-id lookup) so pull cost is proportional to the delta size, not the total history.",
+      "verification": "Add a cost test: pull with 3 incoming records performs a bounded number of local reads regardless of 50k buffered records."
+    },
+    {
+      "path": "src/infrastructure/sync/SyncRecordingWrapper.ts",
+      "problem": "SyncRecordingMembershipRepository.delete hard-deletes without recording a dirty tombstone (lines 353-357), so a membership removal on one device is never propagated to other devices, breaking multi-device sync of membership changes.",
+      "evidence": "SyncRecordingWrapper.ts lines 353-357: 'async delete(id) { await this.inner.delete(id); // Memberships are not soft-deleted in V3, hard delete is acceptable ... }' — no recordDirty call.",
+      "mustFix": false,
+      "requiredFix": "Record a tombstone (deletedAt) sync record on membership delete so other devices converge.",
+      "verification": "Add a test: membership delete produces a dirty tombstone that pushDeltas sends."
+    }
+  ]
+}

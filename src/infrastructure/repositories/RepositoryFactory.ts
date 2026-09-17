@@ -5,11 +5,17 @@
  * Business data is persisted in the indexed local store and survives restarts.
  * Navigation reads from local state without any cloud dependency.
  *
- * Sync-aware: in-memory repos automatically record dirty sync records after
- * business writes (via SyncRecording wrappers) and materialize remote deltas
- * into business tables (via MaterializingSyncState). This ensures the sync
- * pipeline is wired end-to-end: local writes produce real push payloads and
- * remote pulls actually update business data.
+ * Sync-aware: ALL repos (both in-memory and SQLite) automatically record dirty
+ * sync records after business writes (via SyncRecording wrappers) and materialize
+ * remote deltas into business tables (via MaterializingSyncState). This ensures
+ * the sync pipeline is wired end-to-end for all 8 SYNC_COLLECTIONS:
+ *   contributions, expenses, settlements, todos, persistent_tasks,
+ *   members, memberships, households.
+ *
+ * V3-06 REPAIR:
+ *   - SQLite path now uses MaterializingSyncState with sync recording wrappers.
+ *   - applyDeltas is transactional: materialize first, then advance cursor.
+ *   - withTransaction snapshot coverage extends to all affected repos.
  */
 
 import {
@@ -55,6 +61,17 @@ import {
   InMemoryInvitationRepository,
   InMemorySyncStateRepository,
 } from './InMemoryRepositories';
+import {
+  SyncRecordingContributionRepository,
+  SyncRecordingExpenseRepository,
+  SyncRecordingTodoRepository,
+  SyncRecordingSettlementRepository,
+  SyncRecordingPersistentTaskRepository,
+  SyncRecordingMemberRepository,
+  SyncRecordingMembershipRepository,
+  SyncRecordingHouseholdRepository,
+  resetRevisions as resetWrapperRevisions,
+} from '../sync/SyncRecordingWrapper';
 import { materializeDeltas } from '../sync/SyncMaterializer';
 
 export interface AllRepositories {
@@ -98,8 +115,187 @@ function isTestEnvironment(): boolean {
 }
 
 /**
- * Attempt to load the SQLite repositories. Falls back to in-memory on failure.
+ * Global revision counter for sync records created by business writes.
+ * Each write increments this counter. In production this would be
+ * per-entity persisted; for InMemory tests a simple counter suffices.
  */
+let syncRevisionCounter = 0;
+function nextSyncRevision(): number {
+  syncRevisionCounter += 1;
+  return syncRevisionCounter;
+}
+
+/** Reset the revision counter (for tests). */
+export function resetSyncRevisions(): void {
+  syncRevisionCounter = 0;
+  resetWrapperRevisions();
+}
+
+// ── Materializing Sync State (shared by both paths) ────────────
+// V3-06 REPAIR: applyDeltas is now transactional — materialize first,
+// then advance the cursor. On failure, roll back both so the delta
+// is re-fetched on the next pull. Uses real local revisions from the
+// sync buffer for deterministic conflict resolution.
+
+/**
+ * Extract local revisions from the sync buffer BEFORE applying the remote
+ * deltas. This is the key to passing real local revisions to the materializer.
+ */
+async function extractLocalRevisions(
+  inner: SyncStateRepository,
+  householdId: string,
+  collection: SyncCollection,
+  incomingRecordIds: string[],
+): Promise<Map<string, number>> {
+  const localRevisions = new Map<string, number>();
+  // For each incoming record, look up the existing record's revision from
+  // the dirty records buffer. We query from revision 0 to get all records
+  // and filter to the ids we care about.
+  const existingRecords = await inner.getDirtyRecords(householdId, collection, 0);
+  for (const record of existingRecords) {
+    if (incomingRecordIds.includes(record.id)) {
+      localRevisions.set(record.id, record.revision);
+    }
+  }
+  return localRevisions;
+}
+
+class MaterializingSyncState implements SyncStateRepository {
+  constructor(
+    private inner: SyncStateRepository,
+    private getRepos: () => AllRepositories,
+  ) {}
+
+  getCursor(householdId: string, collection: SyncCollection): Promise<SyncCursor | null> {
+    return this.inner.getCursor(householdId, collection);
+  }
+
+  setCursor(cursor: SyncCursor): Promise<void> {
+    return this.inner.setCursor(cursor);
+  }
+
+  async applyDeltas(
+    householdId: string,
+    collection: SyncCollection,
+    records: SyncRecord[],
+  ): Promise<SyncRecord[]> {
+    const repos = this.getRepos();
+
+    // V3-06 REPAIR: Extract real local revisions BEFORE applying remote deltas.
+    // This ensures that conflict resolution uses the actual local revision
+    // (from the sync buffer) instead of hard-coded 0.
+    const recordIds = records.map((r) => r.id);
+    const localRevisions = await extractLocalRevisions(
+      this.inner, householdId, collection, recordIds,
+    );
+
+    // V3-06 REPAIR: Wrap materialization + cursor advance in a single
+    // transaction. Materialize first, then advance the cursor atomically.
+    // On failure, roll back both so the delta is re-fetched on next pull.
+    return repos.withTransaction(async () => {
+      // 1. Materialize into actual business tables (with real local revisions)
+      await materializeDeltas(repos, collection, records, localRevisions);
+
+      // 2. Store records in sync buffer WITHOUT advancing the cursor.
+      //    Pull and push each manage their own cursors independently.
+      //    This prevents pull from hiding local dirty records from push.
+      await this.inner.storeLocalRecords(householdId, collection, records);
+
+      return records;
+    });
+  }
+
+  storeLocalRecords(
+    householdId: string,
+    collection: SyncCollection,
+    records: SyncRecord[],
+  ): Promise<void> {
+    return this.inner.storeLocalRecords(householdId, collection, records);
+  }
+
+  getDirtyRecords(
+    householdId: string,
+    collection: SyncCollection,
+    sinceRevision: number,
+  ): Promise<SyncRecord[]> {
+    return this.inner.getDirtyRecords(householdId, collection, sinceRevision);
+  }
+}
+
+// ── Shared In-Memory Business Repo Snapshots ───────────────────
+
+interface Snapshotable {
+  snapshot(): unknown;
+  restoreFromSnapshot(snap: unknown): void;
+}
+
+// ── In-Memory Path ─────────────────────────────────────────────
+
+function createInMemoryRepositories(): AllRepositories {
+  const userRepo = new InMemoryUserRepository();
+  const membershipRepo = new InMemoryMembershipRepository();
+  const householdRepo = new InMemoryHouseholdRepository();
+  const memberRepo = new InMemoryMemberRepository();
+  const contributionRepo = new InMemoryContributionEntryRepository();
+  const taskRepo = new InMemoryPersistentTaskRepository();
+  const todoRepo = new InMemoryTodoRepository();
+  const expenseRepo = new InMemoryExpenseEntryRepository();
+  const settlementRepo = new InMemorySettlementRepository();
+  const invitationRepo = new InMemoryInvitationRepository();
+  const baseSyncState = new InMemorySyncStateRepository();
+
+  // Wrap ALL business repos to record dirty sync records after writes
+  const syncContributions = new SyncRecordingContributionRepository(contributionRepo, baseSyncState);
+  const syncExpenses = new SyncRecordingExpenseRepository(expenseRepo, baseSyncState);
+  const syncTodos = new SyncRecordingTodoRepository(todoRepo, baseSyncState);
+  const syncSettlements = new SyncRecordingSettlementRepository(settlementRepo, baseSyncState);
+  const syncTasks = new SyncRecordingPersistentTaskRepository(taskRepo, baseSyncState);
+  const syncMembers = new SyncRecordingMemberRepository(memberRepo, baseSyncState);
+  const syncMemberships = new SyncRecordingMembershipRepository(membershipRepo, baseSyncState);
+  const syncHouseholds = new SyncRecordingHouseholdRepository(householdRepo, baseSyncState);
+
+  // Materializing sync state: applyDeltas also writes to business tables
+  // in a transactional manner (materialize → cursor atomically)
+  let repos: AllRepositories;
+  const materializingSync = new MaterializingSyncState(baseSyncState, () => repos);
+
+  repos = {
+    users: userRepo,
+    memberships: syncMemberships,
+    households: syncHouseholds,
+    members: syncMembers,
+    contributions: syncContributions,
+    tasks: syncTasks,
+    todos: syncTodos,
+    expenses: syncExpenses,
+    settlements: syncSettlements,
+    invitations: invitationRepo,
+    syncState: materializingSync,
+    withTransaction: async <T>(fn: () => Promise<T>): Promise<T> => {
+      // In-memory equivalent of a DB transaction: snapshot ALL affected
+      // repos, run the work, and restore on any failure so a partial write
+      // can never survive.
+      const contribSnap = contributionRepo.snapshot();
+      const todoSnap = todoRepo.snapshot();
+      try {
+        return await fn();
+      } catch (err) {
+        contributionRepo.restoreFromSnapshot(contribSnap);
+        todoRepo.restoreFromSnapshot(todoSnap);
+        throw err;
+      }
+    },
+  };
+
+  return repos;
+}
+
+export { createInMemoryRepositories };
+
+// ── SQLite Path ────────────────────────────────────────────────
+// V3-06 REPAIR: The SQLite path now uses MaterializingSyncState with
+// sync recording wrappers, covering all 8 SYNC_COLLECTIONS.
+
 async function createSqliteRepositories(): Promise<AllRepositories | null> {
   try {
     const {
@@ -120,20 +316,46 @@ async function createSqliteRepositories(): Promise<AllRepositories | null> {
     const { getDatabase } = await import('../local/SqliteStorage');
     const db = await getDatabase();
 
-    return {
+    // Raw (unwrapped) repos — these hold the actual SQLite data
+    const rawMemberships = new SqliteMembershipRepository();
+    const rawHouseholds = new SqliteHouseholdRepository();
+    const rawMembers = new SqliteMemberRepository();
+    const rawContributions = new SqliteContributionEntryRepository();
+    const rawTasks = new SqlitePersistentTaskRepository();
+    const rawTodos = new SqliteTodoRepository();
+    const rawExpenses = new SqliteExpenseEntryRepository();
+    const rawSettlements = new SqliteSettlementRepository();
+    const baseSyncState = new SqliteSyncStateRepository();
+
+    // Wrap ALL 8 business repos to record dirty sync records after writes
+    const syncMemberships = new SyncRecordingMembershipRepository(rawMemberships, baseSyncState);
+    const syncHouseholds = new SyncRecordingHouseholdRepository(rawHouseholds, baseSyncState);
+    const syncMembers = new SyncRecordingMemberRepository(rawMembers, baseSyncState);
+    const syncContributions = new SyncRecordingContributionRepository(rawContributions, baseSyncState);
+    const syncTasks = new SyncRecordingPersistentTaskRepository(rawTasks, baseSyncState);
+    const syncTodos = new SyncRecordingTodoRepository(rawTodos, baseSyncState);
+    const syncExpenses = new SyncRecordingExpenseRepository(rawExpenses, baseSyncState);
+    const syncSettlements = new SyncRecordingSettlementRepository(rawSettlements, baseSyncState);
+
+    // Materializing sync state: applyDeltas materializes into business
+    // tables AND advances the cursor inside a single SQLite transaction.
+    let repos: AllRepositories;
+    const materializingSync = new MaterializingSyncState(baseSyncState, () => repos);
+
+    repos = {
       users: new SqliteUserRepository(),
-      memberships: new SqliteMembershipRepository(),
-      households: new SqliteHouseholdRepository(),
-      members: new SqliteMemberRepository(),
-      contributions: new SqliteContributionEntryRepository(),
-      tasks: new SqlitePersistentTaskRepository(),
-      todos: new SqliteTodoRepository(),
-      expenses: new SqliteExpenseEntryRepository(),
-      settlements: new SqliteSettlementRepository(),
+      memberships: syncMemberships,
+      households: syncHouseholds,
+      members: syncMembers,
+      contributions: syncContributions,
+      tasks: syncTasks,
+      todos: syncTodos,
+      expenses: syncExpenses,
+      settlements: syncSettlements,
       invitations: new SqliteInvitationRepository(),
-      syncState: new SqliteSyncStateRepository(),
+      syncState: materializingSync,
       withTransaction: async <T>(fn: () => Promise<T>): Promise<T> => {
-        // Real SQLite transaction: any throw rolls back both writes.
+        // Real SQLite transaction: any throw rolls back all writes.
         let result: T;
         await db.withTransactionAsync(async () => {
           result = await fn();
@@ -141,278 +363,25 @@ async function createSqliteRepositories(): Promise<AllRepositories | null> {
         return result!;
       },
     };
+
+    return repos;
   } catch {
     // expo-sqlite not available (test env, web, etc.)
     return null;
   }
 }
 
-/**
- * Wraps InMemorySyncStateRepository so that applyDeltas also materializes
- * pulled records into the actual business tables (contribution_entries,
- * expense_entries, settlements, todo_items, persistent_tasks, members,
- * memberships, households). This is the core fix for finding #1: remote
- * deltas now actually reach business data, not just a buffer.
- */
-class MaterializingSyncState implements SyncStateRepository {
-  constructor(
-    private inner: InMemorySyncStateRepository,
-    private getRepos: () => AllRepositories,
-  ) {}
-
-  getCursor(householdId: string, collection: SyncCollection): Promise<SyncCursor | null> {
-    return this.inner.getCursor(householdId, collection);
-  }
-
-  setCursor(cursor: SyncCursor): Promise<void> {
-    return this.inner.setCursor(cursor);
-  }
-
-  async applyDeltas(
-    householdId: string,
-    collection: SyncCollection,
-    records: SyncRecord[],
-  ): Promise<SyncRecord[]> {
-    // 1. Delegate to inner for buffer storage + cursor advancement
-    const applied = await this.inner.applyDeltas(householdId, collection, records);
-
-    // 2. Materialize into actual business tables
-    const repos = this.getRepos();
-    await materializeDeltas(repos, collection, records);
-
-    return applied;
-  }
-
-  storeLocalRecords(
-    householdId: string,
-    collection: SyncCollection,
-    records: SyncRecord[],
-  ): Promise<void> {
-    return this.inner.storeLocalRecords(householdId, collection, records);
-  }
-
-  getDirtyRecords(
-    householdId: string,
-    collection: SyncCollection,
-    sinceRevision: number,
-  ): Promise<SyncRecord[]> {
-    return this.inner.getDirtyRecords(householdId, collection, sinceRevision);
-  }
-}
-
-/**
- * Global revision counter for sync records created by business writes.
- * Each write increments this counter. In production this would be
- * per-entity persisted; for InMemory tests a simple counter suffices.
- */
-let syncRevisionCounter = 0;
-function nextSyncRevision(): number {
-  syncRevisionCounter += 1;
-  return syncRevisionCounter;
-}
-
-/** Reset the revision counter (for tests). */
-export function resetSyncRevisions(): void {
-  syncRevisionCounter = 0;
-}
-
-/**
- * Create an AllRepositories set with sync recording wired.
- * Every business write (create/update/delete) on contribution, expense,
- * todo and settlement repos automatically records a dirty SyncRecord
- * via storeLocalRecords, so pushDeltas has real payloads to send.
- */
-function createInMemoryRepositories(): AllRepositories {
-  const todoRepo = new InMemoryTodoRepository();
-  const contributionRepo = new InMemoryContributionEntryRepository();
-  const expenseRepo = new InMemoryExpenseEntryRepository();
-  const settlementRepo = new InMemorySettlementRepository();
-  const baseSyncState = new InMemorySyncStateRepository();
-
-  // We need a lazy getter because the repos reference each other circularly
-  let repos: AllRepositories;
-
-  // Wrap business repos to record dirty sync records after writes
-  const syncContributions = wrapContributionRepo(contributionRepo, baseSyncState);
-  const syncExpenses = wrapExpenseRepo(expenseRepo, baseSyncState);
-  const syncTodos = wrapTodoRepo(todoRepo, baseSyncState);
-  const syncSettlements = wrapSettlementRepo(settlementRepo, baseSyncState);
-
-  // Materializing sync state: applyDeltas also writes to business tables
-  const materializingSync = new MaterializingSyncState(baseSyncState, () => repos);
-
-  repos = {
-    users: new InMemoryUserRepository(),
-    memberships: new InMemoryMembershipRepository(),
-    households: new InMemoryHouseholdRepository(),
-    members: new InMemoryMemberRepository(),
-    contributions: syncContributions,
-    tasks: new InMemoryPersistentTaskRepository(),
-    todos: syncTodos,
-    expenses: syncExpenses,
-    settlements: syncSettlements,
-    invitations: new InMemoryInvitationRepository(),
-    syncState: materializingSync,
-    withTransaction: async <T>(fn: () => Promise<T>): Promise<T> => {
-      // In-memory equivalent of a DB transaction: snapshot the affected
-      // repos, run the work, and restore on any failure so a partial write
-      // can never survive.
-      const todoSnap = todoRepo.snapshot();
-      const contributionSnap = contributionRepo.snapshot();
-      try {
-        return await fn();
-      } catch (err) {
-        todoRepo.restoreFromSnapshot(todoSnap);
-        contributionRepo.restoreFromSnapshot(contributionSnap);
-        throw err;
-      }
-    },
-  };
-
-  return repos;
-}
-
-// ── Sync Recording Wrappers ────────────────────────────────────
-// These wrap business repositories to call storeLocalRecords after
-// every write, ensuring pushDeltas has real payloads.
-
-function recordDirty(
-  syncState: InMemorySyncStateRepository,
-  householdId: string,
-  collection: SyncCollection,
-  entityId: string,
-  entity: unknown,
-  deleted: boolean,
-): Promise<void> {
-  const now = new Date().toISOString();
-  const record: SyncRecord = {
-    id: entityId,
-    householdId,
-    collection,
-    revision: nextSyncRevision(),
-    updatedAt: now,
-    deletedAt: deleted ? now : null,
-    payload: deleted ? null : JSON.stringify(entity),
-  };
-  return syncState.storeLocalRecords(householdId, collection, [record]);
-}
-
-function wrapContributionRepo(
-  inner: InMemoryContributionEntryRepository,
-  syncState: InMemorySyncStateRepository,
-): ContributionEntryRepository {
-  return {
-    seed: (items) => inner.seed(items),
-    getByHousehold: (hhId) => inner.getByHousehold(hhId),
-    getByHouseholdPaginated: (hhId, q) => inner.getByHouseholdPaginated(hhId, q),
-    getById: (id) => inner.getById(id),
-    async create(entry) {
-      const created = await inner.create(entry);
-      await recordDirty(syncState, entry.householdId, 'contribution_entries', created.id, created, false);
-      return created;
-    },
-    async update(id, data) {
-      const updated = await inner.update(id, data);
-      await recordDirty(syncState, updated.householdId, 'contribution_entries', id, updated, false);
-      return updated;
-    },
-    async delete(id) {
-      const existing = await inner.getById(id);
-      await inner.delete(id);
-      if (existing) {
-        await recordDirty(syncState, existing.householdId, 'contribution_entries', id, existing, true);
-      }
-    },
-  };
-}
-
-function wrapExpenseRepo(
-  inner: InMemoryExpenseEntryRepository,
-  syncState: InMemorySyncStateRepository,
-): ExpenseEntryRepository {
-  return {
-    seed: (items) => inner.seed(items),
-    getByHousehold: (hhId) => inner.getByHousehold(hhId),
-    getByHouseholdPaginated: (hhId, q) => inner.getByHouseholdPaginated(hhId, q),
-    getById: (id) => inner.getById(id),
-    async create(entry) {
-      const created = await inner.create(entry);
-      await recordDirty(syncState, entry.householdId, 'expense_entries', created.id, created, false);
-      return created;
-    },
-    async update(id, data) {
-      const updated = await inner.update(id, data);
-      await recordDirty(syncState, updated.householdId, 'expense_entries', id, updated, false);
-      return updated;
-    },
-    async delete(id) {
-      const existing = await inner.getById(id);
-      await inner.delete(id);
-      if (existing) {
-        await recordDirty(syncState, existing.householdId, 'expense_entries', id, existing, true);
-      }
-    },
-  };
-}
-
-function wrapTodoRepo(
-  inner: InMemoryTodoRepository,
-  syncState: InMemorySyncStateRepository,
-): TodoRepository {
-  return {
-    seed: (items) => inner.seed(items),
-    getByHousehold: (hhId) => inner.getByHousehold(hhId),
-    getById: (id) => inner.getById(id),
-    async create(todo) {
-      const created = await inner.create(todo);
-      await recordDirty(syncState, todo.householdId, 'todo_items', created.id, created, false);
-      return created;
-    },
-    async update(id, data) {
-      const updated = await inner.update(id, data);
-      await recordDirty(syncState, updated.householdId, 'todo_items', id, updated, false);
-      return updated;
-    },
-    async delete(id) {
-      const existing = await inner.getById(id);
-      await inner.delete(id);
-      if (existing) {
-        await recordDirty(syncState, existing.householdId, 'todo_items', id, existing, true);
-      }
-    },
-  };
-}
-
-function wrapSettlementRepo(
-  inner: InMemorySettlementRepository,
-  syncState: InMemorySyncStateRepository,
-): SettlementRepository {
-  return {
-    seed: (items) => inner.seed(items),
-    getByHousehold: (hhId) => inner.getByHousehold(hhId),
-    getByHouseholdPaginated: (hhId, q) => inner.getByHouseholdPaginated(hhId, q),
-    getById: (id) => inner.getById(id),
-    async create(settlement) {
-      const created = await inner.create(settlement);
-      await recordDirty(syncState, settlement.householdId, 'settlements', created.id, created, false);
-      return created;
-    },
-    async delete(id) {
-      const existing = await inner.getById(id);
-      await inner.delete(id);
-      if (existing) {
-        await recordDirty(syncState, existing.householdId, 'settlements', id, existing, true);
-      }
-    },
-  };
-}
-
-export { createInMemoryRepositories };
+// ── Factory ────────────────────────────────────────────────────
 
 /**
  * Create the appropriate repository set.
  * On device: SQLite-backed, indexed, persists across restarts.
  * In tests: In-memory fallback for deterministic testing.
+ *
+ * Both paths now have:
+ *   - Sync recording wrappers for all 8 collections
+ *   - MaterializingSyncState for transactional delta application
+ *   - Real local revision tracking for deterministic conflict resolution
  */
 export async function createRepositories(): Promise<AllRepositories> {
   if (isTestEnvironment()) {

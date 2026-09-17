@@ -29,6 +29,15 @@ export const SYNC_COLLECTIONS: SyncCollection[] = [
   'households',
 ];
 
+/**
+ * Push-specific cursor suffix. Push and pull use separate cursors so that
+ * pull-advancing the cursor doesn't hide local dirty records from push.
+ *
+ * Pull cursor: tracks the highest remote revision received (per collection).
+ * Push cursor: tracks the highest local revision pushed (per collection).
+ */
+const PUSH_CURSOR_SUFFIX = ':push';
+
 export interface PullResult {
   /** Total records applied across all collections. */
   totalApplied: number;
@@ -48,8 +57,13 @@ export interface PushResult {
 /**
  * Pull deltas for a single household.
  *
- * For each collection: read the local cursor, request remote changes
- * since that cursor, apply them locally, advance the cursor.
+ * For each collection: read the pull cursor, request remote changes
+ * since that revision, apply them locally, advance the pull cursor.
+ *
+ * Pull uses a SEPARATE cursor namespace ('__pull__:') so that it doesn't
+ * interfere with push. The plain cursor tracks what push has sent; the
+ * pull cursor tracks what pull has received. This prevents pull from
+ * hiding local dirty records that push hasn't sent yet.
  *
  * The `fetchRemoteDeltas` callback abstracts the network/provider layer.
  * It receives the collection and the last known revision and must return
@@ -65,7 +79,9 @@ export async function pullDeltas(
   let totalApplied = 0;
 
   for (const collection of SYNC_COLLECTIONS) {
-    const cursor = await syncState.getCursor(householdId, collection);
+    // Pull uses a separate cursor to avoid interfering with push
+    const pullCursorKey = `__pull__:${collection}` as unknown as SyncCollection;
+    const cursor = await syncState.getCursor(householdId, pullCursorKey);
     const sinceRevision = cursor?.lastRevision ?? 0;
 
     const remoteRecords = await fetchRemoteDeltas(collection, sinceRevision);
@@ -75,6 +91,15 @@ export async function pullDeltas(
       totalApplied += remoteRecords.length;
       perCollection[collection] = remoteRecords.length;
       changedCollections.push(collection);
+
+      // Advance pull cursor to the highest remote revision received
+      const maxRev = remoteRecords.reduce((max, r) => Math.max(max, r.revision), 0);
+      await syncState.setCursor({
+        householdId,
+        collection: pullCursorKey,
+        lastRevision: Math.max(maxRev, sinceRevision),
+        lastSyncedAt: new Date().toISOString(),
+      });
     } else {
       perCollection[collection] = 0;
     }
@@ -96,6 +121,10 @@ export async function pullDeltas(
  *
  * For each collection: get dirty records since last push revision,
  * send them to the remote, and advance the local cursor.
+ *
+ * Push uses the plain cursor (same as before V3-06 repair). Since
+ * applyDeltas no longer advances this cursor, push sees all local
+ * dirty records that haven't been pushed yet.
  *
  * The `pushRemoteRecords` callback abstracts the network/provider layer.
  * It receives the collection and the records to push, and should return

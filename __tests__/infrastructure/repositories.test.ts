@@ -676,15 +676,20 @@ describe('V3-02 RepositoryFactory selection', () => {
   test('in-memory fallback is selected in the test environment', async () => {
     const repos = await createRepositories();
     expect(repos.users).toBeInstanceOf(InMemoryUserRepository);
-    expect(repos.memberships).toBeInstanceOf(InMemoryMembershipRepository);
-    expect(repos.households).toBeInstanceOf(InMemoryHouseholdRepository);
-    expect(repos.members).toBeInstanceOf(InMemoryMemberRepository);
+    // memberships, households, members are now wrapped with SyncRecording wrappers
+    // that delegate to InMemory repos — verify they implement the interface
+    expect(typeof repos.memberships.getByUser).toBe('function');
+    expect(typeof repos.memberships.create).toBe('function');
+    expect(typeof repos.households.getById).toBe('function');
+    expect(typeof repos.households.create).toBe('function');
+    expect(typeof repos.members.getByHousehold).toBe('function');
+    expect(typeof repos.members.create).toBe('function');
     // contributions, todos, expenses, settlements are sync-recording wrappers
     // that delegate to InMemory repos — verify they implement the interface
     expect(typeof repos.contributions.create).toBe('function');
     expect(typeof repos.contributions.getById).toBe('function');
     expect(typeof repos.contributions.getByHousehold).toBe('function');
-    expect(repos.tasks).toBeInstanceOf(InMemoryPersistentTaskRepository);
+    expect(typeof repos.tasks.create).toBe('function');
     expect(typeof repos.todos.create).toBe('function');
     expect(typeof repos.todos.getById).toBe('function');
     expect(typeof repos.expenses.create).toBe('function');
