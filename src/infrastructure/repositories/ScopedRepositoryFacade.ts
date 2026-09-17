@@ -53,6 +53,37 @@ import {
   assertLedgerWrite,
   AuthorizationError,
 } from '../../domain/services/authorizationRules';
+import type { AllRepositories } from './RepositoryFactory';
+
+/**
+ * Create a set of repositories scoped to a specific user.
+ * Every read/write through these repositories verifies the caller's
+ * membership in the target household. Ledger mutations also go through
+ * assertLedgerWrite validation.
+ *
+ * This is the single entry point for wiring authorization into the app's
+ * data-access path. AppContext/use-cases must use repos from this function.
+ */
+export function createScopedRepositories(
+  repos: AllRepositories,
+  callerUserId: string,
+): AllRepositories {
+  return {
+    ...repos,
+    contributions: new ScopedContributionRepository(repos.contributions, callerUserId, repos.memberships),
+    expenses: new ScopedExpenseRepository(repos.expenses, callerUserId, repos.memberships),
+    todos: new ScopedTodoRepository(repos.todos, callerUserId, repos.memberships),
+    settlements: new ScopedSettlementRepository(repos.settlements, callerUserId, repos.memberships),
+    households: new ScopedHouseholdRepository(repos.households, callerUserId, repos.memberships),
+    members: new ScopedMemberRepository(repos.members, callerUserId, repos.memberships),
+    memberships: new ScopedMembershipRepository(repos.memberships, callerUserId),
+    // users, invitations, syncState, tasks stay unscoped:
+    //   - users: global, not household-scoped
+    //   - invitations: system-level lifecycle (create is OWNER-gated via memberships)
+    //   - syncState: internal sync machinery
+    //   - tasks: persistent task templates, read via household-scoped queries in repos.tasks
+  };
+}
 
 /**
  * Type guard to check if an entity has a householdId field.
@@ -474,8 +505,15 @@ export class ScopedMembershipRepository implements MembershipRepository {
   }
 
   async create(data: Omit<Membership, 'id' | 'joinedAt'>): Promise<Membership> {
-    // Only OWNER can create memberships (invitations)
+    // Only OWNER can create memberships (invitations).
+    // Exception: creating the very first membership in a household is allowed
+    // when the caller is the one being added — this covers the atomic
+    // household-creation flow (create household + first OWNER membership).
     const memberships = await this.inner.getByHousehold(data.householdId);
+    if (memberships.length === 0 && data.userId === this.callerUserId) {
+      // First membership in a new household: the caller is establishing themselves
+      return this.inner.create(data);
+    }
     requireRole(this.callerUserId, data.householdId, memberships, 'OWNER');
     return this.inner.create(data);
   }

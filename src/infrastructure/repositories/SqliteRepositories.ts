@@ -1169,6 +1169,7 @@ export class SqliteSyncStateRepository implements SyncStateRepository {
     householdId: string,
     collection: SyncCollection,
     records: SyncRecord[],
+    pullCursorToAdvance?: SyncCursor,
   ): Promise<SyncRecord[]> {
     const db = await getDatabase();
     const applied: SyncRecord[] = [];
@@ -1181,15 +1182,20 @@ export class SqliteSyncStateRepository implements SyncStateRepository {
       applied.push(record);
     }
 
-    // Advance cursor
-    const maxRev = records.reduce((max, r) => Math.max(max, r.revision), 0);
-    const prev = await this.getCursor(householdId, collection);
-    await this.setCursor({
-      householdId,
-      collection,
-      lastRevision: Math.max(maxRev, prev?.lastRevision ?? 0),
-      lastSyncedAt: new Date().toISOString(),
-    });
+    // V3-06 REPAIR: Advance cursor inside applyDeltas when provided
+    if (pullCursorToAdvance) {
+      await this.setCursor(pullCursorToAdvance);
+    } else {
+      // Fallback: advance cursor as before for backward compatibility
+      const maxRev = records.reduce((max, r) => Math.max(max, r.revision), 0);
+      const prev = await this.getCursor(householdId, collection);
+      await this.setCursor({
+        householdId,
+        collection,
+        lastRevision: Math.max(maxRev, prev?.lastRevision ?? 0),
+        lastSyncedAt: new Date().toISOString(),
+      });
+    }
 
     return applied;
   }

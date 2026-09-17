@@ -1,0 +1,105 @@
+{
+  "schemaVersion": 1,
+  "cycle": "35240808197",
+  "role": "builder",
+  "decision": "repair",
+  "summary": "The candidate makes real progress on all four V3-06 repair findings: pullDeltas now passes the pull cursor into applyDeltas so cursor advance happens inside the transactional callback; MaterializingSyncState only stores remote-winning records in the sync buffer so a local-wins conflict preserves the local dirty payload (with tests proving business entity stays LOCAL and pushDeltas sends the LOCAL payload); AppContext.signIn wraps repos with createScopedRepositories so the app path is scoped; and SQLite-backed sync tests were added. Trusted verification passed (exit 0: typecheck, 308 tests / 18 suites, Expo export, prebuild, gradle assembleDebug). Independent re-run confirms tsc clean and 308/308 tests green. However, six must-fix gaps remain: (1) the in-memory withTransaction still snapshots only contributionRepo + todoRepo + sync state — expenses, settlements, tasks, members, memberships and households are NOT snapshotted, and an independent failure-injection check proves an expense write survives a mid-transaction rollback (partial update); (2) the Finding #1 failure-injection test uses a hand-rolled replica of MaterializingSyncState instead of the production applyDeltas path and only asserts the contribution table, not 'no business table was partially updated'; (3) hostile tests still only construct the scoped facade manually — none exercise the AppContext/use-case path the app actually uses; (4) the AppContext scoping breaks the invitation-acceptance flow (join/[token].tsx reads the household and memberships before the user is a member, which now throws CROSS_TENANT) and signOut does not reset reposRef, so a second user signing in gets double-wrapped repos where the stale inner caller blocks legitimate access (verified: user B blocked from reading B's own group after user A signed out); (5) the SQLite sync tests use raw SqliteSyncStateRepository/SqliteContributionEntryRepository with manual business-table seeding and manually constructed dirty records — they never run the actual pipeline (MaterializingSyncState materialization + SyncRecording wrapper recording); (6) persistent tasks and invitations remain unscoped in the app path despite being household-scoped repos used by the screens. Decision: repair, preserving this coherent baseline.",
+  "checks": [
+    "Trusted verification log TRUSTED_35240808197.md reports exit code 0 (typecheck, jest 308 tests / 18 suites, expo export, prebuild, gradle assembleDebug BUILD SUCCESSFUL)",
+    "Independent re-run: npx tsc --noEmit clean; npx jest full suite 308/308 pass; the two modified suites (v3-06-repair-sync-authorization, repositories) 72/72 pass",
+    "Candidate diff reviewed (10 files, +861/-42 staged) against pristine accepted tree (clean at 3038be0)",
+    "pullDeltas now passes the pull cursor into applyDeltas; MaterializingSyncState.applyDeltas wraps materializeDeltas + buffer store + cursor advance in repos.withTransaction (syncEngine.ts, RepositoryFactory.ts)",
+    "Local-wins conflict: MaterializingSyncState pre-computes localWinsMap and only stores remote-winning records in the buffer; tests assert business entity stays LOCAL and getDirtyRecords/pushDeltas carry the LOCAL payload; remote-wins test asserts remote payload stored",
+    "AppContext.signIn wraps repos with createScopedRepositories(user.userId); demo fixture and loadHouseholds flows traced OK for a single user",
+    "Independent verification reproduced the join-flow regression: signed-in non-member resolving an invitation gets AuthorizationError CROSS_TENANT on repos.households.getById and on memberships.create (join/[token].tsx path)",
+    "Independent verification reproduced the withTransaction snapshot gap: a transaction writing an expense + contribution then throwing leaves the expense in the business table (expenses after rollback: 1) while the contribution is rolled back (0)",
+    "Independent verification reproduced the double-wrap stale-scoping bug: after user A signs out and user B signs in, B is blocked from reading B's own group (CROSS_TENANT from the inner stale caller)",
+    "SQLite sync tests reviewed: they use raw SqliteSyncStateRepository + SqliteContributionEntryRepository, manually seed the business table and manually construct dirty records; MaterializingSyncState and SyncRecording wrappers are not exercised",
+    "Hostile tests reviewed: all construct createScopedRepositories manually; no AppProvider/useApp test exists anywhere in the suite",
+    "createScopedRepositories leaves repos.tasks and repos.invitations unscoped although both are household-scoped repos used by the screens (add.tsx, todos.tsx, invite.tsx, join/[token].tsx)",
+    "No regression in V3-01..V3-05 suites (full suite green in trusted log and independent re-run)",
+    "Cost instrumentation budgets still present (sync-delta <= 8 reads / 8 writes / 2 network calls; tab-switch 0 network calls)"
+  ],
+  "findings": [
+    {
+      "path": "src/infrastructure/repositories/RepositoryFactory.ts (createInMemoryRepositories.withTransaction, lines 356-374)",
+      "problem": "The in-memory withTransaction still snapshots/restores only contributionRepo, todoRepo and the sync buffer/cursor state. Expenses, settlements, persistent tasks, members, memberships and households are NOT snapshotted, so a mid-transaction failure leaves partial writes in those business tables. The objective explicitly requires: 'Extend the in-memory withTransaction to snapshot/restore ALL affected repos (expenses, settlements, tasks, members, memberships, households, and the sync buffer/cursor state).' Only InMemoryContributionEntryRepository and InMemoryTodoRepository implement snapshot()/restoreFromSnapshot(); the other in-memory repos have no snapshot support.",
+      "evidence": "RepositoryFactory.ts lines 360-371: 'const contribSnap = contributionRepo.snapshot(); const todoSnap = todoRepo.snapshot(); const syncCursorsSnap = baseSyncState.snapshotCursors(); const syncRecordsSnap = baseSyncState.snapshotRecords(); ... contributionRepo.restoreFromSnapshot(contribSnap); todoRepo.restoreFromSnapshot(todoSnap); baseSyncState.restoreCursors(syncCursorsSnap); baseSyncState.restoreRecords(syncRecordsSnap);'. Independent verification: a transaction that writes an expense then a contribution then throws leaves the expense in the business table ('expenses after rollback: 1 (expected 0)') while the contribution is rolled back ('contributions after rollback: 0') — a partial update survives.",
+      "mustFix": true,
+      "requiredFix": "Add snapshot()/restoreFromSnapshot() to InMemoryExpenseEntryRepository, InMemorySettlementRepository, InMemoryPersistentTaskRepository, InMemoryMemberRepository, InMemoryMembershipRepository and InMemoryHouseholdRepository, and include all of them (plus the sync buffer/cursor state) in the in-memory withTransaction snapshot/restore so any throw rolls back every business table.",
+      "verification": "Add a failure-injection test that writes to multiple business tables (e.g. expense + contribution + settlement) inside withTransaction, throws, and asserts ALL business tables are unchanged after rollback."
+    },
+    {
+      "path": "__tests__/domain/v3-06-repair-sync-authorization.test.ts (Finding #1 describe block, lines 33-191)",
+      "problem": "The failure-injection test does not exercise the production data path and does not assert 'no business table was partially updated'. The test builds a hand-rolled replica of MaterializingSyncState inside the test (an anonymous class with its own applyDeltas implementation) instead of calling the production repos.syncState.applyDeltas, and it only asserts the contribution table (failedEntry null) plus cursor <= 1. The objective requires: 'Add a test that injects a real failing materialization (a repo error, not a silently-skipped malformed payload) and asserts the cursor did not advance AND no business table was partially updated.' The test would pass even if the production MaterializingSyncState.applyDeltas advanced the cursor outside the transaction or left partial writes in other tables.",
+      "evidence": "Test lines 88-110 construct 'new (class { inner = baseSyncState; getRepos = () => failingRepos; ... async applyDeltas(...) { ... return repos.withTransaction(async () => { await materializeDeltas(...); await baseSyncState.storeLocalRecords(...); if (pullCursorToAdvance) await baseSyncState.setCursor(...); }); } })()' — a replica, not the production applyDeltas. The assertions only check cursorAfterFail <= 1 and failedEntry null for the contribution table.",
+      "mustFix": true,
+      "requiredFix": "Inject the failing repo into the real repository set (e.g. replace repos.contributions/repos.expenses with a throwing implementation before calling repos.syncState.applyDeltas or pullDeltas on the production MaterializingSyncState) and assert the cursor did not advance AND every business table (contributions, expenses, settlements, todos, persistent_tasks, members, memberships, households) is unchanged.",
+      "verification": "The new test fails if the production applyDeltas is reverted to non-transactional behavior or if withTransaction snapshot coverage is incomplete."
+    },
+    {
+      "path": "__tests__/domain/v3-06-repair-sync-authorization.test.ts (Finding #3 describe block, lines 348-466)",
+      "problem": "Hostile tests still only construct the scoped facade manually (createScopedRepositories(repos, 'user-stranger')) and never exercise the path the app actually uses. The objective requires: 'Hostile tests must exercise the path the app uses (e.g. through AppContext or the use-case layer), not only a manually constructed facade.' No AppProvider/useApp test exists anywhere in the suite, so nothing proves the AppContext wiring actually rejects cross-tenant access or that the app path is scoped.",
+      "evidence": "grep for AppProvider/useApp in __tests__ returns no matches; all Finding #3 tests call createScopedRepositories directly with a manually chosen callerUserId.",
+      "mustFix": true,
+      "requiredFix": "Add hostile tests that drive the app-level data-access path: render AppProvider, sign in as a user, and assert cross-tenant reads/writes through the repos exposed by useApp() are rejected with CROSS_TENANT while legitimate member reads/writes succeed (or drive the use-case layer, e.g. completeTodoAtomic).",
+      "verification": "The hostile test fails if AppContext stops wrapping repos with the scoped facade."
+    },
+    {
+      "path": "src/features/app/AppContext.tsx (signIn lines 182-194, signOut lines 196-200) / app/join/[token].tsx (lines 60, 77, 110, 122)",
+      "problem": "The AppContext scoping wiring breaks the invitation-acceptance flow and stale-scopes across sign-in/sign-out. (a) join/[token].tsx reads repos.households.getById(invitation.householdId) and repos.memberships.getByHousehold(...) BEFORE the user is a member; with the scoped facade these throw AuthorizationError(CROSS_TENANT), so a signed-in user can never resolve or accept an invitation — a regression of the V3-06 'atomic acceptance (membership + member)' criterion. (b) signOut does not reset reposRef, so a second user signing in wraps the already-scoped repos again; the inner stale caller (previous user) blocks legitimate access.",
+      "evidence": "Independent verification: 'JOIN FLOW BREAKS: AuthorizationError CROSS_TENANT User joiner is not a member of household h-join' on repos.households.getById; 'MEMBERSHIP CREATE BLOCKED: AuthorizationError CROSS_TENANT' on memberships.create (the first-membership exception does not apply because the household already has the owner's membership); double-wrap check: 'B reads own group h-B BLOCKED (BUG): CROSS_TENANT' after A signed out and B signed in.",
+      "mustFix": true,
+      "requiredFix": "Allow the invitation-acceptance path to read the invited household and create the invitee's membership (e.g. invitation-token-scoped read + membership creation authorized by the invitation, or a dedicated join use-case), and re-scope from the raw repos on every sign-in (reset reposRef on signOut, or keep the raw repos and wrap exactly once per sign-in) so the callerUserId is always the current user.",
+      "verification": "Add a test: sign in as a non-member, resolve an invitation, complete atomic acceptance (membership + member) through the app path; and a test: sign in as A, sign out, sign in as B, then B can read B's own group and is blocked from A's group."
+    },
+    {
+      "path": "__tests__/infrastructure/repositories.test.ts (Finding #4 describe block, lines 546-700)",
+      "problem": "The SQLite sync tests do not run the actual sync pipeline. They use raw SqliteSyncStateRepository + SqliteContributionEntryRepository: test 1 calls the raw applyDeltas (buffer-only, no materialization) and then manually seeds the business table ('Materialize into business table manually'); test 2 manually constructs the dirty record and calls storeLocalRecords instead of going through the SyncRecording wrapper. The objective requires: 'Add a test that runs the sync pipeline (applyDeltas materialization + wrapper dirty recording + pushDeltas) against the SQLite-backed repositories ... proving remote delta -> business record readable and local write -> getDirtyRecords payload' (or a shared contract test on both implementations). The factory's SQLite wiring (MaterializingSyncState + SyncRecording wrappers around raw SQLite repos) is never exercised.",
+      "evidence": "Test lines 591-593: 'await contributions.seed([{ ...entity, id: 'c-sql-remote' }])' — manual materialization; lines 616-626 manually build dirtyRecord and call syncState.storeLocalRecords — the wrapper is bypassed.",
+      "mustFix": true,
+      "requiredFix": "Wire the SQLite repos exactly as the factory does in the test (raw SQLite repos + SyncRecording* wrappers + MaterializingSyncState, using the mocked expo-sqlite driver), or export a testable factory path, then prove: remote delta via applyDeltas -> business record readable; local write via the wrapped repo -> getDirtyRecords returns the payload; pushDeltas sends it.",
+      "verification": "The new test fails if the SQLite path drops the MaterializingSyncState/wrapper wiring."
+    },
+    {
+      "path": "src/infrastructure/repositories/ScopedRepositoryFacade.ts (createScopedRepositories, lines 67-86)",
+      "problem": "Persistent tasks and invitations remain unscoped in the app path. The objective requires 'every getByHousehold/create/update/delete verifies membership'. repos.tasks (PersistentTaskRepository: getByHousehold/create/delete) and repos.invitations (InvitationRepository: getByHousehold/create) are household-scoped repos used by the screens (app/(tabs)/add.tsx line 186, app/(tabs)/todos.tsx line 115, app/invite.tsx line 42, app/join/[token].tsx line 53), but createScopedRepositories leaves them unscoped, so a caller can read/write another household's persistent tasks or invitations without any membership check.",
+      "evidence": "createScopedRepositories comment lines 80-84 explicitly leaves 'tasks' and 'invitations' unscoped; no ScopedPersistentTaskRepository exists; PersistentTaskRepository has getByHousehold/create/delete (index.ts lines 93-98).",
+      "mustFix": true,
+      "requiredFix": "Add a ScopedPersistentTaskRepository (membership check on getByHousehold/create/delete) and scope invitation reads (getByHousehold requires membership; token-based getByLinkToken/getById remain invitation-authorized) or apply equivalent membership checks in the app path.",
+      "verification": "Add a hostile test: a non-member reading another household's persistent tasks through the app path is blocked with CROSS_TENANT."
+    },
+    {
+      "path": "src/infrastructure/repositories/RepositoryFactory.ts (MaterializingSyncState.applyDeltas, lines 244-261)",
+      "problem": "localWinsMap duplicates the conflict-resolution logic outside the transaction and reads business state before the transaction; for memberships getExistingEntityTimestamp returns '' so didRemoteWin compares the remote updatedAt against an empty timestamp. On equal revisions this can desync the buffer (remote stored) from the business table (local kept), so pushDeltas would push a record that does not match the local business state.",
+      "evidence": "getExistingEntityTimestamp returns '' for memberships (lines 201-204); didRemoteWin(localRev, '', remoteRev, remoteUpdatedAt) with equal revisions returns true (remote.updatedAt > '') while the materializer compares against the real joinedAt.",
+      "mustFix": false,
+      "requiredFix": "Compute the local-wins decision inside the transaction from the same state the materializer reads (or reuse the materializer's decision), and use the real entity timestamp for memberships.",
+      "verification": "Add a test: equal-revision membership conflict resolves identically in the business table and the sync buffer."
+    },
+    {
+      "path": "src/infrastructure/repositories/RepositoryFactory.ts (extractLocalRevisions, lines 148-165)",
+      "problem": "extractLocalRevisions performs a full sync-buffer scan per collection on every pull (getDirtyRecords(householdId, collection, 0) reads every record ever buffered, and the buffer is never pruned) to find a handful of incoming ids. A common action (pull) therefore costs O(total sync history) local reads, contrary to V3_BACKEND_FRUGAL section 4.",
+      "evidence": "RepositoryFactory.ts lines 158-163: 'const existingRecords = await inner.getDirtyRecords(householdId, collection, 0); for (const record of existingRecords) { if (incomingRecordIds.includes(record.id)) ... }'",
+      "mustFix": false,
+      "requiredFix": "Bound the lookup to the incoming ids (e.g. a getDirtyRecordsByIds(householdId, collection, ids) query or per-id lookup) so pull cost is proportional to the delta size, not the total history.",
+      "verification": "Add a cost test: pull with 3 incoming records performs a bounded number of local reads regardless of 50k buffered records."
+    },
+    {
+      "path": "src/infrastructure/sync/SyncMaterializer.ts (upsertWithConflictResolution members case, lines 273-281)",
+      "problem": "Members conflict resolution is incomplete: for an existing member the remote-wins branch is a no-op (no update path), deleteBusinessRecord for members is a no-op, and SyncRecordingMemberRepository has no update/delete, so remote member changes cannot be synced beyond creation.",
+      "evidence": "SyncMaterializer.ts lines 275-277: 'if (existing) { // Members don't have update — if remote wins, accept via seed (idempotent) }' — no action taken.",
+      "mustFix": false,
+      "requiredFix": "Give the member repository an update/delete path (or seed-based replace) and apply didRemoteWin for members so remote wins are materialized; record member tombstones on delete.",
+      "verification": "Add a materializer test: remote member update with higher revision is applied; member tombstone deletes the local member."
+    },
+    {
+      "path": "src/infrastructure/sync/SyncRecordingWrapper.ts (SyncRecordingMembershipRepository.delete, lines 353-357)",
+      "problem": "Membership delete hard-deletes without recording a dirty tombstone, so a membership removal on one device is never propagated to other devices, breaking multi-device sync of membership changes.",
+      "evidence": "SyncRecordingWrapper.ts lines 353-357: 'async delete(id) { await this.inner.delete(id); // Memberships are not soft-deleted in V3, hard delete is acceptable ... }' — no recordDirty call.",
+      "mustFix": false,
+      "requiredFix": "Record a tombstone (deletedAt) sync record on membership delete so other devices converge.",
+      "verification": "Add a test: membership delete produces a dirty tombstone that pushDeltas sends."
+    }
+  ]
+}

@@ -138,8 +138,21 @@ export interface InvitationRepository extends SeedableRepository<Invitation> {
 export interface SyncStateRepository {
   getCursor(householdId: string, collection: SyncCollection): Promise<SyncCursor | null>;
   setCursor(cursor: SyncCursor): Promise<void>;
-  /** Store remote delta records and advance the cursor (pull path). */
-  applyDeltas(householdId: string, collection: SyncCollection, records: SyncRecord[]): Promise<SyncRecord[]>;
+  /**
+   * Store remote delta records, materialize into business tables, and
+   * optionally advance the pull cursor — all inside a single transaction.
+   *
+   * @param pullCursorToAdvance - When provided, the cursor is advanced
+   *   atomically together with materialization so that a mid-transaction
+   *   failure rolls back BOTH the business writes AND the cursor, ensuring
+   *   the delta is re-fetched on the next pull.
+   */
+  applyDeltas(
+    householdId: string,
+    collection: SyncCollection,
+    records: SyncRecord[],
+    pullCursorToAdvance?: SyncCursor,
+  ): Promise<SyncRecord[]>;
   /** Store local dirty records WITHOUT advancing the cursor (push path). */
   storeLocalRecords(householdId: string, collection: SyncCollection, records: SyncRecord[]): Promise<void>;
   /** Get all local records for a collection since a given revision (for push). */

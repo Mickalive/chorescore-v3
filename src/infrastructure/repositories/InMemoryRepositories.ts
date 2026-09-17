@@ -558,6 +558,30 @@ export class InMemorySyncStateRepository implements SyncStateRepository {
   private cursors = new Map<string, SyncCursor>();
   private records = new Map<string, SyncRecord[]>();
 
+  // V3-06 REPAIR: Snapshot/restore for transactional rollback of sync state
+  snapshotCursors(): Map<string, SyncCursor> {
+    return new Map(
+      Array.from(this.cursors.entries()).map(([k, v]) => [k, { ...v }]),
+    );
+  }
+
+  restoreCursors(snap: Map<string, SyncCursor>): void {
+    this.cursors = new Map(snap);
+  }
+
+  snapshotRecords(): Map<string, SyncRecord[]> {
+    return new Map(
+      Array.from(this.records.entries()).map(([k, v]) => [
+        k,
+        v.map((r) => ({ ...r })),
+      ]),
+    );
+  }
+
+  restoreRecords(snap: Map<string, SyncRecord[]>): void {
+    this.records = new Map(snap);
+  }
+
   async getCursor(householdId: string, collection: SyncCollection): Promise<SyncCursor | null> {
     return this.cursors.get(`${householdId}:${collection}`) ?? null;
   }
@@ -570,6 +594,7 @@ export class InMemorySyncStateRepository implements SyncStateRepository {
     householdId: string,
     collection: SyncCollection,
     records: SyncRecord[],
+    pullCursorToAdvance?: SyncCursor,
   ): Promise<SyncRecord[]> {
     const key = `${householdId}:${collection}`;
     const existing = this.records.get(key) ?? [];
@@ -587,15 +612,23 @@ export class InMemorySyncStateRepository implements SyncStateRepository {
 
     this.records.set(key, existing);
 
-    // Advance cursor
-    const maxRev = records.reduce((max, r) => Math.max(max, r.revision), 0);
-    const prev = this.cursors.get(key);
-    this.cursors.set(key, {
-      householdId,
-      collection,
-      lastRevision: Math.max(maxRev, prev?.lastRevision ?? 0),
-      lastSyncedAt: new Date().toISOString(),
-    });
+    // V3-06 REPAIR: Advance cursor inside applyDeltas when provided
+    if (pullCursorToAdvance) {
+      this.cursors.set(
+        `${pullCursorToAdvance.householdId}:${pullCursorToAdvance.collection}`,
+        { ...pullCursorToAdvance },
+      );
+    } else {
+      // Fallback: advance cursor as before for backward compatibility
+      const maxRev = records.reduce((max, r) => Math.max(max, r.revision), 0);
+      const prev = this.cursors.get(key);
+      this.cursors.set(key, {
+        householdId,
+        collection,
+        lastRevision: Math.max(maxRev, prev?.lastRevision ?? 0),
+        lastSyncedAt: new Date().toISOString(),
+      });
+    }
 
     return applied;
   }

@@ -87,19 +87,22 @@ export async function pullDeltas(
     const remoteRecords = await fetchRemoteDeltas(collection, sinceRevision);
 
     if (remoteRecords.length > 0) {
-      await syncState.applyDeltas(householdId, collection, remoteRecords);
-      totalApplied += remoteRecords.length;
-      perCollection[collection] = remoteRecords.length;
-      changedCollections.push(collection);
-
-      // Advance pull cursor to the highest remote revision received
+      // V3-06 REPAIR: Advance the pull cursor INSIDE the same transaction
+      // as materialization. applyDeltas accepts an optional cursor that it
+      // advances atomically; on failure the cursor is NOT advanced so the
+      // delta is re-fetched on the next pull.
       const maxRev = remoteRecords.reduce((max, r) => Math.max(max, r.revision), 0);
-      await syncState.setCursor({
+      const pullCursor: SyncCursor = {
         householdId,
         collection: pullCursorKey,
         lastRevision: Math.max(maxRev, sinceRevision),
         lastSyncedAt: new Date().toISOString(),
-      });
+      };
+
+      await syncState.applyDeltas(householdId, collection, remoteRecords, pullCursor);
+      totalApplied += remoteRecords.length;
+      perCollection[collection] = remoteRecords.length;
+      changedCollections.push(collection);
     } else {
       perCollection[collection] = 0;
     }

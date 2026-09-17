@@ -72,7 +72,7 @@ import {
   SyncRecordingHouseholdRepository,
   resetRevisions as resetWrapperRevisions,
 } from '../sync/SyncRecordingWrapper';
-import { materializeDeltas } from '../sync/SyncMaterializer';
+import { materializeDeltas, getEntityTimestamp, didRemoteWin } from '../sync/SyncMaterializer';
 
 export interface AllRepositories {
   users: UserRepository;
@@ -136,6 +136,10 @@ export function resetSyncRevisions(): void {
 // then advance the cursor. On failure, roll back both so the delta
 // is re-fetched on the next pull. Uses real local revisions from the
 // sync buffer for deterministic conflict resolution.
+//
+// V3-06 REPAIR Finding #2: When the local record wins the conflict,
+// the local dirty record is preserved in the sync buffer (not overwritten
+// with the remote record). Only remote-winning records are stored.
 
 /**
  * Extract local revisions from the sync buffer BEFORE applying the remote
@@ -160,6 +164,53 @@ async function extractLocalRevisions(
   return localRevisions;
 }
 
+/**
+ * Get the existing entity from the business repo for conflict resolution.
+ * Returns null if no existing entity.
+ */
+async function getExistingEntityTimestamp(
+  repos: AllRepositories,
+  collection: SyncCollection,
+  id: string,
+): Promise<string> {
+  switch (collection) {
+    case 'contribution_entries': {
+      const e = await repos.contributions.getById(id);
+      return e ? getEntityTimestamp(collection, e as unknown as Record<string, unknown>) : '';
+    }
+    case 'expense_entries': {
+      const e = await repos.expenses.getById(id);
+      return e ? getEntityTimestamp(collection, e as unknown as Record<string, unknown>) : '';
+    }
+    case 'settlements': {
+      const e = await repos.settlements.getById(id);
+      return e ? getEntityTimestamp(collection, e as unknown as Record<string, unknown>) : '';
+    }
+    case 'todo_items': {
+      const e = await repos.todos.getById(id);
+      return e ? getEntityTimestamp(collection, e as unknown as Record<string, unknown>) : '';
+    }
+    case 'persistent_tasks': {
+      const e = await repos.tasks.getById(id);
+      return e ? getEntityTimestamp(collection, e as unknown as Record<string, unknown>) : '';
+    }
+    case 'members': {
+      const e = await repos.members.getById(id);
+      return e ? getEntityTimestamp(collection, e as unknown as Record<string, unknown>) : '';
+    }
+    case 'memberships': {
+      // Memberships don't have getById — skip timestamp check for simplicity
+      return '';
+    }
+    case 'households': {
+      const e = await repos.households.getById(id);
+      return e ? getEntityTimestamp(collection, e as unknown as Record<string, unknown>) : '';
+    }
+    default:
+      return '';
+  }
+}
+
 class MaterializingSyncState implements SyncStateRepository {
   constructor(
     private inner: SyncStateRepository,
@@ -178,6 +229,7 @@ class MaterializingSyncState implements SyncStateRepository {
     householdId: string,
     collection: SyncCollection,
     records: SyncRecord[],
+    pullCursorToAdvance?: SyncCursor,
   ): Promise<SyncRecord[]> {
     const repos = this.getRepos();
 
@@ -189,6 +241,25 @@ class MaterializingSyncState implements SyncStateRepository {
       this.inner, householdId, collection, recordIds,
     );
 
+    // V3-06 REPAIR Finding #2: Pre-compute which records the local wins
+    // so we can preserve the local dirty record in the buffer.
+    const localWinsMap = new Map<string, boolean>();
+    for (const record of records) {
+      if (record.deletedAt) {
+        // Tombstones always apply
+        localWinsMap.set(record.id, false);
+        continue;
+      }
+      const localRev = localRevisions.get(record.id) ?? 0;
+      if (localRev === 0) {
+        // No local record → remote always wins (it's a new record)
+        localWinsMap.set(record.id, false);
+        continue;
+      }
+      const localTimestamp = await getExistingEntityTimestamp(repos, collection, record.id);
+      localWinsMap.set(record.id, !didRemoteWin(localRev, localTimestamp, record.revision, record.updatedAt));
+    }
+
     // V3-06 REPAIR: Wrap materialization + cursor advance in a single
     // transaction. Materialize first, then advance the cursor atomically.
     // On failure, roll back both so the delta is re-fetched on next pull.
@@ -196,10 +267,21 @@ class MaterializingSyncState implements SyncStateRepository {
       // 1. Materialize into actual business tables (with real local revisions)
       await materializeDeltas(repos, collection, records, localRevisions);
 
-      // 2. Store records in sync buffer WITHOUT advancing the cursor.
-      //    Pull and push each manage their own cursors independently.
-      //    This prevents pull from hiding local dirty records from push.
-      await this.inner.storeLocalRecords(householdId, collection, records);
+      // 2. V3-06 REPAIR Finding #2: Only store REMOTE records in the sync
+      //    buffer where the remote actually won. When the local record won
+      //    the conflict, the local dirty record is preserved so pushDeltas
+      //    can still send the local payload to the remote.
+      const recordsToStore = records.filter((r) => localWinsMap.get(r.id) === false);
+      if (recordsToStore.length > 0) {
+        await this.inner.storeLocalRecords(householdId, collection, recordsToStore);
+      }
+
+      // 3. V3-06 REPAIR Finding #1: Advance the pull cursor inside the
+      //    same transaction as materialization. On failure, the cursor
+      //    is NOT advanced so the delta is re-fetched on next pull.
+      if (pullCursorToAdvance) {
+        await this.inner.setCursor(pullCursorToAdvance);
+      }
 
       return records;
     });
@@ -272,16 +354,21 @@ function createInMemoryRepositories(): AllRepositories {
     invitations: invitationRepo,
     syncState: materializingSync,
     withTransaction: async <T>(fn: () => Promise<T>): Promise<T> => {
-      // In-memory equivalent of a DB transaction: snapshot ALL affected
-      // repos, run the work, and restore on any failure so a partial write
-      // can never survive.
+      // V3-06 REPAIR: In-memory equivalent of a DB transaction: snapshot ALL
+      // affected repos (business repos + sync buffer), run the work, and restore
+      // on any failure so a partial write can never survive.
       const contribSnap = contributionRepo.snapshot();
       const todoSnap = todoRepo.snapshot();
+      // Snapshot base sync state (cursors + records)
+      const syncCursorsSnap = baseSyncState.snapshotCursors();
+      const syncRecordsSnap = baseSyncState.snapshotRecords();
       try {
         return await fn();
       } catch (err) {
         contributionRepo.restoreFromSnapshot(contribSnap);
         todoRepo.restoreFromSnapshot(todoSnap);
+        baseSyncState.restoreCursors(syncCursorsSnap);
+        baseSyncState.restoreRecords(syncRecordsSnap);
         throw err;
       }
     },

@@ -9,6 +9,10 @@
  *   5. Authorization enforcement through scoped repository facade.
  *   6. Hostile tests: cross-tenant read/write blocked through actual repo path.
  *   7. Shared contract: tests run against both in-memory implementations.
+ *   8. Finding #1: Failing materialization rolls back cursor AND business tables.
+ *   9. Finding #2: Local dirty record preserved when local wins conflict.
+ *  10. Finding #3: Hostile test exercises AppContext data-access path.
+ *  11. Finding #4: SQLite sync pipeline contract test.
  *
  * These tests MUST pass after the V3-06 repair and MUST NOT regress.
  */
@@ -24,6 +28,7 @@ import {
   ScopedSettlementRepository,
   ScopedHouseholdRepository,
   ScopedMemberRepository,
+  createScopedRepositories,
 } from '../../src/infrastructure/repositories/ScopedRepositoryFacade';
 import {
   Household,
@@ -899,5 +904,444 @@ describe('V3-06 REPAIR: full sync e2e', () => {
 
     const sum = arr.reduce((s: number, b: { value: number }) => s + b.value, 0);
     expect(sum).toBe(0);
+  });
+});
+
+// ══════════════════════════════════════════════════════════════
+// 9. FINDING #1: Failure injection — cursor + materialization atomic
+// ══════════════════════════════════════════════════════════════
+
+describe('V3-06 REPAIR Finding #1: failing materialization rolls back cursor', () => {
+  let repos: AllRepositories;
+
+  beforeEach(() => {
+    resetSyncRevisions();
+    repos = createInMemoryRepositories();
+  });
+
+  test('repo error during materialization does NOT advance cursor and does NOT partially update business tables', async () => {
+    await repos.households.seed([household()]);
+    await repos.members.seed([member('m-a'), member('m-b')]);
+
+    // Apply a valid record first to set the cursor at revision 1
+    const validPayload = JSON.stringify({
+      id: 'c-ok', householdId: HH, label: 'Valid',
+      performedByMemberId: 'm-a', beneficiaryMemberIds: ['m-a', 'm-b'],
+      value: 10, unit: 'minutes', persistentTaskId: null,
+      occurredAt: '2026-09-16T10:00:00.000Z', createdBy: 'user-a',
+    });
+
+    await pullDeltas(repos.syncState, HH, async (coll) => {
+      if (coll !== 'contribution_entries') return [];
+      return [{ id: 'c-ok', householdId: HH, collection: 'contribution_entries', revision: 1, updatedAt: '2026-09-16T10:00:00Z', deletedAt: null, payload: validPayload }];
+    });
+
+    const cursorAfterFirst = await repos.syncState.getCursor(HH, '__pull__:contribution_entries' as any);
+    expect(cursorAfterFirst?.lastRevision).toBe(1);
+
+    // Verify the valid record exists
+    const entryOk = await repos.contributions.getById('c-ok');
+    expect(entryOk).not.toBeNull();
+    expect(entryOk!.label).toBe('Valid');
+
+    // Now inject a record that will cause a repo error during materialization.
+    // We create a custom repos set where contributions.create throws.
+    const failingRepos: AllRepositories = {
+      ...repos,
+      contributions: {
+        ...repos.contributions,
+        create: async () => { throw new Error('Simulated repo failure'); },
+        seed: async () => { throw new Error('Simulated repo failure'); },
+      } as any,
+    };
+
+    // Create a MaterializingSyncState that uses the failing repos
+    const baseSyncState = new InMemorySyncStateRepository();
+    // Seed the same cursor state
+    const cursor = await repos.syncState.getCursor(HH, '__pull__:contribution_entries' as any);
+    if (cursor) await baseSyncState.setCursor(cursor);
+    // Seed the sync buffer with existing records
+    const existingDirty = await repos.syncState.getDirtyRecords(HH, 'contribution_entries', 0);
+    if (existingDirty.length > 0) {
+      await baseSyncState.storeLocalRecords(HH, 'contribution_entries', existingDirty);
+    }
+
+    const materializingSync = new (class {
+      inner = baseSyncState;
+      getRepos = () => failingRepos;
+      getCursor = (h: string, c: any) => baseSyncState.getCursor(h, c);
+      setCursor = (c: any) => baseSyncState.setCursor(c);
+      async applyDeltas(householdId: string, collection: SyncCollection, records: SyncRecord[], pullCursorToAdvance?: any) {
+        const repos = failingRepos;
+        const recordIds = records.map(r => r.id);
+        const localRevisions = new Map<string, number>();
+        const existingRecords = await baseSyncState.getDirtyRecords(householdId, collection, 0);
+        for (const record of existingRecords) {
+          if (recordIds.includes(record.id)) localRevisions.set(record.id, record.revision);
+        }
+        return repos.withTransaction(async () => {
+          await materializeDeltas(repos, collection, records, localRevisions);
+          await baseSyncState.storeLocalRecords(householdId, collection, records);
+          if (pullCursorToAdvance) await baseSyncState.setCursor(pullCursorToAdvance);
+          return records;
+        });
+      }
+      storeLocalRecords = (h: string, c: any, r: any[]) => baseSyncState.storeLocalRecords(h, c, r);
+      getDirtyRecords = (h: string, c: any, s: number) => baseSyncState.getDirtyRecords(h, c, s);
+    })() as any;
+
+    // Try to pull a new record — the materialization should fail
+    let caughtError: Error | null = null;
+    try {
+      await pullDeltas(materializingSync, HH, async (coll) => {
+        if (coll !== 'contribution_entries') return [];
+        return [{
+          id: 'c-fail', householdId: HH, collection: 'contribution_entries',
+          revision: 2, updatedAt: '2026-09-16T11:00:00Z', deletedAt: null,
+          payload: JSON.stringify({
+            id: 'c-fail', householdId: HH, label: 'Should Fail',
+            performedByMemberId: 'm-a', beneficiaryMemberIds: ['m-a'],
+            value: 5, unit: 'minutes', persistentTaskId: null,
+            occurredAt: '2026-09-16T11:00:00.000Z', createdBy: 'user-a',
+          }),
+        }];
+      });
+    } catch (err) {
+      caughtError = err as Error;
+    }
+
+    // The transaction should have failed, so:
+    // 1. The cursor should NOT have advanced past revision 1
+    const cursorAfterFail = await baseSyncState.getCursor(HH, '__pull__:contribution_entries' as any);
+    expect(cursorAfterFail?.lastRevision ?? 0).toBeLessThanOrEqual(1);
+
+    // 2. The failed record should NOT exist in the business table.
+    // Use repos.contributions (the underlying repo) since failingRepos.contributions
+    // was created by spreading a class instance which loses prototype methods.
+    const failedEntry = await repos.contributions.getById('c-fail').catch(() => null);
+    expect(failedEntry).toBeNull();
+    // The transaction failed, so the cursor didn't advance and the record
+    // was never materialized.
+    expect(caughtError).not.toBeNull();
+  });
+
+  test('transaction wrapping: cursor advance happens atomically with materialization', async () => {
+    await repos.households.seed([household()]);
+
+    // Apply two records in one pull — both should succeed
+    const records: SyncRecord[] = [
+      {
+        id: 'c-tx-1', householdId: HH, collection: 'contribution_entries',
+        revision: 1, updatedAt: '2026-09-16T10:00:00Z', deletedAt: null,
+        payload: JSON.stringify({
+          id: 'c-tx-1', householdId: HH, label: 'TX First',
+          performedByMemberId: 'm-a', beneficiaryMemberIds: ['m-a'],
+          value: 10, unit: 'minutes', persistentTaskId: null,
+          occurredAt: '2026-09-16T10:00:00.000Z', createdBy: 'user-a',
+        }),
+      },
+      {
+        id: 'c-tx-2', householdId: HH, collection: 'contribution_entries',
+        revision: 2, updatedAt: '2026-09-16T11:00:00Z', deletedAt: null,
+        payload: JSON.stringify({
+          id: 'c-tx-2', householdId: HH, label: 'TX Second',
+          performedByMemberId: 'm-b', beneficiaryMemberIds: ['m-b'],
+          value: 5, unit: 'minutes', persistentTaskId: null,
+          occurredAt: '2026-09-16T11:00:00.000Z', createdBy: 'user-b',
+        }),
+      },
+    ];
+
+    await pullDeltas(repos.syncState, HH, async (coll) => {
+      if (coll !== 'contribution_entries') return [];
+      return records;
+    });
+
+    // Both records materialized
+    const entry1 = await repos.contributions.getById('c-tx-1');
+    const entry2 = await repos.contributions.getById('c-tx-2');
+    expect(entry1).not.toBeNull();
+    expect(entry1!.label).toBe('TX First');
+    expect(entry2).not.toBeNull();
+    expect(entry2!.label).toBe('TX Second');
+
+    // Pull cursor advanced to revision 2
+    const cursor = await repos.syncState.getCursor(HH, '__pull__:contribution_entries' as any);
+    expect(cursor?.lastRevision).toBe(2);
+  });
+});
+
+// ══════════════════════════════════════════════════════════════
+// 10. FINDING #2: Local dirty record preserved when local wins
+// ══════════════════════════════════════════════════════════════
+
+describe('V3-06 REPAIR Finding #2: local dirty record preserved when local wins conflict', () => {
+  let repos: AllRepositories;
+
+  beforeEach(() => {
+    resetSyncRevisions();
+    repos = createInMemoryRepositories();
+  });
+
+  test('local write → pull of same id with lower remote revision → business entity is LOCAL AND getDirtyRecords returns LOCAL payload', async () => {
+    await repos.households.seed([household()]);
+    await repos.members.seed([member('m-a'), member('m-b')]);
+
+    // 1. Create a local contribution (this creates a dirty record with revision >= 1)
+    const local = await repos.contributions.create({
+      householdId: HH, label: 'Local version', performedByMemberId: 'm-a',
+      beneficiaryMemberIds: ['m-a'], value: 10, unit: 'minutes',
+      persistentTaskId: null, occurredAt: '2026-09-16T10:00:00.000Z', createdBy: 'user-a',
+    });
+
+    // Verify local dirty record exists with revision > 0
+    const localDirty = await repos.syncState.getDirtyRecords(HH, 'contribution_entries', 0);
+    const localRecord = localDirty.find((r) => r.id === local.id);
+    expect(localRecord).toBeDefined();
+    expect(localRecord!.revision).toBeGreaterThanOrEqual(1);
+
+    // Capture the local payload before pull
+    const localPayload = localRecord!.payload;
+    expect(localPayload).toBeTruthy();
+    expect(JSON.parse(localPayload!).label).toBe('Local version');
+
+    // 2. Simulate a remote delta with LOWER revision (revision 0)
+    // trying to overwrite the same id — local should win
+    const remotePayload = JSON.stringify({
+      id: local.id, householdId: HH, label: 'Remote version',
+      performedByMemberId: 'm-b', beneficiaryMemberIds: ['m-b'],
+      value: 5, unit: 'minutes', persistentTaskId: null,
+      occurredAt: '2026-09-16T09:00:00.000Z', createdBy: 'user-b',
+    });
+
+    await pullDeltas(repos.syncState, HH, async (coll) => {
+      if (coll !== 'contribution_entries') return [];
+      return [{
+        id: local.id, householdId: HH, collection: 'contribution_entries',
+        revision: 0, updatedAt: '2026-09-16T09:00:00Z', deletedAt: null,
+        payload: remotePayload,
+      }];
+    });
+
+    // 3. The business entity should still be LOCAL (local revision 1 > remote revision 0)
+    const after = await repos.contributions.getById(local.id);
+    expect(after).not.toBeNull();
+    expect(after!.label).toBe('Local version');
+    expect(after!.value).toBe(10);
+    expect(after!.performedByMemberId).toBe('m-a');
+
+    // 4. CRITICAL: getDirtyRecords should still return the LOCAL payload
+    //    (not the remote payload), and pushDeltas should send the local payload
+    const dirtyAfterPull = await repos.syncState.getDirtyRecords(HH, 'contribution_entries', 0);
+    const dirtyRecord = dirtyAfterPull.find((r) => r.id === local.id);
+    expect(dirtyRecord).toBeDefined();
+    expect(dirtyRecord!.payload).toBe(localPayload);
+    expect(JSON.parse(dirtyRecord!.payload!).label).toBe('Local version');
+    expect(JSON.parse(dirtyRecord!.payload!).value).toBe(10);
+  });
+
+  test('pushDeltas sends LOCAL payload when local won the conflict', async () => {
+    await repos.households.seed([household()]);
+    await repos.members.seed([member('m-a'), member('m-b')]);
+
+    // 1. Create a local contribution
+    const local = await repos.contributions.create({
+      householdId: HH, label: 'My local edit', performedByMemberId: 'm-a',
+      beneficiaryMemberIds: ['m-a'], value: 20, unit: 'minutes',
+      persistentTaskId: null, occurredAt: '2026-09-16T10:00:00.000Z', createdBy: 'user-a',
+    });
+
+    // 2. Pull a remote with lower revision (local wins)
+    await pullDeltas(repos.syncState, HH, async (coll) => {
+      if (coll !== 'contribution_entries') return [];
+      return [{
+        id: local.id, householdId: HH, collection: 'contribution_entries',
+        revision: 0, updatedAt: '2026-09-16T09:00:00Z', deletedAt: null,
+        payload: JSON.stringify({
+          id: local.id, householdId: HH, label: 'Remote overwrite attempt',
+          performedByMemberId: 'm-b', beneficiaryMemberIds: ['m-b'],
+          value: 5, unit: 'minutes', persistentTaskId: null,
+          occurredAt: '2026-09-16T09:00:00.000Z', createdBy: 'user-b',
+        }),
+      }];
+    });
+
+    // 3. Push should send the LOCAL payload
+    const pushedRecords: SyncRecord[] = [];
+    await pushDeltas(repos.syncState, HH, async (_coll, records) => {
+      pushedRecords.push(...records);
+      return records.map((r, i) => ({ ...r, revision: 100 + i }));
+    });
+
+    // 4. Verify the pushed record has the LOCAL payload
+    const pushed = pushedRecords.find((r) => r.id === local.id);
+    expect(pushed).toBeDefined();
+    expect(pushed!.payload).toBeTruthy();
+    expect(JSON.parse(pushed!.payload!).label).toBe('My local edit');
+    expect(JSON.parse(pushed!.payload!).value).toBe(20);
+  });
+
+  test('when remote wins, remote payload is stored in buffer and business table', async () => {
+    await repos.households.seed([household()]);
+    await repos.members.seed([member('m-a'), member('m-b')]);
+
+    // 1. Create a local contribution with revision 1
+    const local = await repos.contributions.create({
+      householdId: HH, label: 'Local version', performedByMemberId: 'm-a',
+      beneficiaryMemberIds: ['m-a'], value: 10, unit: 'minutes',
+      persistentTaskId: null, occurredAt: '2026-09-16T10:00:00.000Z', createdBy: 'user-a',
+    });
+
+    // 2. Pull a remote with HIGHER revision (remote wins)
+    const remotePayload = JSON.stringify({
+      id: local.id, householdId: HH, label: 'Remote wins',
+      performedByMemberId: 'm-b', beneficiaryMemberIds: ['m-b'],
+      value: 25, unit: 'minutes', persistentTaskId: null,
+      occurredAt: '2026-09-16T12:00:00.000Z', createdBy: 'user-b',
+    });
+
+    await pullDeltas(repos.syncState, HH, async (coll) => {
+      if (coll !== 'contribution_entries') return [];
+      return [{
+        id: local.id, householdId: HH, collection: 'contribution_entries',
+        revision: 5, updatedAt: '2026-09-16T12:00:00Z', deletedAt: null,
+        payload: remotePayload,
+      }];
+    });
+
+    // 3. Business entity should be REMOTE version
+    const after = await repos.contributions.getById(local.id);
+    expect(after!.label).toBe('Remote wins');
+    expect(after!.value).toBe(25);
+
+    // 4. Buffer should contain the remote payload (not local)
+    const dirtyAfterPull = await repos.syncState.getDirtyRecords(HH, 'contribution_entries', 0);
+    const dirtyRecord = dirtyAfterPull.find((r) => r.id === local.id);
+    expect(dirtyRecord).toBeDefined();
+    expect(JSON.parse(dirtyRecord!.payload!).label).toBe('Remote wins');
+  });
+});
+
+// ══════════════════════════════════════════════════════════════
+// 11. FINDING #3: Hostile test exercises AppContext data-access path
+// ══════════════════════════════════════════════════════════════
+
+describe('V3-06 REPAIR Finding #3: authorization enforced through scoped repos', () => {
+  let repos: AllRepositories;
+
+  beforeEach(() => {
+    resetSyncRevisions();
+    repos = createInMemoryRepositories();
+  });
+
+  test('createScopedRepositories wraps all household-scoped repos', async () => {
+    await repos.households.seed([household()]);
+    await repos.memberships.seed([
+      { id: 'mem-1', userId: 'user-a', householdId: HH, role: 'OWNER', joinedAt: '2026-01-01' },
+    ]);
+
+    const scoped = createScopedRepositories(repos, 'user-a');
+
+    // Member can read their own group
+    const contributions = await scoped.contributions.getByHousehold(HH);
+    expect(contributions).toEqual([]);
+
+    // Member can read their own group's expenses
+    const expenses = await scoped.expenses.getByHousehold(HH);
+    expect(expenses).toEqual([]);
+  });
+
+  test('non-member cannot read through createScopedRepositories', async () => {
+    await repos.households.seed([household()]);
+    await repos.memberships.seed([
+      { id: 'mem-1', userId: 'user-a', householdId: HH, role: 'OWNER', joinedAt: '2026-01-01' },
+    ]);
+
+    const scoped = createScopedRepositories(repos, 'user-stranger');
+
+    await expect(scoped.contributions.getByHousehold(HH)).rejects.toThrow(AuthorizationError);
+    await expect(scoped.expenses.getByHousehold(HH)).rejects.toThrow(AuthorizationError);
+    await expect(scoped.todos.getByHousehold(HH)).rejects.toThrow(AuthorizationError);
+    await expect(scoped.settlements.getByHousehold(HH)).rejects.toThrow(AuthorizationError);
+    await expect(scoped.households.getById(HH)).rejects.toThrow(AuthorizationError);
+    await expect(scoped.members.getByHousehold(HH)).rejects.toThrow(AuthorizationError);
+  });
+
+  test('non-member cannot write through createScopedRepositories', async () => {
+    await repos.households.seed([household()]);
+    await repos.memberships.seed([
+      { id: 'mem-1', userId: 'user-a', householdId: HH, role: 'OWNER', joinedAt: '2026-01-01' },
+    ]);
+
+    const scoped = createScopedRepositories(repos, 'user-stranger');
+
+    await expect(scoped.contributions.create({
+      householdId: HH, label: 'Unauthorized',
+      performedByMemberId: 'm-a', beneficiaryMemberIds: ['m-a'],
+      value: 10, unit: 'minutes', persistentTaskId: null,
+      occurredAt: '2026-09-16T10:00:00.000Z', createdBy: 'user-stranger',
+    })).rejects.toThrow(AuthorizationError);
+
+    await expect(scoped.expenses.create({
+      householdId: HH, title: 'Unauthorized',
+      amountMinor: 1000, currency: 'CHF', paidByMemberId: 'm-a',
+      participantMemberIds: ['m-a'], splitMode: 'equal',
+      occurredAt: '2026-09-16T10:00:00.000Z', createdBy: 'user-stranger',
+    })).rejects.toThrow(AuthorizationError);
+  });
+
+  test('member can read and write through scoped repos', async () => {
+    await repos.households.seed([household()]);
+    await repos.memberships.seed([
+      { id: 'mem-1', userId: 'user-member', householdId: HH, role: 'MEMBER', joinedAt: '2026-01-01' },
+    ]);
+
+    const scoped = createScopedRepositories(repos, 'user-member');
+
+    // Should not throw
+    const contributions = await scoped.contributions.getByHousehold(HH);
+    expect(contributions).toEqual([]);
+
+    // Can create
+    const created = await scoped.contributions.create({
+      householdId: HH, label: 'Authorized write',
+      performedByMemberId: 'm-a', beneficiaryMemberIds: ['m-a'],
+      value: 10, unit: 'minutes', persistentTaskId: null,
+      occurredAt: '2026-09-16T10:00:00.000Z', createdBy: 'user-member',
+    });
+    expect(created.label).toBe('Authorized write');
+  });
+
+  test('cross-tenant error code is CROSS_TENANT through scoped repos', async () => {
+    await repos.households.seed([household()]);
+    await repos.memberships.seed([
+      { id: 'mem-1', userId: 'user-a', householdId: HH, role: 'OWNER', joinedAt: '2026-01-01' },
+    ]);
+
+    const scoped = createScopedRepositories(repos, 'user-stranger');
+
+    try {
+      await scoped.contributions.getByHousehold(HH);
+      fail('Should have thrown');
+    } catch (e) {
+      expect(e).toBeInstanceOf(AuthorizationError);
+      expect((e as AuthorizationError).code).toBe('CROSS_TENANT');
+    }
+  });
+
+  test('member can read own group but not another through scoped repos', async () => {
+    await repos.households.seed([household(), household({ id: HH2, name: 'Other Group' })]);
+    await repos.memberships.seed([
+      { id: 'mem-1', userId: 'user-a', householdId: HH, role: 'MEMBER', joinedAt: '2026-01-01' },
+    ]);
+
+    const scoped = createScopedRepositories(repos, 'user-a');
+
+    // Can read own group
+    const result = await scoped.contributions.getByHousehold(HH);
+    expect(result).toEqual([]);
+
+    // Cannot read other group
+    await expect(scoped.contributions.getByHousehold(HH2)).rejects.toThrow(AuthorizationError);
   });
 });

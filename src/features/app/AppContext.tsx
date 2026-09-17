@@ -27,6 +27,7 @@ import {
   createInMemoryRepositories,
   AllRepositories,
 } from '../../infrastructure/repositories/RepositoryFactory';
+import { createScopedRepositories } from '../../infrastructure/repositories/ScopedRepositoryFacade';
 import { AuthUser } from '../../application/ports';
 import { Household, Member } from '../../domain/entities';
 import {
@@ -183,6 +184,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     await ensureReposReady();
     const user = await servicesRef.current.auth.signInWithEmail(email, _password);
     if (user) {
+      // V3-06 REPAIR: Wrap repos with scoped facades so every read/write
+      // verifies membership and ledger mutations go through validation.
+      reposRef.current = createScopedRepositories(reposRef.current, user.userId);
       await ensureDemoFixture(reposRef.current, user);
       setCurrentHouseholdId(DEMO_HOUSEHOLD_ID);
       await loadHouseholds(user.userId);

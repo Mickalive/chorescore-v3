@@ -132,7 +132,7 @@ function parsePayload(payload: string): Record<string, unknown> | null {
  * Get the timestamp used for conflict resolution from an entity.
  * Uses the most relevant timestamp field per collection type.
  */
-function getEntityTimestamp(collection: SyncCollection, entity: Record<string, unknown>): string {
+export function getEntityTimestamp(collection: SyncCollection, entity: Record<string, unknown>): string {
   switch (collection) {
     case 'contribution_entries':
       return (entity.occurredAt as string) ?? '';
@@ -176,7 +176,7 @@ function getEntityTimestamp(collection: SyncCollection, entity: Record<string, u
  * is always true. Instead, we compare the winner against the local candidate
  * by checking revision and updatedAt to decide whether the remote actually won.
  */
-function didRemoteWin(
+export function didRemoteWin(
   realLocalRevision: number,
   localTimestamp: string,
   remoteRevision: number,
