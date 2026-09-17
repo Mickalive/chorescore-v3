@@ -51,6 +51,7 @@ import {
   contributionLedgerIsZeroSum,
 } from '../../src/domain/calculations/contributionLedger';
 import {
+  allocateExpense,
   calculateFinancialBalancesByCurrency,
   financialBalancesToArray,
   suggestMoneyTransfers,
@@ -202,6 +203,22 @@ export default function BalancesScreen() {
   // Re-reads only the changed collection type and applies delta
   // to the materialized snapshot.  No full re-read, no full replay.
 
+  // ── Refs that track the current arrays synchronously ──────────
+  // handleDataChange is called from emitDataChange which may fire
+  // synchronously while React closures still hold the previous
+  // render's state. Refs are updated *after* the state setter in the
+  // same handler, so when the handler fires again (for the delta it
+  // triggers internally), the ref reflects the latest array. This is
+  // critical for settlement (which modifies snapshotRef directly) and
+  // for detecting removals/modifications across all types.
+
+  const contributionsRef = useRef(contributions);
+  contributionsRef.current = contributions;
+  const expensesRef = useRef(expenses);
+  expensesRef.current = expenses;
+  const settlementsRef = useRef(settlements);
+  settlementsRef.current = settlements;
+
   const handleDataChange = useCallback(async (
     type: 'contribution' | 'expense' | 'settlement' | 'household' | 'member',
     hhId: string,
@@ -214,56 +231,159 @@ export default function BalancesScreen() {
 
     switch (type) {
       case 'contribution': {
-        // Re-read only contributions, apply delta against current snapshot
         const newContribs = await repos.contributions.getByHousehold(currentHouseholdId);
-        const oldIds = new Set(contributions.map((c) => c.id));
-        const added = newContribs.filter((c) => !oldIds.has(c.id));
+        // Use refs to handle the case where this fires synchronously
+        // after a local write that updated state but hasn't re-rendered yet.
+        const oldIds = new Set(contributionsRef.current.map((c) => c.id));
+        const newIds = new Set(newContribs.map((c) => c.id));
 
         let snap = snapshotRef.current;
+
+        // Removed entries: in old but not in new
+        const removed = contributionsRef.current.filter((c) => !newIds.has(c.id));
+        for (const entry of removed) {
+          snap = {
+            ...snap,
+            contribution: deltaUpdateContribution(snap.contribution, entry, unit, memberIds, 'remove'),
+          };
+        }
+
+        // Added entries: in new but not in old
+        const added = newContribs.filter((c) => !oldIds.has(c.id));
         for (const entry of added) {
           snap = {
             ...snap,
             contribution: deltaUpdateContribution(snap.contribution, entry, unit, memberIds, 'add'),
           };
         }
+
+        // Modified entries: same id but different fields — remove old + apply new
+        const oldMap = new Map(contributionsRef.current.map((c) => [c.id, c]));
+        for (const newEntry of newContribs) {
+          const oldEntry = oldMap.get(newEntry.id);
+          if (!oldEntry) continue; // already handled as added
+          // Check if the entry changed (value, performedBy, or beneficiaries differ)
+          if (
+            oldEntry.value !== newEntry.value ||
+            oldEntry.performedByMemberId !== newEntry.performedByMemberId ||
+            JSON.stringify(oldEntry.beneficiaryMemberIds) !== JSON.stringify(newEntry.beneficiaryMemberIds)
+          ) {
+            snap = {
+              ...snap,
+              contribution: deltaUpdateContribution(snap.contribution, oldEntry, unit, memberIds, 'remove'),
+            };
+            snap = {
+              ...snap,
+              contribution: deltaUpdateContribution(snap.contribution, newEntry, unit, memberIds, 'add'),
+            };
+          }
+        }
+
         snapshotRef.current = snap;
         setContributions(newContribs);
         break;
       }
       case 'expense': {
         const newExps = await repos.expenses.getByHousehold(currentHouseholdId);
-        const oldIds = new Set(expenses.map((e) => e.id));
-        const added = newExps.filter((e) => !oldIds.has(e.id));
+        const oldIds = new Set(expensesRef.current.map((e) => e.id));
+        const newIds = new Set(newExps.map((e) => e.id));
 
         let snap = snapshotRef.current;
-        for (const entry of added) {
-          // Expense delta: paidBy gets +amountMinor, each participant share gets -amountMinor
-          // For equal split, each participant bears amountMinor/count
-          const count = entry.participantMemberIds.length;
-          const share = Math.floor(entry.amountMinor / count);
-          const remainder = entry.amountMinor % count;
 
-          let newMoney = new Map(snap.moneyByCurrency.get(entry.currency) ?? []);
-          newMoney.set(entry.paidByMemberId, (newMoney.get(entry.paidByMemberId) ?? 0) + entry.amountMinor);
-          for (let i = 0; i < entry.participantMemberIds.length; i++) {
-            const pid = entry.participantMemberIds[i];
-            const deduction = share + (i < remainder ? 1 : 0);
-            newMoney.set(pid, (newMoney.get(pid) ?? 0) - deduction);
+        // Removed entries: in old but not in new
+        const removed = expensesRef.current.filter((e) => !newIds.has(e.id));
+        for (const entry of removed) {
+          const shares = allocateExpense(entry);
+          let currBal = new Map(snap.moneyByCurrency.get(entry.currency) ?? []);
+          currBal.set(entry.paidByMemberId, (currBal.get(entry.paidByMemberId) ?? 0) - entry.amountMinor);
+          for (const share of shares) {
+            currBal.set(share.memberId, (currBal.get(share.memberId) ?? 0) + share.amountMinor);
           }
           const newMoneyByCurrency = new Map(snap.moneyByCurrency);
-          newMoneyByCurrency.set(entry.currency, newMoney);
+          newMoneyByCurrency.set(entry.currency, currBal);
           snap = { ...snap, moneyByCurrency: newMoneyByCurrency };
         }
+
+        // Added entries: in new but not in old — use allocateExpense for splitMode-aware allocation
+        const added = newExps.filter((e) => !oldIds.has(e.id));
+        for (const entry of added) {
+          const shares = allocateExpense(entry);
+          let currBal = new Map(snap.moneyByCurrency.get(entry.currency) ?? []);
+          currBal.set(entry.paidByMemberId, (currBal.get(entry.paidByMemberId) ?? 0) + entry.amountMinor);
+          for (const share of shares) {
+            currBal.set(share.memberId, (currBal.get(share.memberId) ?? 0) - share.amountMinor);
+          }
+          const newMoneyByCurrency = new Map(snap.moneyByCurrency);
+          newMoneyByCurrency.set(entry.currency, currBal);
+          snap = { ...snap, moneyByCurrency: newMoneyByCurrency };
+        }
+
+        // Modified entries: same id but different fields — remove old + apply new
+        const oldExpMap = new Map(expensesRef.current.map((e) => [e.id, e]));
+        for (const newEntry of newExps) {
+          const oldEntry = oldExpMap.get(newEntry.id);
+          if (!oldEntry) continue;
+          if (
+            oldEntry.amountMinor !== newEntry.amountMinor ||
+            oldEntry.paidByMemberId !== newEntry.paidByMemberId ||
+            JSON.stringify(oldEntry.participantMemberIds) !== JSON.stringify(newEntry.participantMemberIds) ||
+            oldEntry.splitMode !== newEntry.splitMode ||
+            JSON.stringify(oldEntry.customShares) !== JSON.stringify(newEntry.customShares)
+          ) {
+            // Remove old effect
+            const oldShares = allocateExpense(oldEntry);
+            let currBal = new Map(snap.moneyByCurrency.get(oldEntry.currency) ?? []);
+            currBal.set(oldEntry.paidByMemberId, (currBal.get(oldEntry.paidByMemberId) ?? 0) - oldEntry.amountMinor);
+            for (const share of oldShares) {
+              currBal.set(share.memberId, (currBal.get(share.memberId) ?? 0) + share.amountMinor);
+            }
+            const tempByCurrency = new Map(snap.moneyByCurrency);
+            tempByCurrency.set(oldEntry.currency, currBal);
+            snap = { ...snap, moneyByCurrency: tempByCurrency };
+
+            // Apply new effect
+            const newShares = allocateExpense(newEntry);
+            let currBal2 = new Map(snap.moneyByCurrency.get(newEntry.currency) ?? []);
+            currBal2.set(newEntry.paidByMemberId, (currBal2.get(newEntry.paidByMemberId) ?? 0) + newEntry.amountMinor);
+            for (const share of newShares) {
+              currBal2.set(share.memberId, (currBal2.get(share.memberId) ?? 0) - share.amountMinor);
+            }
+            const tempByCurrency2 = new Map(snap.moneyByCurrency);
+            tempByCurrency2.set(newEntry.currency, currBal2);
+            snap = { ...snap, moneyByCurrency: tempByCurrency2 };
+          }
+        }
+
         snapshotRef.current = snap;
         setExpenses(newExps);
         break;
       }
       case 'settlement': {
         const newSett = await repos.settlements.getByHousehold(currentHouseholdId);
-        const oldIds = new Set(settlements.map((s) => s.id));
-        const added = newSett.filter((s) => !oldIds.has(s.id));
+        // Use the ref because handleCompenserConfirm already updated state
+        // and this signal may fire synchronously after the local write.
+        const oldIds = new Set(settlementsRef.current.map((s) => s.id));
+        const newIds = new Set(newSett.map((s) => s.id));
 
         let snap = snapshotRef.current;
+
+        // Removed entries
+        const removed = settlementsRef.current.filter((s) => !newIds.has(s.id));
+        for (const s of removed) {
+          snap = {
+            contribution: deltaUpdateContributionFromSettlement(snap.contribution, s, unit, 'remove'),
+            moneyByCurrency: (() => {
+              const currencyMap = new Map(snap.moneyByCurrency);
+              const currBalances = new Map(currencyMap.get(s.currency) ?? []);
+              currencyMap.set(s.currency, deltaUpdateMoneyFromSettlement(currBalances, s, 'remove'));
+              return currencyMap;
+            })(),
+          };
+        }
+
+        // Added entries (only from OTHER sources — the Balances screen
+        // applies its own settlements directly in handleCompenserConfirm)
+        const added = newSett.filter((s) => !oldIds.has(s.id));
         for (const s of added) {
           snap = {
             contribution: deltaUpdateContributionFromSettlement(snap.contribution, s, unit, 'add'),
@@ -275,6 +395,7 @@ export default function BalancesScreen() {
             })(),
           };
         }
+
         snapshotRef.current = snap;
         setSettlements(newSett);
         break;
@@ -290,7 +411,7 @@ export default function BalancesScreen() {
         break;
       }
     }
-  }, [currentHouseholdId, household, members, contributions, expenses, settlements, repos]);
+  }, [currentHouseholdId, household, members, repos]);
 
   // Subscribe to data-change signals
   useEffect(() => {
@@ -510,8 +631,13 @@ export default function BalancesScreen() {
       };
     }
 
-    // Notify other screens (e.g. Ajouter, Todos) that a settlement was created
-    emitDataChange('settlement', currentHouseholdId);
+    // NOTE: We do NOT emit 'settlement' here. The screen already applied
+    // the delta to snapshotRef and updated local state (setSettlements).
+    // Emitting would cause handleDataChange('settlement') to re-read the
+    // repo, compute added against the stale `settlements` closure (which
+    // does NOT include the just-created entity because React state updates
+    // do not mutate the current render), and apply the delta a second time.
+    // Other screens (Ajouter, Todos) do not consume settlement signals.
 
     // Close modal and reset
     setShowCompenser(false);

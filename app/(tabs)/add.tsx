@@ -546,6 +546,16 @@ export default function AddScreen() {
       }
 
       setEditingEntry(null);
+
+      // Notify other screens (e.g. Balances) of the edit
+      if (currentHouseholdId) {
+        if (editingEntry.type === 'cross-ledger-settlement') {
+          emitDataChange('settlement', currentHouseholdId);
+        } else {
+          emitDataChange(editingEntry.type, currentHouseholdId);
+        }
+      }
+
       cancelEdit();
     } catch {
       Alert.alert('Erreur', 'Impossible de modifier cette entree.');
@@ -572,6 +582,14 @@ export default function AddScreen() {
               setHistoryExpenses((prev) =>
                 prev.filter((e) => e.id !== entry.entry.id)
               );
+            }
+            // Notify other screens (e.g. Balances) of the deletion
+            if (currentHouseholdId) {
+              if (entry.type === 'cross-ledger-settlement') {
+                emitDataChange('settlement', currentHouseholdId);
+              } else {
+                emitDataChange(entry.type, currentHouseholdId);
+              }
             }
           } catch {
             Alert.alert('Erreur', 'Impossible de supprimer cette entree.');
