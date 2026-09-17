@@ -1,0 +1,67 @@
+{
+  "schemaVersion": 1,
+  "cycle": "35268791572",
+  "role": "builder",
+  "decision": "repair",
+  "summary": "Trusted verification failed (exit 2); candidate retained as WIP for repair. V3-08 candidate requires repair. Trusted verification FAILED with exit code 2: npm run typecheck reports TS1005/TS1002/TS1128 at __tests__/domain/cost-gates-v3-08.test.ts lines 205-260 caused by an unescaped apostrophe in the describe() string ('Tab switching doesn't reload same objects'). A nonzero trusted verification exit code is a mandatory mustFix and the decision MUST NOT be accept. Independent verification in an isolated copy additionally found: (1) after fixing only the syntax error, tsc still fails — src/ui/accessibility.ts line 14 imports '../design-system/theme' which resolves to src/design-system/theme (nonexistent); correct path is './design-system/theme' (TS2307 + cascading TS18046 at lines 204/219); (2) after fixing both typecheck issues, jest runs 425 tests with exactly 1 failure — Gate 10 'no chrono, premium, or warm V2 elements in design system' asserts theme.ts does not contain 'terracotta', but src/ui/design-system/theme.ts line 10 comment says 'No warm terracotta, no self-care, no gamification' (self-contradictory test); (3) the golden-path test title and release notes claim 'compensate' coverage but neither new test file ever creates a CrossLedgerSettlement — the V3-08 objective explicitly requires E2E scenarios covering compensation. The candidate delta is coherent and fixable (2 one-line fixes, 1 test fix, 1 test enhancement), so it is retained as WIP baseline for repair. All other V3-08 cost gates (50k entries bounded reads, tab-switch 0 reloads, 3-delta sync, bounded writes, classification cache, privacy gate, offline fallback, E2E golden path minus compensation) pass once the typecheck issues are fixed; no regression on V3-01..V3-07 suites (all 19 pristine suites pass). Android APK/install/launch and iOS build verification remain owned by the trusted finalizer per ROADMAP V3-08 and are marked pending in the release notes.",
+  "checks": [
+    "Trusted verification log reports/audits/TRUSTED_35268791572.md: exit code 2 — npm run typecheck fails with TS1005/TS1002/TS1128 at __tests__/domain/cost-gates-v3-08.test.ts lines 205-260; tests never ran",
+    "Root cause of trusted failure confirmed: line 205 describe('V3-08 Gate 2: Tab switching doesn't reload same objects', ...) — unescaped apostrophe terminates the single-quoted string",
+    "Candidate delta vs pristine accepted tree (/home/runner/work/_temp/accepted-pristine at d3595d5, clean): exactly 6 files — __tests__/domain/cost-gates-v3-08.test.ts (new), __tests__/domain/v3-08-e2e-golden-path.test.ts (new), docs/V3-08-RELEASE-NOTES.md (new), src/ui/accessibility.ts (new), src/ui/components/Button.tsx (+13), src/ui/components/Text.tsx (+22/-1); no other product file touched",
+    "Independent check in isolated copy (git archive + candidate files, node_modules symlinked): after fixing ONLY the syntax error, npx tsc --noEmit still exits 2 — src/ui/accessibility.ts(14,36) TS2307 Cannot find module '../design-system/theme' plus cascading TS18046 at lines 204/219",
+    "Independent check: after additionally fixing the import to './design-system/theme', npx tsc --noEmit exits 0 (no TypeScript errors)",
+    "Independent check: full jest run in the fixed copy — 21 suites, 425 tests, 424 passed / 1 failed; the single failure is Gate 10 'no chrono, premium, or warm V2 elements in design system' (cost-gates-v3-08.test.ts:857) asserting theme.ts does not contain 'terracotta' while src/ui/design-system/theme.ts line 10 comment says 'No warm terracotta, no self-care, no gamification'",
+    "Independent check: all 19 pristine suites (V3-01..V3-07: ledgers, contribution-expense-crud, todo-completion, activity-log, property-invariants, materialized-balances, merged-pagination, cost-gates-v3-03/04/05, pagination, ports-adapters, repositories, design-system, v3-06 sync/invitations, v3-07 analytics-privacy, validation-preconditions-periods) pass in the fixed copy — no regression",
+    "Independent check: v3-08-e2e-golden-path.test.ts passes 13/13 (sign-in, members, contribution, expense, combined balances, atomic todo completion, edit contribution, delete expense, activity log, authorization, invitation create/accept/join, sync pull 3 deltas + push, auth adapter)",
+    "Independent check: cost-gates Gate 1 (50k entries → 4 reads), Gate 2 (tab switch → 0 reads), Gate 3 (3 deltas → 1 read), Gate 4 (1 write per create), Gate 5 (10k identical labels → 1 classification), Gate 6 (privacy gate approve/reject), Gate 7 (COST_BUDGETS enforced), Gate 8 (offline in-memory fallback) all pass in the fixed copy",
+    "API surface verification: all modules referenced by the new tests exist with matching signatures — costInstrumentation (COST_BUDGETS, costTracker), ClassificationCache (classify/classifyBatch/size), TaskTaxonomyService (getValidCategories), PrivacyReleaseGate (validate → approved/violations with free_text_detected), ResearchDataProduct, materializedBalances (createBalanceSnapshot/deltaUpdateContribution/computePeriodContributionBalances), activityLog (paginateActivityLog), completeTodoAtomic, syncEngine (pullDeltas/pushDeltas/SYNC_COLLECTIONS), authorizationRules (requireHouseholdMembership/requireRole), LocalAuthAdapter, demoFixture (ensureDemoFixture/loadHouseholdsForUser/DEMO_*), RepositoryFactory (createInMemoryRepositories/AllRepositories), InMemoryRepositories (seed/create/update/delete/getByHousehold/getById/getByLinkToken/updateStatus/getByUserAndHousehold)",
+    "Theme token verification: colors.text #171719, colors.textOnPrimary #FFFFFF, colors.textSecondary #68686D, typography.caption 13 / body 16 / sectionTitle 18 satisfy the Gate 10 contrast/size assertions",
+    "No prohibited patterns in the delta: no chrono, premium, paywall, subscription, entitlement, upsell, warm V2 design tokens, or provider coupling introduced",
+    "Android/iOS: android/ prebuild directory exists; no APK artifact in repo; release notes explicitly mark 'Android export/prebuild/release APK', 'installation lancement sans Metro' and iOS build verification as pending trusted verification — consistent with ROADMAP V3-08 where the trusted finalizer alone marks V3-08 complete after APK build/install/launch/golden path and iOS readiness checks",
+    "Coverage gap: neither new test file creates a CrossLedgerSettlement (grep: only getByHousehold calls with empty settlement arrays); Gate 9 title and release notes claim 'compensate' in the golden path but the body never performs a settlement — objective explicitly requires E2E scenarios covering compensation",
+    "trusted verification: FAIL exit code 2; see reports/audits/TRUSTED_35268791572.md",
+    "trusted verification: FAIL exit 2; see reports/audits/TRUSTED_35268791572.md"
+  ],
+  "findings": [
+    {
+      "path": "__tests__/domain/cost-gates-v3-08.test.ts (line 205)",
+      "problem": "Unescaped apostrophe in the describe() title 'V3-08 Gate 2: Tab switching doesn't reload same objects' terminates the single-quoted string, producing TS1005/TS1002/TS1128 errors at lines 205-260. This is the root cause of the trusted verification failure (exit code 2), which is a mandatory mustFix — the decision MUST NOT be accept.",
+      "evidence": "reports/audits/TRUSTED_35268791572.md: 'Trusted verification exit code: 2' with TS1005/TS1002/TS1128 at cost-gates-v3-08.test.ts(205,45)-(206,3) and (259,5)-(260,2). Line 205 read directly: describe('V3-08 Gate 2: Tab switching doesn't reload same objects', () => {. Note line 266 in the same file correctly escapes: doesn\\'t.",
+      "mustFix": true,
+      "requiredFix": "Escape the apostrophe (doesn\\'t) or reword the title (e.g. 'does not reload') so the string literal is valid.",
+      "verification": "npm run typecheck exits 0; trusted verification exit code 0."
+    },
+    {
+      "path": "src/ui/accessibility.ts (line 14)",
+      "problem": "Wrong relative import path: '../design-system/theme' resolves to src/design-system/theme which does not exist. The file lives at src/ui/accessibility.ts, so the theme module is at './design-system/theme'. This produces TS2307 plus cascading TS18046 errors at lines 204/219, so typecheck still fails even after the syntax error is fixed.",
+      "evidence": "Independent isolated-copy check: with only the syntax error fixed, npx tsc --noEmit exits 2 with 'src/ui/accessibility.ts(14,36): error TS2307: Cannot find module '../design-system/theme'' and 'TS18046: 'val' is of type 'unknown'' at 204,56 and 219,19/46. After changing the import to './design-system/theme', tsc exits 0.",
+      "mustFix": true,
+      "requiredFix": "Change the import on line 14 to: import { typography, colors } from './design-system/theme';",
+      "verification": "npx tsc --noEmit exits 0."
+    },
+    {
+      "path": "__tests__/domain/cost-gates-v3-08.test.ts (Gate 10, 'no chrono, premium, or warm V2 elements in design system')",
+      "problem": "Self-contradictory test: it asserts the theme.ts file content does not contain the word 'terracotta', but src/ui/design-system/theme.ts line 10 documentation comment says 'No warm terracotta, no self-care, no gamification'. The test fails at runtime once the typecheck issues are fixed, so the suite is not green.",
+      "evidence": "Independent isolated-copy check: full jest run after fixing the two typecheck issues — 21 suites, 425 tests, 424 passed / 1 failed; the failure is expect(content).not.toContain('terracotta') at cost-gates-v3-08.test.ts:857, with the theme.ts comment content shown in the failure output.",
+      "mustFix": true,
+      "requiredFix": "Make the test scan for actual design-token usage rather than any occurrence of the word (e.g. assert no 'terracotta:' color key / no warm hex values in the colors object, or read the parsed theme instead of the raw file), or reword the theme.ts comment so the assertion is meaningful. The design system itself is V3-clean (graphite/off-white/metallic, forest green/wine red only) and must stay so.",
+      "verification": "npm run test exits 0 with the Gate 10 assertions still proving the V3 design system contains no warm V2 tokens."
+    },
+    {
+      "path": "__tests__/domain/cost-gates-v3-08.test.ts (Gate 9) and __tests__/domain/v3-08-e2e-golden-path.test.ts",
+      "problem": "The golden-path E2E scenario claims 'compensate' coverage (Gate 9 title: 'golden path: create group → add members → contribute → expense → balance → compensate → todo → edit → delete'; release notes claim the golden path covers compensation), but neither new test file ever creates a CrossLedgerSettlement. The V3-08 objective explicitly requires E2E scenarios covering 'compensation'. This is a weak/misleading test claim.",
+      "evidence": "grep of both new test files: the only settlement references are repos.settlements.getByHousehold(...) calls whose results are passed as empty arrays to balance calculations; there is no repos.settlements.create(...) call anywhere. Gate 9 body (lines 677-809) performs create group → members → contribution → expense → balances → todo → complete → edit → delete, with no settlement step.",
+      "mustFix": true,
+      "requiredFix": "Add a real compensation step to the golden path test: create a CrossLedgerSettlement via repos.settlements.create with a rateSnapshot (contributionValue/contributionUnit/moneyAmountMinor/currency), then assert both ledgers remain zero-sum and the settlement's effect on contribution and money balances is applied (per materializedBalances deltaUpdateContributionFromSettlement / deltaUpdateMoneyFromSettlement semantics).",
+      "verification": "Golden path test passes with the settlement step and asserts contributionLedgerIsZeroSum and financialLedgerIsZeroSum after the settlement."
+    },
+    {
+      "path": ".",
+      "problem": "Trusted product verification failed",
+      "evidence": "Authoritative verification log: reports/audits/TRUSTED_35268791572.md (exit 2)",
+      "mustFix": true,
+      "requiredFix": "Resolve the concrete failing trusted check without discarding already-correct candidate work, then rerun the full gate.",
+      "verification": "Full trusted V3 verification must return exit code 0."
+    }
+  ]
+}

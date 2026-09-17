@@ -2,6 +2,7 @@
  * ChoreScore V3 — Button Component
  *
  * Minimal, precise, metallic. No decorative gradients.
+ * WCAG-compliant with proper accessibilityRole, label, and state.
  */
 
 import React from 'react';
@@ -22,6 +23,10 @@ interface ButtonProps {
   disabled?: boolean;
   loading?: boolean;
   style?: ViewStyle;
+  /** Accessibility label for screen readers. Falls back to `title`. */
+  accessibilityLabel?: string;
+  /** Optional hint for screen readers (e.g. "Double tap to submit") */
+  accessibilityHint?: string;
 }
 
 export function Button({
@@ -32,6 +37,8 @@ export function Button({
   disabled = false,
   loading = false,
   style,
+  accessibilityLabel,
+  accessibilityHint,
 }: ButtonProps) {
   return (
     <TouchableOpacity
@@ -44,6 +51,10 @@ export function Button({
         disabled && styles.disabled,
         style,
       ]}
+      accessibilityRole="button"
+      accessibilityLabel={accessibilityLabel ?? title}
+      accessibilityHint={accessibilityHint}
+      accessibilityState={{ disabled, busy: loading }}
       onPress={onPress}
       disabled={disabled || loading}
       activeOpacity={0.7}
@@ -52,6 +63,7 @@ export function Button({
         <ActivityIndicator
           color={variant === 'primary' ? colors.textOnPrimary : colors.text}
           size="small"
+          accessibilityLabel="Chargement"
         />
       ) : (
         <Text
@@ -63,6 +75,7 @@ export function Button({
               ? colors.text
               : colors.textSecondary
           }
+          accessibilityLabel={title}
         >
           {title}
         </Text>
