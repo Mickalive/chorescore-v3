@@ -127,6 +127,14 @@ export class PrivacyTransformPipeline {
 
   /**
    * Validate that a data record contains no operational IDs.
+   *
+   * NOTE: 'label', 'title', 'notes' are intentionally ALLOWED as input.
+   * They are consumed by the transform functions for taxonomy classification
+   * and are never emitted in output events. The PrivacyReleaseGate and
+   * output event types guarantee no free text reaches external data products.
+   *
+   * Only operational IDs (join keys toward the operational store) are
+   * forbidden on input because they could leak through to output.
    */
   private validateNoOperationalIds(data: Record<string, unknown>): string | null {
     const forbiddenFields = [
@@ -135,7 +143,6 @@ export class PrivacyTransformPipeline {
       'email', 'phone', 'oauthSubject',
       'ipAddress', 'deviceId', 'advertisingId',
       'name', 'displayName', 'householdName', 'memberName',
-      'label', 'title', 'notes',
       'latitude', 'longitude', 'address', 'zipCode',
       'createdBy', 'modifiedBy', 'performedByMemberId',
       'beneficiaryMemberIds',
@@ -143,7 +150,7 @@ export class PrivacyTransformPipeline {
 
     for (const field of forbiddenFields) {
       if (field in data) {
-        return `Operational/free-text field '${field}' detected in input data`;
+        return `Operational ID field '${field}' detected in input data`;
       }
     }
 
@@ -151,10 +158,15 @@ export class PrivacyTransformPipeline {
   }
 
   /**
-   * Validate that a data record contains no free text.
+   * Validate that an input data record contains no unconsumed free text.
+   *
+   * NOTE: 'label' is intentionally ALLOWED — it is consumed by transform
+   * functions for taxonomy classification and never emitted in output.
+   * 'title' and 'notes' are NOT consumed by any transform and are rejected.
+   * The output event types + PrivacyReleaseGate provide the final guarantee.
    */
   private validateNoFreeText(data: Record<string, unknown>): string | null {
-    const textFields = ['label', 'title', 'notes', 'name', 'displayName'];
+    const textFields = ['title', 'notes', 'name', 'displayName'];
     for (const field of textFields) {
       if (typeof data[field] === 'string' && (data[field] as string).length > 0) {
         return `Free text field '${field}' detected in input data`;

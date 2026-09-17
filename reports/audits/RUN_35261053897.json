@@ -1,0 +1,75 @@
+{
+  "schemaVersion": 1,
+  "cycle": "35261053897",
+  "role": "builder",
+  "decision": "accept",
+  "summary": "V3-07 repair accepted. Trusted verification passed (exit 0): typecheck clean, 19 suites / 391 tests pass, Android export/prebuild/native debug build successful. Candidate delta vs pristine accepted tree (5f74f84) is exactly 2 files: __tests__/domain/v3-07-analytics-privacy.test.ts (+97/-22) and src/analytics/pipeline.ts (+20/-6). All five must-fix findings from cycle 35257638071 are resolved and independently verified: (1) test-file type errors fixed — 'as unknown as'/'as any' casts for intentionally malformed records, full 18-record valid dataset for the clean-product test, 'synthetic-data-generation' (valid DataProcessingPurpose) replaces 'commercial-use'; npx tsc --noEmit exits 0. (2) Label is now allowed as pipeline INPUT (removed from validateNoOperationalIds forbidden list; 'title'/'notes' remain rejected by validateNoFreeText because no transform consumes them; operational IDs still rejected). New test proves a labeled contribution_created fact transforms successfully AND the emitted AnonymousContributionEvent contains no label/title/notes field; the PrivacyReleaseGate still rejects label/title/notes in OUTPUT (FORBIDDEN_TEXT_FIELDS unchanged), so the no-free-text-in-outputs guarantee is preserved at the release boundary. (3) Gate test data now satisfies anti-reconstruction rules: 18 records / 3 repeated (category, month, beneficiaryCount) combos / 6 per category / householdCount 10 → approved=true with 0 violations; audit-log test uses 12 non-empty records and asserts the log faithfully records the gate decision; gate protections verified intact (a 5-record unique dataset is still rejected with rare_cell x4 + reconstruction_risk + re_identification_risk). (4) Query budget semantics aligned: test asserts remainingQueriesThisMinute=2 with documented 'queries remaining AFTER this one' semantic matching implementation (limit - queriesThisMinute - 1); semantics consistent on rejection branches (rejected query is not counted). (5) Consent expiry made deterministic: retentionDays:-1 puts the cutoff strictly in the future of any just-created record; test passed 5/5 repeated runs. No regression on previously accepted V3 invariants: all V3-01..V3-06 suites pass; no chrono/premium/paywall/subscription/entitlement reintroduced; no silent unit conversion (unit preserved in contribution/settlement events); no cross-currency netting (currency preserved); no Firebase coupling (pure TS module); classification cache keyed normalizedLabel+taxonomyVersion+classifierVersion; pipeline stateless (no rescan without new events); analytics disable-able. Non-blocking observations from the previous audit (passive PipelineCheckpoint, no adapter→pipeline wiring, synchronous pipeline, gate requiresDifferentialPrivacy not enforced in approval) remain outside this repair's scope and are not must-fix.",
+  "checks": [
+    "Trusted verification log reports/audits/TRUSTED_35261053897.md: exit code 0 — typecheck clean, 19 suites / 391 tests pass, Expo export OK, Android prebuild OK, native debug build BUILD SUCCESSFUL",
+    "Independent re-run: npx tsc --noEmit exits 0 (no TypeScript errors)",
+    "Independent re-run: npx jest __tests__/domain/v3-07-analytics-privacy.test.ts — 71 passed / 71 total",
+    "Independent re-run: npx jest (full) — 19 suites passed / 19 total, 391 passed / 391 total; all V3-01..V3-06 suites (ledgers, contribution-expense-crud, todo-completion, activity-log, property-invariants, materialized-balances, merged-pagination, cost-gates-v3-03/04/05, pagination, ports-adapters, repositories, design-system, v3-06 sync/invitations) pass — no regression",
+    "Independent re-run: npm run check (typecheck + test) exits 0",
+    "Candidate delta vs pristine accepted tree (/home/runner/work/_temp/accepted-pristine at 5f74f84): exactly 2 modified files — __tests__/domain/v3-07-analytics-privacy.test.ts and src/analytics/pipeline.ts; no other product file touched",
+    "Finding #1 (test types) resolved: line ~463 label-in-output record cast 'as unknown as ResearchDataProduct[\"data\"]'; lines ~528-541 clean-product dataset is a full 18-record valid shape with cast; line ~789 'synthetic-data-generation' is a valid DataProcessingPurpose (types.ts); line ~929 'as unknown as Record<string, unknown>' double cast",
+    "Finding #2 (label contradiction) resolved: pipeline.ts validateNoOperationalIds no longer lists label/title/notes (operational IDs only); validateNoFreeText still rejects title/notes (not consumed by any transform); new test 'allows label as input (consumed for classification, never emitted)' passes — labeled contribution transforms with success=true and emitted event has no label/title/notes but derived taxonomyCategoryId; gate FORBIDDEN_TEXT_FIELDS still includes label/title/notes so free text is still rejected in OUTPUT",
+    "Finding #3 (gate tests) resolved: independent execution of PrivacyReleaseGate.validate on the new test data — clean product (18 records, 3 combos, 6/category, householdCount 10) → approved=true, 0 violations, riskScore 0; audit-log data (12 records, 2 combos, 6/category) → approved=true, 0 violations; gate protections NOT weakened — a 5-record unique dataset is still rejected (rare_cell x4, reconstruction_risk, re_identification_risk)",
+    "Finding #4 (query budget) resolved: test asserts remainingQueriesThisMinute=2 with documented semantic 'queries remaining AFTER this one' matching implementation (limit - queriesThisMinute - 1 = 3 - 0 - 1 = 2); rejection branches consistent (rejected query not counted)",
+    "Finding #5 (consent race) resolved: retentionDays:-1 → cutoff = now + 1 day, strictly in the future of any just-created record; 'expired consent records can be purged' passed 5/5 repeated runs",
+    "Finding #6 (trusted gate) resolved: full trusted V3 verification returns exit code 0",
+    "No prohibited patterns in delta: no chrono, premium, paywall, subscription, entitlement, upsell, commercial-use references in src/analytics or the test file",
+    "V3-07 acceptance coverage: Operational Store / Research Analytics Plane separation maintained (output event types contain no IDs/text; gate rejects IDs and free text in output); analytics disable-able (adapter disabled by default); taxonomy versioned 3.0.0 deterministic rule-based; classification cache keyed normalizedLabel+taxonomyVersion+classifierVersion; no synchronous LLM; pipeline stateless (no rescan without new events); consent retention + purge deterministic; buyer contracts with mandatory prohibitions; audit export log; DP service disabled by default; query budget rate limits",
+    "Non-blocking (unchanged from previous audit, outside repair scope): PipelineCheckpoint remains a passive data structure with no checkpoint store/cursor driver/async scheduler; no wiring from ResearchAnalyticsGateway port / LocalResearchAnalyticsAdapter into the pipeline; pipeline synchronous; gate requiresDifferentialPrivacy computed but not enforced in approval; types.ts header invariant overstatement (ConsentRecord.userId, PipelineCheckpoint.householdId)",
+    "trusted verification: PASS exit 0; see reports/audits/TRUSTED_35261053897.md"
+  ],
+  "findings": [
+    {
+      "path": "__tests__/domain/v3-07-analytics-privacy.test.ts",
+      "problem": "Previous must-fix F1: 8 TypeScript errors (TS2353 line 434, TS2322 lines 501-505, TS2345 line 730, TS2352 line 870) from intentionally-malformed records passed without casts, partial clean-product records, and 'commercial-use' which is not a DataProcessingPurpose.",
+      "evidence": "Trusted log TRUSTED_35257638071.md exit 2. Current tree: line ~463 uses 'as unknown as ResearchDataProduct[\"data\"]' for the label-in-output record; lines ~528-541 build a full 18-record dataset cast 'as unknown as'; line ~789 uses 'synthetic-data-generation' (valid per types.ts DataProcessingPurpose); line ~929 uses 'as unknown as Record<string, unknown>'. Independent npx tsc --noEmit exits 0.",
+      "mustFix": false,
+      "requiredFix": "None — resolved. Casts added for intentionally malformed records, full valid shapes for clean records, valid DataProcessingPurpose used.",
+      "verification": "npx tsc --noEmit exits 0; trusted verification exit code 0."
+    },
+    {
+      "path": "src/analytics/pipeline.ts (validateNoOperationalIds / validateNoFreeText)",
+      "problem": "Previous must-fix F2: 'label' was listed as a forbidden input field while transformContributionCreated/transformEntryCreated require it for classification, making contribution/entry transform paths dead code.",
+      "evidence": "Current pipeline.ts: forbiddenFields in validateNoOperationalIds no longer contains label/title/notes (operational IDs only); validateNoFreeText still rejects title/notes (not consumed by any transform); label is consumed by classificationCache.classify and never emitted. Independent execution: labeled contribution_created transforms with success=true; emitted event has no label/title/notes fields and carries derived taxonomyCategoryId='dishes'; notes input still rejected ('Free text field notes detected'); userId still rejected ('Operational ID field userId detected'). Gate FORBIDDEN_TEXT_FIELDS (gate.ts lines 77-79) still includes label/title/notes — free text remains rejected in OUTPUT.",
+      "mustFix": false,
+      "requiredFix": "None — resolved. Label allowed as pipeline input, consumed for classification, never emitted; output event types + PrivacyReleaseGate guarantee no free text in outputs; test 'allows label as input (consumed for classification, never emitted)' proves both properties.",
+      "verification": "All contribution/entry pipeline tests pass (71/71 in the V3-07 suite); emitted events contain no free-text fields; gate still rejects label/title/notes in released data."
+    },
+    {
+      "path": "__tests__/domain/v3-07-analytics-privacy.test.ts ('approves clean product with proper provenance' / 'audit log entry is generated')",
+      "problem": "Previous must-fix F3: gate tests used 5-record and empty datasets that can never pass assessReIdentificationRisk (re_identification_risk high for < minCohortSize*2 records), so approved=true was unreachable.",
+      "evidence": "Current test data: clean product = 18 records, 3 unique (category, month, beneficiaryCount) combos, 6 per category, householdCount 10 → independent gate execution returns approved=true, 0 violations, riskScore 0 (combinations 3 <= 18*0.8, facts 18 >= 10, each category 6 >= 5). Audit-log test = 12 non-empty records, 2 combos, 6 per category → approved=true, 0 violations; test asserts log.approved === result.approved and log.violationCount === result.violations.length. Gate protections verified intact: a 5-record unique dataset is still rejected with rare_cell x4, reconstruction_risk, re_identification_risk.",
+      "mustFix": false,
+      "requiredFix": "None — resolved. Test data satisfies the gate's own anti-reconstruction rules; gate re-identification protections not weakened.",
+      "verification": "Both tests pass with approved=true while the gate still rejects genuinely small/unique datasets."
+    },
+    {
+      "path": "__tests__/domain/v3-07-analytics-privacy.test.ts ('allows queries within budget') / src/analytics/queryBudget.ts",
+      "problem": "Previous must-fix F4: test expected remainingQueriesThisMinute=1 while the service returns limit - queriesThisMinute - 1 = 2 on the success path.",
+      "evidence": "Current test asserts remainingQueriesThisMinute=2 with documented semantic 'queries remaining AFTER this one' (limit - queriesBeforeThisQuery - 1 = 3 - 0 - 1 = 2), matching queryBudget.ts line 92. Rejection branches return limit - queriesThisMinute, consistent because a rejected query is not recorded. Test passes.",
+      "mustFix": false,
+      "requiredFix": "None — resolved. One documented semantic ('remaining after this query') now matches both test and implementation.",
+      "verification": "Query-budget test passes; reported remaining count matches the documented semantics."
+    },
+    {
+      "path": "__tests__/domain/v3-07-analytics-privacy.test.ts ('expired consent records can be purged') / src/analytics/consentPolicy.ts",
+      "problem": "Previous must-fix F5: retentionDays:0 with strict '<' comparison made the test racy when recordConsent and getExpiredRecords run in the same millisecond.",
+      "evidence": "Current test uses retentionDays:-1 so cutoff = Date.now() + 1 day, strictly in the future of any just-created record (getExpiredRecords: timestamp < cutoff is always true). Test passed 5/5 repeated runs. Default policies still use positive retentionDays (365*3, 365*2) and the 'consent retention periods are finite' test still asserts retentionDays > 0 for all default policies.",
+      "mustFix": false,
+      "requiredFix": "None — resolved. Retention semantics documented and deterministic.",
+      "verification": "Consent-expiry test passes reliably across repeated runs (no same-millisecond race)."
+    },
+    {
+      "path": ".",
+      "problem": "Previous must-fix F6: trusted product verification failed with exit code 2.",
+      "evidence": "Authoritative verification log reports/audits/TRUSTED_35261053897.md: 'Trusted verification exit code: 0' — typecheck clean, 19 suites / 391 tests pass, Expo export OK, Android prebuild OK, native debug build BUILD SUCCESSFUL. Independent npm run check exits 0.",
+      "mustFix": false,
+      "requiredFix": "None — resolved. Full trusted V3 verification returns exit code 0.",
+      "verification": "Full trusted V3 verification exit code 0."
+    }
+  ]
+}
