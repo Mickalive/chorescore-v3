@@ -16,6 +16,10 @@ import {
   TodoItem,
   ExpenseEntry,
   CrossLedgerSettlement,
+  Invitation,
+  SyncCursor,
+  SyncRecord,
+  SyncCollection,
 } from '../../domain/entities';
 import {
   UserRepository,
@@ -27,6 +31,8 @@ import {
   TodoRepository,
   ExpenseEntryRepository,
   SettlementRepository,
+  InvitationRepository,
+  SyncStateRepository,
 } from './index';
 import {
   InMemoryUserRepository,
@@ -38,6 +44,8 @@ import {
   InMemoryTodoRepository,
   InMemoryExpenseEntryRepository,
   InMemorySettlementRepository,
+  InMemoryInvitationRepository,
+  InMemorySyncStateRepository,
 } from './InMemoryRepositories';
 
 export interface AllRepositories {
@@ -50,6 +58,8 @@ export interface AllRepositories {
   todos: TodoRepository;
   expenses: ExpenseEntryRepository;
   settlements: SettlementRepository;
+  invitations: InvitationRepository;
+  syncState: SyncStateRepository;
 
   /**
    * Run `fn` inside a storage-level transaction.
@@ -93,6 +103,8 @@ async function createSqliteRepositories(): Promise<AllRepositories | null> {
       SqliteTodoRepository,
       SqliteExpenseEntryRepository,
       SqliteSettlementRepository,
+      SqliteInvitationRepository,
+      SqliteSyncStateRepository,
     } = await import('./SqliteRepositories');
 
     // Force database initialization to verify expo-sqlite works
@@ -109,6 +121,8 @@ async function createSqliteRepositories(): Promise<AllRepositories | null> {
       todos: new SqliteTodoRepository(),
       expenses: new SqliteExpenseEntryRepository(),
       settlements: new SqliteSettlementRepository(),
+      invitations: new SqliteInvitationRepository(),
+      syncState: new SqliteSyncStateRepository(),
       withTransaction: async <T>(fn: () => Promise<T>): Promise<T> => {
         // Real SQLite transaction: any throw rolls back both writes.
         let result: T;
@@ -138,6 +152,8 @@ function createInMemoryRepositories(): AllRepositories {
     todos: todoRepo,
     expenses: new InMemoryExpenseEntryRepository(),
     settlements: new InMemorySettlementRepository(),
+    invitations: new InMemoryInvitationRepository(),
+    syncState: new InMemorySyncStateRepository(),
     withTransaction: async <T>(fn: () => Promise<T>): Promise<T> => {
       // In-memory equivalent of a DB transaction: snapshot the affected
       // repos, run the work, and restore on any failure so a partial write

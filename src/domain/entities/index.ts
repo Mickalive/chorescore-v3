@@ -161,3 +161,72 @@ export type ActivityEntry =
   | { type: 'contribution'; entry: ContributionEntry }
   | { type: 'expense'; entry: ExpenseEntry }
   | { type: 'cross-ledger-settlement'; entry: CrossLedgerSettlement };
+
+// ── V3-06: Invitations ─────────────────────────────────────────
+
+export type InvitationStatus = 'pending' | 'accepted' | 'declined' | 'revoked' | 'expired';
+
+export interface Invitation {
+  id: string;
+  householdId: string;
+  invitedByUserId: string;
+  invitedEmail: string;
+  role: MembershipRole;
+  status: InvitationStatus;
+  /** Opaque token embedded in the share link / deep-link. */
+  linkToken: string;
+  createdAt: string;
+  expiresAt: string;
+}
+
+// ── V3-06: Sync cursors & revisions ────────────────────────────
+
+/**
+ * Per-group sync cursor stored locally.  Each client tracks the last
+ * revision it successfully pulled for each collection so the next sync
+ * fetches only the delta.
+ */
+export interface SyncCursor {
+  householdId: string;
+  collection: SyncCollection;
+  lastRevision: number;
+  lastSyncedAt: string;
+}
+
+export type SyncCollection =
+  | 'contribution_entries'
+  | 'expense_entries'
+  | 'settlements'
+  | 'todo_items'
+  | 'persistent_tasks'
+  | 'members'
+  | 'memberships'
+  | 'households';
+
+/**
+ * A single revisioned change record.  Used by the sync engine to represent
+ * an upsert or tombstone in a delta-only protocol.
+ */
+export interface SyncRecord {
+  id: string;
+  householdId: string;
+  collection: SyncCollection;
+  revision: number;
+  /** ISO timestamp of the last mutation. */
+  updatedAt: string;
+  /** Null for upserts, non-null for soft-deletes. */
+  deletedAt: string | null;
+  /** Serialized entity payload (JSON).  Absent for tombstones. */
+  payload: string | null;
+}
+
+/**
+ * Lightweight change signal emitted by the sync engine when new deltas
+ * have been applied.  Screens subscribe and refresh only affected data
+ * instead of doing a full re-read.
+ */
+export interface SyncChangeSignal {
+  householdId: string;
+  collections: SyncCollection[];
+  receivedAt: string;
+}

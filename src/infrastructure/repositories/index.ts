@@ -15,6 +15,10 @@ import {
   TodoItem,
   ExpenseEntry,
   CrossLedgerSettlement,
+  Invitation,
+  SyncCursor,
+  SyncRecord,
+  SyncCollection,
 } from '../../domain/entities';
 
 /**
@@ -116,4 +120,28 @@ export interface SettlementRepository extends SeedableRepository<CrossLedgerSett
   getById(id: string): Promise<CrossLedgerSettlement | null>;
   create(settlement: Omit<CrossLedgerSettlement, 'id'>): Promise<CrossLedgerSettlement>;
   delete(id: string): Promise<void>;
+}
+
+// ── V3-06: Invitation Repository ───────────────────────────────
+
+export interface InvitationRepository extends SeedableRepository<Invitation> {
+  getById(id: string): Promise<Invitation | null>;
+  getByLinkToken(token: string): Promise<Invitation | null>;
+  getByHousehold(householdId: string): Promise<Invitation[]>;
+  getPendingByEmail(email: string): Promise<Invitation[]>;
+  create(data: Omit<Invitation, 'id' | 'createdAt'>): Promise<Invitation>;
+  updateStatus(id: string, status: Invitation['status']): Promise<Invitation>;
+}
+
+// ── V3-06: Sync State Repository ───────────────────────────────
+
+export interface SyncStateRepository {
+  getCursor(householdId: string, collection: SyncCollection): Promise<SyncCursor | null>;
+  setCursor(cursor: SyncCursor): Promise<void>;
+  /** Store remote delta records and advance the cursor (pull path). */
+  applyDeltas(householdId: string, collection: SyncCollection, records: SyncRecord[]): Promise<SyncRecord[]>;
+  /** Store local dirty records WITHOUT advancing the cursor (push path). */
+  storeLocalRecords(householdId: string, collection: SyncCollection, records: SyncRecord[]): Promise<void>;
+  /** Get all local records for a collection since a given revision (for push). */
+  getDirtyRecords(householdId: string, collection: SyncCollection, sinceRevision: number): Promise<SyncRecord[]>;
 }

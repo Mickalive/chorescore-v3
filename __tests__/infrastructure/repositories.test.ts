@@ -38,6 +38,8 @@ import {
   SqliteTodoRepository,
   SqliteExpenseEntryRepository,
   SqliteSettlementRepository,
+  SqliteInvitationRepository,
+  SqliteSyncStateRepository,
 } from '../../src/infrastructure/repositories/SqliteRepositories';
 import { createRepositories } from '../../src/infrastructure/repositories/RepositoryFactory';
 import {
@@ -777,6 +779,8 @@ describe('V3-02 demo fixture consistency', () => {
       todos: new SqliteTodoRepository(),
       expenses: new SqliteExpenseEntryRepository(),
       settlements: new SqliteSettlementRepository(),
+      invitations: new SqliteInvitationRepository(),
+      syncState: new SqliteSyncStateRepository(),
       withTransaction: async <T>(fn: () => Promise<T>): Promise<T> => fn(),
     };
 

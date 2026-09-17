@@ -15,6 +15,11 @@ import {
   TodoItem,
   ExpenseEntry,
   CrossLedgerSettlement,
+  Invitation,
+  InvitationStatus,
+  SyncCursor,
+  SyncRecord,
+  SyncCollection,
 } from '../../domain/entities';
 import {
   UserRepository,
@@ -26,6 +31,8 @@ import {
   TodoRepository,
   ExpenseEntryRepository,
   SettlementRepository,
+  InvitationRepository,
+  SyncStateRepository,
   PaginatedResult,
   PaginatedQuery,
 } from './index';
@@ -491,5 +498,136 @@ export class InMemorySettlementRepository implements SettlementRepository {
 
   async delete(id: string): Promise<void> {
     this.items.delete(id);
+  }
+}
+
+// ── V3-06: InMemory Invitation Repository ──────────────────────
+
+export class InMemoryInvitationRepository implements InvitationRepository {
+  private items = new Map<string, Invitation>();
+
+  seed(items: Invitation[]): void {
+    for (const inv of items) {
+      this.items.set(inv.id, { ...inv });
+    }
+  }
+
+  async getById(id: string): Promise<Invitation | null> {
+    return this.items.get(id) ?? null;
+  }
+
+  async getByLinkToken(token: string): Promise<Invitation | null> {
+    for (const inv of this.items.values()) {
+      if (inv.linkToken === token) return { ...inv };
+    }
+    return null;
+  }
+
+  async getByHousehold(householdId: string): Promise<Invitation[]> {
+    return Array.from(this.items.values()).filter((i) => i.householdId === householdId);
+  }
+
+  async getPendingByEmail(email: string): Promise<Invitation[]> {
+    return Array.from(this.items.values()).filter(
+      (i) => i.invitedEmail === email && i.status === 'pending',
+    );
+  }
+
+  async create(data: Omit<Invitation, 'id' | 'createdAt'>): Promise<Invitation> {
+    const invitation: Invitation = {
+      ...data,
+      id: generateId('invitation'),
+      createdAt: new Date().toISOString(),
+    };
+    this.items.set(invitation.id, { ...invitation });
+    return invitation;
+  }
+
+  async updateStatus(id: string, status: Invitation['status']): Promise<Invitation> {
+    const existing = this.items.get(id);
+    if (!existing) throw new Error(`Invitation ${id} not found`);
+    const updated = { ...existing, status };
+    this.items.set(id, updated);
+    return updated;
+  }
+}
+
+// ── V3-06: InMemory Sync State Repository ──────────────────────
+
+export class InMemorySyncStateRepository implements SyncStateRepository {
+  private cursors = new Map<string, SyncCursor>();
+  private records = new Map<string, SyncRecord[]>();
+
+  async getCursor(householdId: string, collection: SyncCollection): Promise<SyncCursor | null> {
+    return this.cursors.get(`${householdId}:${collection}`) ?? null;
+  }
+
+  async setCursor(cursor: SyncCursor): Promise<void> {
+    this.cursors.set(`${cursor.householdId}:${cursor.collection}`, { ...cursor });
+  }
+
+  async applyDeltas(
+    householdId: string,
+    collection: SyncCollection,
+    records: SyncRecord[],
+  ): Promise<SyncRecord[]> {
+    const key = `${householdId}:${collection}`;
+    const existing = this.records.get(key) ?? [];
+    const applied: SyncRecord[] = [];
+
+    for (const record of records) {
+      const idx = existing.findIndex((r) => r.id === record.id);
+      if (idx >= 0) {
+        existing[idx] = { ...record };
+      } else {
+        existing.push({ ...record });
+      }
+      applied.push(record);
+    }
+
+    this.records.set(key, existing);
+
+    // Advance cursor
+    const maxRev = records.reduce((max, r) => Math.max(max, r.revision), 0);
+    const prev = this.cursors.get(key);
+    this.cursors.set(key, {
+      householdId,
+      collection,
+      lastRevision: Math.max(maxRev, prev?.lastRevision ?? 0),
+      lastSyncedAt: new Date().toISOString(),
+    });
+
+    return applied;
+  }
+
+  async storeLocalRecords(
+    householdId: string,
+    collection: SyncCollection,
+    records: SyncRecord[],
+  ): Promise<void> {
+    const key = `${householdId}:${collection}`;
+    const existing = this.records.get(key) ?? [];
+
+    for (const record of records) {
+      const idx = existing.findIndex((r) => r.id === record.id);
+      if (idx >= 0) {
+        existing[idx] = { ...record };
+      } else {
+        existing.push({ ...record });
+      }
+    }
+
+    this.records.set(key, existing);
+    // NOTE: cursor is NOT advanced — records still need to be pushed.
+  }
+
+  async getDirtyRecords(
+    householdId: string,
+    collection: SyncCollection,
+    sinceRevision: number,
+  ): Promise<SyncRecord[]> {
+    const key = `${householdId}:${collection}`;
+    const existing = this.records.get(key) ?? [];
+    return existing.filter((r) => r.revision > sinceRevision);
   }
 }

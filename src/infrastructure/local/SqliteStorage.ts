@@ -139,6 +139,44 @@ async function initializeSchema(database: SQLite.SQLiteDatabase): Promise<void> 
     CREATE INDEX IF NOT EXISTS idx_expenses_household ON expense_entries(householdId);
     CREATE INDEX IF NOT EXISTS idx_expenses_occurred ON expense_entries(householdId, occurredAt);
     CREATE INDEX IF NOT EXISTS idx_settlements_household ON settlements(householdId);
+
+    -- V3-06: Invitations
+    CREATE TABLE IF NOT EXISTS invitations (
+      id TEXT PRIMARY KEY,
+      householdId TEXT NOT NULL,
+      invitedByUserId TEXT NOT NULL,
+      invitedEmail TEXT NOT NULL,
+      role TEXT NOT NULL DEFAULT 'MEMBER',
+      status TEXT NOT NULL DEFAULT 'pending',
+      linkToken TEXT NOT NULL UNIQUE,
+      createdAt TEXT NOT NULL,
+      expiresAt TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_invitations_household ON invitations(householdId);
+    CREATE INDEX IF NOT EXISTS idx_invitations_link_token ON invitations(linkToken);
+    CREATE INDEX IF NOT EXISTS idx_invitations_email ON invitations(invitedEmail, status);
+
+    -- V3-06: Sync cursors
+    CREATE TABLE IF NOT EXISTS sync_cursors (
+      householdId TEXT NOT NULL,
+      collection TEXT NOT NULL,
+      lastRevision INTEGER NOT NULL DEFAULT 0,
+      lastSyncedAt TEXT NOT NULL,
+      PRIMARY KEY (householdId, collection)
+    );
+
+    -- V3-06: Sync records (delta buffer)
+    CREATE TABLE IF NOT EXISTS sync_records (
+      id TEXT NOT NULL,
+      householdId TEXT NOT NULL,
+      collection TEXT NOT NULL,
+      revision INTEGER NOT NULL,
+      updatedAt TEXT NOT NULL,
+      deletedAt TEXT,
+      payload TEXT,
+      PRIMARY KEY (id, collection)
+    );
+    CREATE INDEX IF NOT EXISTS idx_sync_records_dirty ON sync_records(householdId, collection, revision);
   `);
 }
 

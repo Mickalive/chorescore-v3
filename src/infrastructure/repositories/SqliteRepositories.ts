@@ -17,6 +17,11 @@ import {
   ExpenseEntry,
   CrossLedgerSettlement,
   ContributionMoneyRate,
+  Invitation,
+  InvitationStatus,
+  SyncCursor,
+  SyncRecord,
+  SyncCollection,
 } from '../../domain/entities';
 import {
   UserRepository,
@@ -28,6 +33,8 @@ import {
   TodoRepository,
   ExpenseEntryRepository,
   SettlementRepository,
+  InvitationRepository,
+  SyncStateRepository,
   PaginatedResult,
   PaginatedQuery,
 } from './index';
@@ -1028,4 +1035,216 @@ function settlementFromRow(row: SettlementRow): CrossLedgerSettlement {
     occurredAt: row.occurredAt,
     createdBy: row.createdBy,
   };
+}
+
+// ── V3-06: SQLite Invitation Repository ────────────────────────
+
+export class SqliteInvitationRepository implements InvitationRepository {
+  async seed(items: Invitation[]): Promise<void> {
+    const db = await getDatabase();
+    for (const inv of items) {
+      await db.runAsync(
+        'INSERT OR REPLACE INTO invitations (id, householdId, invitedByUserId, invitedEmail, role, status, linkToken, createdAt, expiresAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        [inv.id, inv.householdId, inv.invitedByUserId, inv.invitedEmail, inv.role, inv.status, inv.linkToken, inv.createdAt, inv.expiresAt],
+      );
+    }
+  }
+
+  async getById(id: string): Promise<Invitation | null> {
+    const db = await getDatabase();
+    const row = await db.getFirstAsync<InvitationRow>(
+      'SELECT * FROM invitations WHERE id = ?',
+      [id],
+    );
+    return row ? invitationFromRow(row) : null;
+  }
+
+  async getByLinkToken(token: string): Promise<Invitation | null> {
+    const db = await getDatabase();
+    const row = await db.getFirstAsync<InvitationRow>(
+      'SELECT * FROM invitations WHERE linkToken = ?',
+      [token],
+    );
+    return row ? invitationFromRow(row) : null;
+  }
+
+  async getByHousehold(householdId: string): Promise<Invitation[]> {
+    const db = await getDatabase();
+    const rows = await db.getAllAsync<InvitationRow>(
+      'SELECT * FROM invitations WHERE householdId = ? ORDER BY createdAt DESC',
+      [householdId],
+    );
+    return rows.map(invitationFromRow);
+  }
+
+  async getPendingByEmail(email: string): Promise<Invitation[]> {
+    const db = await getDatabase();
+    const rows = await db.getAllAsync<InvitationRow>(
+      "SELECT * FROM invitations WHERE invitedEmail = ? AND status = 'pending'",
+      [email],
+    );
+    return rows.map(invitationFromRow);
+  }
+
+  async create(data: Omit<Invitation, 'id' | 'createdAt'>): Promise<Invitation> {
+    const db = await getDatabase();
+    const invitation: Invitation = {
+      ...data,
+      id: generateId('invitation'),
+      createdAt: new Date().toISOString(),
+    };
+    await db.runAsync(
+      'INSERT INTO invitations (id, householdId, invitedByUserId, invitedEmail, role, status, linkToken, createdAt, expiresAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      [invitation.id, invitation.householdId, invitation.invitedByUserId, invitation.invitedEmail, invitation.role, invitation.status, invitation.linkToken, invitation.createdAt, invitation.expiresAt],
+    );
+    return invitation;
+  }
+
+  async updateStatus(id: string, status: Invitation['status']): Promise<Invitation> {
+    const existing = await this.getById(id);
+    if (!existing) throw new Error(`Invitation ${id} not found`);
+    const db = await getDatabase();
+    await db.runAsync(
+      'UPDATE invitations SET status = ? WHERE id = ?',
+      [status, id],
+    );
+    return { ...existing, status };
+  }
+}
+
+interface InvitationRow {
+  id: string;
+  householdId: string;
+  invitedByUserId: string;
+  invitedEmail: string;
+  role: string;
+  status: string;
+  linkToken: string;
+  createdAt: string;
+  expiresAt: string;
+}
+
+function invitationFromRow(row: InvitationRow): Invitation {
+  return {
+    id: row.id,
+    householdId: row.householdId,
+    invitedByUserId: row.invitedByUserId,
+    invitedEmail: row.invitedEmail,
+    role: row.role as 'MEMBER' | 'OWNER',
+    status: row.status as Invitation['status'],
+    linkToken: row.linkToken,
+    createdAt: row.createdAt,
+    expiresAt: row.expiresAt,
+  };
+}
+
+// ── V3-06: SQLite Sync State Repository ────────────────────────
+
+export class SqliteSyncStateRepository implements SyncStateRepository {
+  async getCursor(householdId: string, collection: SyncCollection): Promise<SyncCursor | null> {
+    const db = await getDatabase();
+    const row = await db.getFirstAsync<SyncCursorRow>(
+      'SELECT * FROM sync_cursors WHERE householdId = ? AND collection = ?',
+      [householdId, collection],
+    );
+    return row
+      ? {
+          householdId: row.householdId,
+          collection: row.collection as SyncCollection,
+          lastRevision: row.lastRevision,
+          lastSyncedAt: row.lastSyncedAt,
+        }
+      : null;
+  }
+
+  async setCursor(cursor: SyncCursor): Promise<void> {
+    const db = await getDatabase();
+    await db.runAsync(
+      'INSERT OR REPLACE INTO sync_cursors (householdId, collection, lastRevision, lastSyncedAt) VALUES (?, ?, ?, ?)',
+      [cursor.householdId, cursor.collection, cursor.lastRevision, cursor.lastSyncedAt],
+    );
+  }
+
+  async applyDeltas(
+    householdId: string,
+    collection: SyncCollection,
+    records: SyncRecord[],
+  ): Promise<SyncRecord[]> {
+    const db = await getDatabase();
+    const applied: SyncRecord[] = [];
+
+    for (const record of records) {
+      await db.runAsync(
+        'INSERT OR REPLACE INTO sync_records (id, householdId, collection, revision, updatedAt, deletedAt, payload) VALUES (?, ?, ?, ?, ?, ?, ?)',
+        [record.id, record.householdId, record.collection, record.revision, record.updatedAt, record.deletedAt, record.payload],
+      );
+      applied.push(record);
+    }
+
+    // Advance cursor
+    const maxRev = records.reduce((max, r) => Math.max(max, r.revision), 0);
+    const prev = await this.getCursor(householdId, collection);
+    await this.setCursor({
+      householdId,
+      collection,
+      lastRevision: Math.max(maxRev, prev?.lastRevision ?? 0),
+      lastSyncedAt: new Date().toISOString(),
+    });
+
+    return applied;
+  }
+
+  async storeLocalRecords(
+    householdId: string,
+    collection: SyncCollection,
+    records: SyncRecord[],
+  ): Promise<void> {
+    const db = await getDatabase();
+
+    for (const record of records) {
+      await db.runAsync(
+        'INSERT OR REPLACE INTO sync_records (id, householdId, collection, revision, updatedAt, deletedAt, payload) VALUES (?, ?, ?, ?, ?, ?, ?)',
+        [record.id, record.householdId, record.collection, record.revision, record.updatedAt, record.deletedAt, record.payload],
+      );
+    }
+    // NOTE: cursor is NOT advanced — records still need to be pushed.
+  }
+
+  async getDirtyRecords(
+    householdId: string,
+    collection: SyncCollection,
+    sinceRevision: number,
+  ): Promise<SyncRecord[]> {
+    const db = await getDatabase();
+    const rows = await db.getAllAsync<SyncRecordRow>(
+      'SELECT * FROM sync_records WHERE householdId = ? AND collection = ? AND revision > ? ORDER BY revision ASC',
+      [householdId, collection, sinceRevision],
+    );
+    return rows.map((r) => ({
+      id: r.id,
+      householdId: r.householdId,
+      collection: r.collection as SyncCollection,
+      revision: r.revision,
+      updatedAt: r.updatedAt,
+      deletedAt: r.deletedAt,
+      payload: r.payload,
+    }));
+  }
+}
+
+interface SyncCursorRow {
+  householdId: string;
+  collection: string;
+  lastRevision: number;
+  lastSyncedAt: string;
+}
+
+interface SyncRecordRow {
+  id: string;
+  householdId: string;
+  collection: string;
+  revision: number;
+  updatedAt: string;
+  deletedAt: string | null;
+  payload: string | null;
 }
