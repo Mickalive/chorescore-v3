@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "cycle": "35317911890",
+  "decision": "continue",
+  "reason": "V3-08 audit decision is repair with no product delta (hasDelta=false). The must-fix finding from the open findings is unchanged: the trusted finalizer failed at run 35315519533 because .github/workflows/chorescore-v3-finalize.yml line 90 still contains 'script: |' with a multi-line block instead of 'script: bash scripts/finalizer-e2e.sh'. The Builder-created fix script (scripts/finalizer-e2e.sh, 35 lines) exists and is correct. The root cause is confirmed: reactivecircus/android-emulator-runner@v2 splits multi-line script blocks into separate sh -c invocations, where dash rejects pipefail (exit 2). No product code was changed; all 426 tests pass; V3-01..V3-07 are preserved. The only remaining blocker is the trusted-shell-owned workflow change which was not applied. The Builder cannot modify workflows per AGENTS.md. The trusted shell must update the workflow and re-run the finalizer.",
+  "progressEvidence": [
+    "audit-repair-35317911890-V3-08-no-product-delta",
+    "open-finding-persistent-trusted-finalizer-failure-run-35315519533",
+    "workflow-file-unchanged-script-pipe-block-still-present",
+    "scripts-finalizer-e2e-sh-exists-and-is-correct-35-lines",
+    "root-cause-confirmed-dash-rejects-pipefail-exit-2",
+    "no-product-code-touched-no-regression-V3-01-through-V3-07",
+    "trusted-verification-426-tests-privacy-cost-gates-green",
+    "must-fix-finding-unchanged-trusted-shell-workflow-change-not-applied"
+  ]
+}

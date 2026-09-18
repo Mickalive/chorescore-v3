@@ -4,8 +4,8 @@
   "builder": {
     "enabled": true,
     "criterionId": "V3-08",
-    "objective": "REPAIR V3-08 trusted finalizer failure from Actions run 35315519533. Inspect the exact failed release logs, fix only the concrete product/privacy/cost/APK/runtime/E2E/readiness blocker, and preserve all accepted criteria.",
-    "scope": "Target the trusted release failure and directly necessary product/config/test/scripts repairs. Protected control-plane files remain trusted-shell owned.",
+    "objective": "REPAIR V3-08: Trusted shell (workflows are protected control-plane files; the Builder cannot edit them): on main, replace the emulator step's multi-line `script: |` block with the single-line `script: bash scripts/finalizer-e2e.sh`, then re-run the trusted finalizer. The wrapper already contains the complete APK locate/install + golden-path logic in one bash process. No product code change is needed.",
+    "scope": "Repair only the audited must-fix findings on the preserved V3 baseline; do not rebuild accepted work.",
     "acceptance": [],
     "previousCriteriaPreserved": [
       "V3-01: accepted and must not regress",

@@ -1,12 +1,12 @@
 {
   "schemaVersion": 1,
   "milestone": "v3-rc",
-  "lastCycle": "35310569665",
+  "lastCycle": "35317911890",
   "activeCriteria": [
     "V3-08"
   ],
   "pendingArtifact": null,
-  "progressSummary": "V3-08 reopened after trusted finalizer failure in run 35315519533",
+  "progressSummary": "Audited V3-08 requires repair; WIP baseline preserved when a safe delta existed.",
   "criteria": [
     {
       "id": "V3-01",
@@ -86,18 +86,18 @@
   ],
   "openFindings": [
     {
-      "path": "release",
-      "problem": "Trusted V3 finalizer failed",
-      "evidence": "GitHub Actions finalizer run 35315519533",
+      "path": ".github/workflows/chorescore-v3-finalize.yml (emulator step, lines 84-94; trusted-shell owned)",
+      "problem": "The trusted finalizer's Android API 35 emulator step still uses a multi-line `script: |` block. reactivecircus/android-emulator-runner@v2 splits the block into individual lines and executes each via `sh -c`; the first line `set -euo pipefail` is invalid under dash (/bin/sh on Ubuntu) and exits 2, so the step fails before the APK install and golden path ever run. This is the same root cause as finalizer runs 35293489693 and 35302658175, and run 35315519533 failed again because the workflow on main was never changed to `script: bash scripts/finalizer-e2e.sh`. The candidate delta is empty, so the blocker is not addressed; the next finalizer run will fail identically.",
+      "evidence": "Local reproduction: `sh -c 'set -euo pipefail'` -> exit 2 (dash), `bash -c 'set -euo pipefail'` -> exit 0. Action source (v2.33.0): lib/script-parser.js parseScript() splits on newlines and trims; lib/main.js line 208-211 executes each parsed line via exec.exec('sh', ['-c', script]). origin/main workflow still has `script: |` at line 90 (git log for the file shows only 3f14a90 and 8b245b2 — unchanged since creation). scripts/finalizer-e2e.sh exists in the baseline but is never invoked. Candidate metadata.json: hasDelta=false, changedFiles=0.",
       "mustFix": true,
-      "requiredFix": "Inspect the exact trusted finalizer failure and repair only the concrete product/privacy/cost/APK/runtime/E2E blocker while preserving V3-01..V3-07.",
-      "verification": "Trusted V3 finalizer must pass product, privacy and cost gates, APK build, install/launch and golden path."
+      "requiredFix": "Trusted shell (workflows are protected control-plane files; the Builder cannot edit them): on main, replace the emulator step's multi-line `script: |` block with the single-line `script: bash scripts/finalizer-e2e.sh`, then re-run the trusted finalizer. The wrapper already contains the complete APK locate/install + golden-path logic in one bash process. No product code change is needed.",
+      "verification": "Trusted finalizer run must pass the Android API 35 emulator step (release APK install, launch without Metro, golden path Ajouter/Balances/A faire with the demo fixture) with exit 0, and the finalize-success job must attest V3 RC complete with evidence android-release-apk-sha256-<sha> and android-api35-install-launch-e2e-green."
     }
   ],
   "factoryHealth": {
     "stalled": false,
-    "consecutiveNoProgress": 0,
-    "lastProductSha": "15f07ff6c5ff58ae51cf41a6f7fc45ad9c58568c",
+    "consecutiveNoProgress": 1,
+    "lastProductSha": "a76b41a9f05e796091ed10eaa035fd247c4e07b3",
     "reason": null
   }
 }
