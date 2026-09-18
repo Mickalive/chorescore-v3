@@ -1,12 +1,12 @@
 {
   "schemaVersion": 1,
   "milestone": "v3-rc",
-  "lastCycle": "35341822850",
+  "lastCycle": "35351917454",
   "activeCriteria": [
     "V3-08"
   ],
   "pendingArtifact": null,
-  "progressSummary": "Audited V3-08 requires repair; WIP baseline preserved when a safe delta existed.",
+  "progressSummary": "Factory STALLED on V3-08 after repeated no-delta repair/reject cycles.",
   "criteria": [
     {
       "id": "V3-01",
@@ -96,9 +96,9 @@
     }
   ],
   "factoryHealth": {
-    "stalled": false,
-    "consecutiveNoProgress": 1,
-    "lastProductSha": "72c978240019a371daa8b4b05aa3226011c227bd",
-    "reason": null
+    "stalled": true,
+    "consecutiveNoProgress": 3,
+    "lastProductSha": "7b69c86c76631b441bf31be812986728c0975d9e",
+    "reason": "Two consecutive non-accepted cycles produced no product delta; human/control-plane review required."
   }
 }

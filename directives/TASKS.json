@@ -2,8 +2,8 @@
   "schemaVersion": 1,
   "milestone": "v3-rc",
   "builder": {
-    "enabled": true,
-    "criterionId": "V3-08",
+    "enabled": false,
+    "criterionId": null,
     "objective": "REPAIR V3-08: Trusted shell (sole owner of .github/workflows/ per AGENTS.md): on main, replace the emulator step's multi-line 'script: |' block with the single-line 'script: bash scripts/finalizer-e2e.sh', commit to main, then re-run the trusted finalizer. No product code change is needed — the Builder-scoped wrapper is preserved.",
     "scope": "Repair only the audited must-fix findings on the preserved V3 baseline; do not rebuild accepted work.",
     "acceptance": [],
