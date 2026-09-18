@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "cycle": "35324430975",
+  "decision": "continue",
+  "reason": "V3-08 audit decision is repair with a product delta (hasDelta=true). Two mustFix findings block accept: F1 — npx expo install --check exits 1 with outdated dependencies (expo 57.0.23 expected ~57.0.24, expo-constants 57.0.18 expected ~57.0.19, expo-router 57.0.21 expected ~57.0.22, expo-sharing 57.0.20 expected ~57.0.21, @expo/metro-runtime 57.0.15 expected ~57.0.16), which stops the trusted gate before expo export/prebuild/assembleRelease and is Builder-fixable by aligning package.json/package-lock.json; F2 — the protected finalizer workflow emulator step still uses a multi-line script: | block (dash rejects set -euo pipefail, exit 2), which only the trusted shell can fix on main by switching to script: bash scripts/finalizer-e2e.sh. Trusted verification exit 1 is a mandatory mustFix that forbids accept regardless of all other gates passing. The candidate delta (__tests__/domain/v3-08-finalizer-wrapper.test.ts, wrapper contract test) is harmless, passes, and is preserved as WIP baseline. V3-01..V3-07 remain green: typecheck PASS, 22 suites / 431 tests PASS, privacy:check PASS (71 tests), cost:check PASS (21 tests, 10 gates), no prohibited patterns introduced. Next cycle must repair F1 (Builder scope); F2 remains trusted-shell-owned and is required before the finalizer can attest APK install/launch/golden-path.",
+  "progressEvidence": [
+    "audit-repair-35324430975-V3-08-trusted-verification-exit-1",
+    "mustFix-F1-expo-install-check-outdated-deps-expo-57.0.24-expected",
+    "mustFix-F2-workflow-emulator-script-pipe-block-unchanged-trusted-shell-owned",
+    "candidate-delta-v3-08-finalizer-wrapper-test-ts-contract-test-preserved-as-WIP",
+    "trusted-verification-typecheck-431-tests-privacy-cost-gates-green",
+    "cost-gates-10-PASS-50k-bounded-reads-tab-switch-0-delta-sync",
+    "no-prohibited-patterns-no-chrono-paywall-cross-currency-leak",
+    "next-task-Builder-align-package-json-to-expo-install-check",
+    "trusted-shell-must-apply-workflow-script-bash-finalizer-e2e-sh"
+  ]
+}
