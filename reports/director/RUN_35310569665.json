@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "cycle": "35310569665",
+  "decision": "stop",
+  "reason": "V3-08 Builder-scoped repair accepted. The auditor confirms: scripts/finalizer-e2e.sh (1 new file, 35 lines) contains the complete golden-path logic in a single bash process (set -euo pipefail; APK auto-location; adb install; npm run e2e:android), plus coherent empty-APK guard. This is the Builder-side half of the two-part fix. The remaining blocker is the trusted-shell-owned workflow change: .github/workflows/chorescore-v3-finalize.yml emulator step must be updated to 'script: bash scripts/finalizer-e2e.sh' and the finalizer re-run. No product code touched; all 426 tests pass; V3-01..V3-07 regression impossible. V3-08 is not yet complete — only the trusted finalizer can mark it complete after confirming APK install, launch, and golden-path traversal on a real API 35 emulator.",
+  "progressEvidence": [
+    "audit-accepted-35310569665-V3-08-Builder-scoped-repair",
+    "new-file-scripts-finalizer-e2e.sh-35-lines-single-bash-process",
+    "set-euo-pipefail-APK-auto-locate-adb-install-npm-run-e2e",
+    "empty-APK-guard-clear-error-exit-1",
+    "bash-n-syntax-check-passes",
+    "root-cause-confirmed-dash-rejects-pipefail-exit-2",
+    "bash-c-pipefail-succeeds-proving-single-line-fix",
+    "no-product-code-touched-no-regression-V3-01-through-V3-07",
+    "trusted-verification-exit-0-426-tests-privacy-cost-gates-green",
+    "workflow-file-untouched-trusted-shell-owned",
+    "trusted-finalizer-must-update-workflow-to-bash-scripts-finalizer-e2e-sh",
+    "trusted-finalizer-must-re-run-to-confirm-APK-install-golden-path"
+  ]
+}
