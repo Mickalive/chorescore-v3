@@ -1,0 +1,34 @@
+{
+  "schemaVersion": 1,
+  "cycle": "35341822850",
+  "role": "builder",
+  "decision": "repair",
+  "summary": "Trusted verification passed (exit 0) and the Builder-scoped candidate is clean: no product code delta vs pristine, scripts/finalizer-e2e.sh wrapper preserved and valid, 431 tests green, privacy/cost gates green, Android export/prebuild/build green. However, the MUST-FIX finding from the prior cycle persists because the trusted shell has not applied the documented workflow fix on origin/main: .github/workflows/chorescore-v3-finalize.yml still contains the broken multi-line script: | block at the emulator step (lines 90-94) instead of the single-line 'script: bash scripts/finalizer-e2e.sh'. The last finalizer run (35333103534) failed at the Android API 35 emulator step with no subsequent re-run. RELEASE_STATUS.json still shows V3-08 in_progress with the same mustFix open finding. Acceptance requires the trusted shell to apply the one-line workflow fix on main and re-run the trusted finalizer to attestation.",
+  "checks": [
+    "trusted-verification-exit-0-431-tests-typecheck-privacy-cost-export-prebuild-build",
+    "candidate-delta-empty-no-product-code-changes-vs-pristine",
+    "scripts-finalizer-e2e-sh-exists-and-valid-bash",
+    "scripts-e2e-android-js-exists-and-valid-node",
+    "package-json-e2e-android-script-present",
+    "v3-01-v3-07-regression-all-suites-green-22-suites-431-tests",
+    "no-chrono-premium-paywall-in-codebase",
+    "design-system-wcag-contrast-large-text-no-warm-v2",
+    "zero-sum-ledger-invariants-verified",
+    "local-first-cost-gates-passed",
+    "privacy-pipeline-operational-store-research-plane-separated",
+    "classification-cache-deterministic-versioned",
+    "workflow-on-main-still-contains-broken-multi-line-script-block",
+    "last-finalizer-run-35333103534-failed-at-emulator-step-no-rerun",
+    "release-status-v3-08-still-in-progress-mustfix-not-resolved"
+  ],
+  "findings": [
+    {
+      "path": ".github/workflows/chorescore-v3-finalize.yml (emulator step, lines 90-94) — same root cause as runs 35293489693, 35302658175, 35315519533, 35333103534",
+      "problem": "The trusted shell has not applied the documented one-line workflow fix on origin/main. The emulator step still contains a multi-line script: | block (4 lines: set -euo pipefail; apk=$(find ...); adb install -r; npm run e2e:android) which reactivecircus/android-emulator-runner@v2 line-splits and executes via sh -c (dash); dash rejects 'set -euo pipefail' (exit 2) before the APK install/golden path runs. The Builder-scoped wrapper scripts/finalizer-e2e.sh exists, is valid bash, and is preserved in the candidate. The candidate delta is empty (no product code changes). This is a trusted-shell-owned action outside the Builder's scope.",
+      "evidence": "git show origin/main:.github/workflows/chorescore-v3-finalize.yml lines 90-94 still show 'script: |' with 4 indented lines; last commit touching this file on main is 8b245b2 (2026-09-16); GitHub API run 35333103534 conclusion=failure, step 7 'Android API 35 install, launch and golden path' conclusion=failure, reopen-on-failure ran; no subsequent finalizer run exists; scripts/finalizer-e2e.sh exists, bash -n passes; diff -rq pristine vs candidate shows no product code changes; RELEASE_STATUS.json V3-08 still in_progress with same open finding",
+      "mustFix": true,
+      "requiredFix": "Trusted shell (sole owner of .github/workflows/ per AGENTS.md): on main, replace the emulator step's multi-line 'script: |' block with the single-line 'script: bash scripts/finalizer-e2e.sh', commit to main, then re-run the trusted finalizer. No product code change is needed — the Builder-scoped wrapper is preserved.",
+      "verification": "Trusted finalizer must pass the Android API 35 emulator step (release APK install, launch without Metro, golden path Ajouter/Balances/A faire via scripts/e2e-android.js) with exit 0, and docs/RELEASE_STATUS.json must contain android-release-apk-sha256-<sha> and android-api35-install-launch-e2e-green in V3-08 evidence."
+    }
+  ]
+}
