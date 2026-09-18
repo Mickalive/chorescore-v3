@@ -1,0 +1,46 @@
+{
+  "schemaVersion": 1,
+  "cycle": "35324430975",
+  "role": "builder",
+  "decision": "repair",
+  "summary": "Trusted verification failed (exit 1); candidate retained as WIP for repair. V3-08 repair NOT accepted: trusted verification exit 1 is a mandatory mustFix (expo install --check fails with outdated dependencies), and the protected workflow emulator step remains unrepaired (multi-line script: | still present). Candidate delta adds only __tests__/domain/v3-08-finalizer-wrapper.test.ts (wrapper contract test) which does not address either blocker; V3-01..V3-07 remain green (431 tests, privacy:check PASS, cost:check 10 gates PASS) but accept is forbidden with nonzero verification. Baseline retained as WIP.",
+  "checks": [
+    "trusted verification: exit 1 — typecheck PASS, 22 suites / 431 tests PASS, privacy:check PASS (71 tests), cost:check PASS (21 tests, 10 gates), expo install --check FAIL (outdated deps), no APK/export reached (see reports/audits/TRUSTED_35324430975.md)",
+    "candidate delta vs pristine accepted tree (/home/runner/work/_temp/accepted-pristine): 1 staged file __tests__/domain/v3-08-finalizer-wrapper.test.ts (127 lines, wrapper contract tests); otherwise byte-identical to pristine (scripts/finalizer-e2e.sh unchanged, workflow unchanged, package.json unchanged)",
+    "root cause: workflow .github/workflows/chorescore-v3-finalize.yml emulator step still script: | multi-line (lines 90-94) — reactivecircus/android-emulator-runner@v2 splits into sh -c per line, dash rejects set -euo pipefail exit 2 — confirmed in prior audits and still present on current HEAD",
+    "workflow state: HEAD .github/workflows/chorescore-v3-finalize.yml lines 90-94 unchanged since creation (diff vs pristine shows no workflow change); scripts/finalizer-e2e.sh exists and is valid bash but never invoked by workflow",
+    "expo install --check failure: trusted log shows expo@57.0.23 expected ~57.0.24, expo-constants@57.0.18 expected ~57.0.19, expo-router@57.0.21 expected ~57.0.22, expo-sharing@57.0.20 expected ~57.0.21, @expo/metro-runtime@57.0.15 expected ~57.0.16 — Found outdated dependencies -> exit 1 before android export/prebuild/assembleRelease",
+    "Builder-scoped wrapper present: scripts/finalizer-e2e.sh (bash -n OK, set -euo pipefail, find fallback, APK empty guards, adb install -r, npm run e2e:android) and scripts/e2e-android.js (node --check OK, auto-locate under android/app/build/outputs/apk/release) — already in pristine baseline, not changed by candidate",
+    "added test file verification: __tests__/domain/v3-08-finalizer-wrapper.test.ts adds contract checks for wrapper single-shell invocation, APK locate, and fixture alignment (Ajouter/Balances/A faire, no chrono/premium) — no runtime cost, no ledger change, no prohibited pattern",
+    "regression sweep V3-01..V3-07: all 431 tests pass including ledgers zero-sum, integer minor units, cross-ledger snapshot, materialized balances, property invariants, contribution-expense CRUD, todo completion, V3-06 sync/auth, V3-07 privacy (deterministic taxonomy, cache, rare-cell suppression, buyer contracts), design-system WCAG AA, no chrono/premium/warm-V2",
+    "cost regression gates: V3-08 gates 1-10 still PASS per trusted log (50k entries ≤5 reads, tab-switch 0 reads, 3-delta sync incremental, writes bounded, 10k labels 1 classification, privacy gate clean, offline fallback, golden path) — but trusted overall still exit 1 so V3-08 not completable",
+    "prohibited patterns: none introduced — no chrono, paywall, entitlement, cross-currency netting, silent Minutes/Points conversion, destructive history, Firebase in domain, fake integration, or analytics export of operational IDs/free text",
+    "trusted verification: FAIL exit 1; see reports/audits/TRUSTED_35324430975.md"
+  ],
+  "findings": [
+    {
+      "path": "reports/audits/TRUSTED_35324430975.md (trusted verification exit code 1)",
+      "problem": "Trusted verification is exit 1, which is a mandatory mustFix and forbids accept. The failure is at npx expo install --check (Found outdated dependencies) after typecheck/tests/privacy/cost all passed. Expected versions: expo ~57.0.24 vs installed ~57.0.23, expo-constants ~57.0.19 vs ~57.0.18, expo-router ~57.0.22 vs ~57.0.21, etc. The trusted finalizer workflow requires this check to pass before export/prebuild/assembleRelease; no APK or emulator E2E can be produced while it fails.",
+      "evidence": "TRUSTED_35324430975.md tail: typecheck PASS, 22 suites 431 tests PASS, privacy:check PASS (71 tests), cost:check PASS (21 tests), then Skipped checking dependencies ... The following packages should be updated ... Found outdated dependencies -> Trusted verification exit code: 1. Candidate package.json still pins expo ~57.0.19, expo-constants ~57.0.16, expo-router ~57.0.18, etc., unchanged vs pristine.",
+      "mustFix": true,
+      "requiredFix": "Update dependencies to satisfy expo install --check (align package.json to expected ~57.0.24 / ~57.0.19 / ~57.0.22 / ~57.0.21 / ~57.0.16 or run npx expo install --fix and commit package.json/package-lock.json), then re-run trusted verification so it reaches expo export --platform android/ios, prebuild and assembleRelease with exit 0. This is a Builder-fixable product/config change; no workflow edit needed for this item.",
+      "verification": "Trusted verification must exit 0: npm run check (typecheck + 431 tests), privacy:check, cost:check all PASS, npx expo install --check PASS (no outdated), expo export android/ios PASS, prebuild PASS, assembleRelease builds app-release.apk, and e2e:android script present."
+    },
+    {
+      "path": ".github/workflows/chorescore-v3-finalize.yml (emulator step, lines 90-94; trusted-shell owned)",
+      "problem": "The trusted finalizer's Android API 35 emulator step still uses a multi-line script: | block. reactivecircus/android-emulator-runner@v2 splits the block into individual lines and executes each via sh -c; the first line set -euo pipefail is invalid under dash (/bin/sh on Ubuntu) and exits 2, so the step fails before APK install and golden path ever run. Same root cause as finalizer runs 35293489693, 35302658175 and 35315519533. Candidate delta is one test file and does not change the workflow, so the blocker persists; the next finalizer run will fail identically even if the expo version fix above passes.",
+      "evidence": "Current HEAD workflow shows script: | with set -euo pipefail, apk=$(find ...), adb install, npm run e2e:android (lines 90-94). Pristine accepted tree has identical workflow (diff vs pristine shows no workflow change). Local reproduction: sh -c 'set -euo pipefail' -> exit 2 (dash), bash -c 'set -euo pipefail' -> exit 0. Action source v2.33.0 lib/script-parser.js + lib/main.js line 208-211 confirms line-split via sh -c. scripts/finalizer-e2e.sh exists in baseline (1155 bytes, bash -n OK) but is never invoked.",
+      "mustFix": true,
+      "requiredFix": "Trusted shell (workflows are protected control-plane files; Builder cannot edit them): on main, replace the emulator step's multi-line script: | block with the single-line script: bash scripts/finalizer-e2e.sh, then re-run the trusted finalizer. Wrapper already contains complete APK locate/install + golden-path logic in one bash process. No additional product code change needed for this item.",
+      "verification": "Trusted finalizer run must pass the Android API 35 emulator step (release APK install, launch without Metro, golden path Ajouter/Balances/A faire with demo fixture) with exit 0, and finalize-success must attest V3 RC complete with evidence android-release-apk-sha256-<sha> and android-api35-install-launch-e2e-green."
+    },
+    {
+      "path": ".",
+      "problem": "Trusted product verification failed",
+      "evidence": "Authoritative verification log: reports/audits/TRUSTED_35324430975.md (exit 1)",
+      "mustFix": true,
+      "requiredFix": "Resolve the concrete failing trusted check without discarding already-correct candidate work, then rerun the full gate.",
+      "verification": "Full trusted V3 verification must return exit code 0."
+    }
+  ]
+}
