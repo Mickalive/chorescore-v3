@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "cycle": "35295951364",
+  "decision": "stop",
+  "reason": "V3-08 auditor accepted. The repair to scripts/e2e-android.js (transient uiautomator dump failure resilience) is minimal, confined to the E2E harness, and no product code was touched. Trusted verification passed (exit 0): typecheck clean, 21 suites / 426 tests pass, privacy:check PASS (static contract + 71 privacy tests), cost:check PASS (21 cost-gate tests), expo export/prebuild/android build successful. V3-08 is the final roadmap criterion and is now accepted by the auditor. However, V3-08 belongs to the trusted finalizer for completion marking — the trusted shell must verify APK install/launch/golden-path on device and iOS readiness before marking V3-08 complete in RELEASE_STATUS.json. The factory cycle can stop product work; the next step is the trusted finalizer re-run with the repaired E2E script.",
+  "progressEvidence": [
+    "audit-accepted-35295951364-V3-08-repair",
+    "trusted-verification-exit-0-426-tests-pass-privacy-cost-gates-green",
+    "single-file-delta-scripts-e2e-android.js-11-ins-2-del",
+    "no-product-code-touched-src-app-tests-byte-identical-to-pristine",
+    "transient-uiautomator-dump-failure-resilience-verified-by-mocked-adb-simulation",
+    "genuine-failure-detection-preserved-waitFor-throws-on-true-timeout",
+    "v3-01-through-v3-07-all-verified-preserved-no-regression"
+  ]
+}
