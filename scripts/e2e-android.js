@@ -83,6 +83,9 @@ function decode(value) {
 }
 
 function dumpUi() {
+  // Delete any previous dump file so that a failed dump always yields
+  // empty nodes instead of stale XML from a prior screen state.
+  try { shell('rm', '-f', '/sdcard/chorescore-window.xml'); } catch (_) {}
   try { shell('uiautomator', 'dump', '/sdcard/chorescore-window.xml'); } catch (_) {}
   let xml = '';
   try {
@@ -122,7 +125,7 @@ function swipeUp() { shell('input', 'swipe', '540', '1850', '540', '650', '350')
 
 function swipeToTop() {
   for (let i = 0; i < 5; i += 1) {
-    shell('input', 'swipe', '540', '600', '540', '1900', '250');
+    try { shell('input', 'swipe', '540', '600', '540', '1900', '250'); } catch (_) {}
     sleep(150);
   }
 }
@@ -132,7 +135,11 @@ function findVisible(label, { exact = false, scroll = true, last = false } = {})
   for (let i = 0; i < attempts; i += 1) {
     const matches = findNodes(label, exact);
     if (matches.length) return last ? matches[matches.length - 1] : matches[0];
-    if (scroll) swipeUp();
+    if (scroll) {
+      try { swipeUp(); } catch (_) {
+        // Swipe failed (emulator busy/transient) — retry dump next iteration
+      }
+    }
   }
   throw new Error(`UI node not found: ${label}`);
 }
@@ -197,7 +204,11 @@ function assertAbsent(label) {
 function screenshot(name) {
   const prefix = `${String(checkpoints.length + 1).padStart(2, '0')}-${name}`;
   const file = path.join(outputDir, `${prefix}.png`);
-  fs.writeFileSync(file, adb(['exec-out', 'screencap', '-p'], true));
+  try {
+    fs.writeFileSync(file, adb(['exec-out', 'screencap', '-p'], true));
+  } catch (_) {
+    // Screencap failed (emulator transient) — record checkpoint without file
+  }
   let uiDump = null;
   try {
     const dump = dumpUi();
@@ -205,7 +216,7 @@ function screenshot(name) {
     fs.writeFileSync(uiFile, dump.xml);
     uiDump = path.basename(uiFile);
   } catch (_) {}
-  checkpoints.push({ name, screenshot: path.basename(file), uiDump, at: new Date().toISOString() });
+  checkpoints.push({ name, screenshot: fs.existsSync(file) ? path.basename(file) : null, uiDump, at: new Date().toISOString() });
 }
 
 function writeResult(status, error = null) {
@@ -222,9 +233,9 @@ function writeResult(status, error = null) {
 }
 
 function launch() {
-  shell('am', 'force-stop', packageName);
+  try { shell('am', 'force-stop', packageName); } catch (_) {}
   try { shell('monkey', '-p', packageName, '-c', 'android.intent.category.LAUNCHER', '1'); } catch (_) {}
-  sleep(3000);
+  sleep(5000);
 }
 
 // ══════════════════════════════════════════════════════════════
