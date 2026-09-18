@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "cycle": "35335873422",
+  "decision": "continue",
+  "reason": "V3-08 audit decision is repair. The candidate delta is package-lock.json only (6 transitive dependency bumps from npm install) and does NOT address the trusted finalizer failure from Actions run 35333103534. The emulator step in .github/workflows/chorescore-v3-finalize.yml still uses a multi-line script: | block which reactivecircus/android-emulator-runner@v2 line-splits into sh -c (dash); dash rejects set -euo pipefail (exit 2) before APK install/golden path runs. This is the same documented root cause as finalizer runs 35293489693, 35302658175, and 35315519533. The workflow on main and lab still contains the multi-line block; the trusted shell never applied the documented one-line fix (script: bash scripts/finalizer-e2e.sh). The candidate is coherent (trusted verification exit 0, 431 tests pass, no regression on V3-01..V3-07) and is retained as WIP baseline per repair semantics, but the mustFix remains unresolved. V3-08 is the final roadmap criterion; the Builder cannot edit .github/workflows/ per AGENTS.md. The factory Builder loop stops here. All Builder-scoped work (product domain V3-01, UI structure V3-02, Ajouter V3-03, Balances V3-04, A faire V3-05, Invitations/sync V3-06, Data product V3-07, and V3-08 product/privacy/cost gates plus finalizer-e2e.sh wrapper) is auditor-accepted. V3-08 final completion belongs to the trusted release finalizer.",
+  "progressEvidence": [
+    "audit-repair-35335873422-V3-08",
+    "candidate-delta-only-package-lock-json-6-transitive-bumps",
+    "trusted-verification-exit-0-typecheck-431-tests-privacy-71-cost-21",
+    "expo-install-check-pass-dependencies-up-to-date",
+    "expo-export-android-ios-pass-1318-modules-3.2MB-hbc",
+    "expo-prebuild-pass-and-gradle-BUILD-SUCCESSFUL-395-tasks-20m43s",
+    "scripts-finalizer-e2e.sh-preserved-1155-bytes-bash-n-OK",
+    "scripts-e2e-android.js-preserved-node-check-OK",
+    "WIP-wrapper-test-v3-08-finalizer-wrapper-test-passing",
+    "no-regression-V3-01-through-V3-07-no-prohibited-patterns",
+    "mustFix-unchanged-trusted-finalizer-emulator-step-script-pipe-block",
+    "root-cause-dash-rejects-pipefail-exit-2-same-as-runs-35293489693-35302658175-35315519533",
+    "workflow-on-main-still-contains-multi-line-script-block",
+    "trusted-shell-never-applied-documented-one-line-fix",
+    "Builder-scope-boundary-workflow-edit-is-trusted-shell-owned",
+    "trusted-finalizer-owns-V3-08-completion-APK-install-launch-golden-path-iOS-readiness"
+  ]
+}
