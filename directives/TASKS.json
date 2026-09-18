@@ -2,20 +2,11 @@
   "schemaVersion": 1,
   "milestone": "v3-rc",
   "builder": {
-    "enabled": true,
-    "criterionId": "V3-08",
-    "objective": "REPAIR V3-08: Update dependencies to satisfy expo install --check (align package.json to expected ~57.0.24 / ~57.0.19 / ~57.0.22 / ~57.0.21 / ~57.0.16 or run npx expo install --fix and commit package.json/package-lock.json), then re-run trusted verification so it reaches expo export --platform android/ios, prebuild and assembleRelease with exit 0. This is a Builder-fixable product/config change; no workflow edit needed for this item.; Trusted shell (workflows are protected control-plane files; Builder cannot edit them): on main, replace the emulator step's multi-line script: | block with the single-line script: bash scripts/finalizer-e2e.sh, then re-run the trusted finalizer. Wrapper already contains complete APK locate/install + golden-path logic in one bash process. No additional product code change needed for this item.; Resolve the concrete failing trusted check without discarding already-correct candidate work, then rerun the full gate.",
-    "scope": "Repair only the audited must-fix findings on the preserved V3 baseline; do not rebuild accepted work.",
-    "acceptance": [
-      "npx expo install --check exits 0 (no outdated dependencies)",
-      "npm run check (typecheck + 431 tests) PASS",
-      "privacy:check PASS (71 tests)",
-      "cost:check PASS (21 tests, 10 gates)",
-      "expo export --platform android and --platform ios PASS",
-      "expo prebuild --platform android --no-install PASS",
-      "assembleRelease builds app-release.apk",
-      "WIP delta v3-08-finalizer-wrapper.test.ts preserved"
-    ],
+    "enabled": false,
+    "criterionId": null,
+    "objective": "V3-08 handed to trusted release finalizer.",
+    "scope": "Trusted finalizer only.",
+    "acceptance": [],
     "previousCriteriaPreserved": [
       "V3-01: accepted and must not regress",
       "V3-02: accepted and must not regress",

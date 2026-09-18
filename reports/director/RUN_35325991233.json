@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "cycle": "35325991233",
+  "decision": "stop",
+  "reason": "V3-08 audit decision is accept with a product delta (hasDelta=true). The Builder-fixable mustFix F1 (npx expo install --check outdated dependencies) is resolved: package.json/package-lock.json now align to expo ~57.0.24, expo-constants ~57.0.19, expo-router ~57.0.22, expo-sharing ~57.0.21, @expo/metro-runtime ~57.0.16, and trusted verification exits 0 with all gates green (typecheck PASS, 22 suites / 431 tests PASS, privacy:check PASS 71 tests, cost:check PASS 21 tests / 10 gates, expo install --check 'Dependencies are up to date', expo export android/ios PASS, prebuild PASS, Gradle BUILD SUCCESSFUL 395 tasks in 19m26s). Candidate delta vs pristine is only package.json + package-lock.json; the WIP wrapper contract test is preserved; no regression on V3-01..V3-07; no prohibited patterns. The only remaining blocker is F2, the trusted-shell-owned workflow emulator multi-line script: | block in .github/workflows/chorescore-v3-finalize.yml, which the Builder cannot edit per AGENTS.md. V3-08 is the final roadmap criterion and all Builder-scoped work is accepted; the factory Builder loop stops here. V3-08 final completion belongs to the trusted release finalizer: trusted shell must replace the emulator step with 'script: bash scripts/finalizer-e2e.sh' on main, re-run the finalizer, and attest android-release-apk-sha256-<sha> plus android-api35-install-launch-e2e-green (release APK install, launch without Metro, golden path Ajouter/Balances/A faire) and iOS readiness before marking V3-08 complete.",
+  "progressEvidence": [
+    "audit-accepted-35325991233-V3-08-repair",
+    "trusted-verification-exit-0-typecheck-431-tests-privacy-71-cost-21",
+    "expo-install-check-pass-dependencies-up-to-date",
+    "expo-export-android-ios-pass-1318-modules-3.2MB-hbc",
+    "expo-prebuild-pass-and-gradle-BUILD-SUCCESSFUL-395-tasks-19m26s",
+    "package-json-aligned-expo-57.0.24-constants-57.0.19-router-57.0.22-sharing-57.0.21-metro-runtime-57.0.16",
+    "candidate-delta-only-package-json-package-lock-json-vs-pristine",
+    "WIP-wrapper-test-v3-08-finalizer-wrapper.test.ts-preserved-and-passing",
+    "scripts-finalizer-e2e.sh-present-bash-n-OK-single-shell-golden-path-logic",
+    "no-regression-V3-01-through-V3-07-no-prohibited-patterns",
+    "F2-workflow-emulator-script-pipe-block-unchanged-trusted-shell-owned",
+    "trusted-finalizer-owns-V3-08-completion-APK-install-launch-golden-path-iOS-readiness"
+  ]
+}
