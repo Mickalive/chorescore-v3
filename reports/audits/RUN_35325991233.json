@@ -1,0 +1,37 @@
+{
+  "schemaVersion": 1,
+  "cycle": "35325991233",
+  "role": "builder",
+  "decision": "accept",
+  "summary": "V3-08 REPAIR accepted. Builder fixed expo dependency alignment (expo ~57.0.24, expo-constants ~57.0.19, expo-router ~57.0.22, expo-sharing ~57.0.21, @expo/metro-runtime ~57.0.16) as required; trusted verification now exits 0 with all gates green (typecheck PASS, 22 suites 431 tests PASS, privacy:check 71 PASS, cost:check 21 PASS 10 gates, expo install --check 'Dependencies are up to date', expo export android/ios PASS, prebuild PASS, Gradle BUILD SUCCESSFUL in 19m26s with 395 tasks). Candidate delta vs pristine is only package.json/package-lock.json; WIP wrapper test preserved. No regression, no prohibited patterns. Workflow emulator script multi-line remains but is protected control-plane owned by trusted shell per AGENTS.md and not a Builder mustFix for this item.",
+  "checks": [
+    "trusted verification: exit 0 — reports/audits/TRUSTED_35325991233.md shows typecheck PASS, 22 suites / 431 tests PASS, privacy:check PASS (71 tests), cost:check PASS (21 tests, 10 gates), expo install --check 'Dependencies are up to date' (skipped worklets/typescript), export android/ios PASS, prebuild PASS, Gradle BUILD SUCCESSFUL 395 tasks in 19m26s",
+    "npx expo install --check: exit 0 independent verification 'Dependencies are up to date' (was FAIL outdated in 35324430975, now fixed)",
+    "package.json diff vs pristine: expo ~57.0.19 -> ~57.0.24, expo-constants ~57.0.16 -> ~57.0.19, expo-router ~57.0.18 -> ~57.0.22, expo-sharing ~57.0.17 -> ~57.0.21, @expo/metro-runtime ~57.0.14 -> ~57.0.16 — matches expected versions in TASKS objective (~57.0.24 / ~57.0.19 / ~57.0.22 / ~57.0.21 / ~57.0.16)",
+    "candidate delta vs pristine accepted tree: only package.json + package-lock.json differ (74 lines); src/, scripts/, __tests__/ identical to pristine (diff -rq confirms); .gradle/android build artifacts are ephemeral build output not product delta",
+    "WIP preservation: __tests__/domain/v3-08-finalizer-wrapper.test.ts exists and passes (wrapper contract test preserved from baseline); scripts/finalizer-e2e.sh exists 1155 bytes bash -n OK with set -euo pipefail, find apk, empty guards, adb install -r, npm run e2e:android; scripts/e2e-android.js node --check OK with auto-locate android/app/build/outputs/apk/release",
+    "export/prebuild/build evidence: TRUSTED log shows 'Android Bundled 18136ms expo-router/entry (1318 modules)', 'Exported: /home/runner/work/_temp/v3-audit-export', 'Cleared android code', 'Created native directory', 'Finished prebuild', gradle BUILD SUCCESSFUL",
+    "regression sweep V3-01..V3-07: 431 tests cover ledgers zero-sum per currency, integer minor units, cross-ledger snapshot immutable, Minutes/Points never silently converted, materialized balances == ledger reconstruction, revision/tombstone, property invariants, contribution-expense CRUD, todo atomic completion, V3-06 sync/auth/delta, V3-07 privacy (deterministic taxonomy 3.0.0, cache, rare-cell suppression, query budget, buyer contracts, differential privacy) — all PASS",
+    "cost gates V3-08: 10 gates PASS — 50k entries ≤5 reads, tab-switch 0 reads, 3-delta sync incremental, writes bounded (1 write per contribution/expense), 10k identical labels 1 classification, privacy gate clean, budgets defined, offline fallback, golden path, WCAG AA, no chrono/premium",
+    "prohibited patterns: grep src shows no ChronoTimer/chrono (only comment 'No chrono'), no Premium/paywall/subscription/entitlement, no hash-as-anonymization, no blind LWW (SyncMaterializer explicitly says blind LWW never used), no cross-currency netting (per-currency balances), no silent Minutes/Points conversion, no destructive history, no Firebase types in domain",
+    "workflow state: .github/workflows/chorescore-v3-finalize.yml emulator step still script: | multi-line (lines 90-94) — confirmed via cat workflow — but workflows are protected control-plane per AGENTS.md; Builder cannot edit; fix is trusted-shell owned per TASKS and docs/NEXT_CYCLE.md F2; single-line bash scripts/finalizer-e2e.sh wrapper is ready but invocation is shell-side not builder-side; not blocking Builder accept"
+  ],
+  "findings": [
+    {
+      "path": "package.json / package-lock.json (expo dependency alignment)",
+      "problem": "Previously F1: expo install --check failed with outdated dependencies (expo 57.0.19 vs expected 57.0.24, etc.) causing trusted verification exit 1. This repair cycle was required to align package.json to expected SDK 57 patch versions.",
+      "evidence": "Diff package.json pristine -> candidate: expo ~57.0.19->~57.0.24, expo-constants ~57.0.16->~57.0.19, expo-router ~57.0.18->~57.0.22, expo-sharing ~57.0.17->~57.0.21, @expo/metro-runtime ~57.0.14->~57.0.16. npx expo install --check now 'Dependencies are up to date' exit 0. TRUSTED_35325991233.md shows typecheck PASS, 431 tests PASS, privacy 71 PASS, cost 21 PASS, export PASS, prebuild PASS, BUILD SUCCESSFUL 395 tasks 19m26s, Trusted verification exit code: 0.",
+      "mustFix": false,
+      "requiredFix": "No further fix — already aligned via npx expo install --fix and committed. Verification was re-running trusted verification to reach expo export/prebuild/build with exit 0, now achieved.",
+      "verification": "npx expo install --check exit 0, npm run check PASS, privacy:check PASS, cost:check PASS, expo export android/ios PASS, prebuild PASS, Gradle build SUCCESSFUL; candidate vs pristine diff shows only version bumps."
+    },
+    {
+      "path": ".github/workflows/chorescore-v3-finalize.yml (emulator step lines 90-94; trusted-shell owned)",
+      "problem": "Workflow still uses multi-line script: | block (set -euo pipefail, apk=$(find ...), adb install, npm run e2e:android) which reactivecircus/android-emulator-runner@v2 splits into sh -c per line where dash rejects pipefail. This caused prior finalizer failures 35293489693/35302658175/35315519533 and remains in candidate checkout. However AGENTS.md protects workflows as control-plane; Builder cannot edit them (F2 in NEXT_CYCLE.md is explicitly trusted-shell scope).",
+      "evidence": "cat .github/workflows/chorescore-v3-finalize.yml shows script: | with 4 lines at emulator step. diff -rq vs pristine shows no workflow change. scripts/finalizer-e2e.sh exists bash -n OK (1155 bytes) with complete single-shell logic but not yet invoked by workflow. TASKS.json explicitly says 'Trusted shell (workflows are protected...) on main, replace ... with bash scripts/finalizer-e2e.sh, then re-run trusted finalizer. No additional product code change needed.'",
+      "mustFix": false,
+      "requiredFix": "Trusted shell on main: replace emulator step's multi-line script: | block with single-line script: bash scripts/finalizer-e2e.sh, then re-run trusted finalizer. Builder already delivered required product/config fix (expo versions) and wrapper contract test; workflow change is out of Builder scope and does not block product acceptance.",
+      "verification": "Trusted finalizer after shell fix must pass Android API 35 emulator step (release APK install, launch without Metro, golden path Ajouter/Balances/A faire) with exit 0 and attest android-release-apk-sha256 and android-api35-install-launch-e2e-green. Product-side gates already green (exit 0)."
+    }
+  ]
+}
