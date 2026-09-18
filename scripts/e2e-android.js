@@ -84,7 +84,12 @@ function decode(value) {
 
 function dumpUi() {
   try { shell('uiautomator', 'dump', '/sdcard/chorescore-window.xml'); } catch (_) {}
-  const xml = adb(['exec-out', 'cat', '/sdcard/chorescore-window.xml']);
+  let xml = '';
+  try {
+    xml = adb(['exec-out', 'cat', '/sdcard/chorescore-window.xml']);
+  } catch (_) {
+    return { xml: '', nodes: [] };
+  }
   const nodes = [];
   for (const nodeMatch of xml.matchAll(/<node\b([^>]*)\/?>(?:<\/node>)?/g)) {
     const attrs = {};
@@ -175,7 +180,11 @@ function back() { shell('input', 'keyevent', 'KEYCODE_BACK'); sleep(500); }
 function waitFor(label, timeoutMs = 10000) {
   const until = Date.now() + timeoutMs;
   while (Date.now() < until) {
-    if (findNodes(label).length) return;
+    try {
+      if (findNodes(label).length) return;
+    } catch (_) {
+      // UI dump failed transiently — retry after sleep
+    }
     sleep(300);
   }
   throw new Error(`Timed out waiting for ${label}`);
