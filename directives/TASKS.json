@@ -2,18 +2,11 @@
   "schemaVersion": 1,
   "milestone": "v3-rc",
   "builder": {
-    "enabled": true,
-    "criterionId": "V3-08",
-    "objective": "REPAIR V3-08: Fix the waitFor('Contribution') call to pass a numeric timeout, e.g. waitFor('Contribution', 15000) — the options object is meaningless for waitFor (it accepts only label and timeoutMs); if scrolling is required before the check, use findVisible/tapLabel semantics or a numeric timeout. Keep the APK-path repair intact.",
-    "scope": "Repair only the audited must-fix findings on the preserved V3 baseline; do not rebuild accepted work.",
-    "acceptance": [
-      "scripts/e2e-android.js passes numeric timeout to waitFor('Contribution', ...) at line 287",
-      "Mocked-adb simulation no longer throws at the Contribution golden-path step",
-      "tsc --noEmit exits 0",
-      "All 426 tests pass across 21 suites",
-      "No regression on V3-01 through V3-07",
-      "Script reaches writeResult('pass') in golden-path simulation"
-    ],
+    "enabled": false,
+    "criterionId": null,
+    "objective": "V3-08 handed to trusted release finalizer.",
+    "scope": "Trusted finalizer only.",
+    "acceptance": [],
     "previousCriteriaPreserved": [
       "V3-01: accepted and must not regress",
       "V3-02: accepted and must not regress",

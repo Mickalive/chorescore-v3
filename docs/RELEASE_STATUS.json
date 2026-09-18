@@ -1,12 +1,10 @@
 {
   "schemaVersion": 1,
   "milestone": "v3-rc",
-  "lastCycle": "35284783701",
-  "activeCriteria": [
-    "V3-08"
-  ],
-  "pendingArtifact": null,
-  "progressSummary": "Audited V3-08 requires repair; WIP baseline preserved when a safe delta existed.",
+  "lastCycle": "35288409235",
+  "activeCriteria": [],
+  "pendingArtifact": "V3-08-RELEASE",
+  "progressSummary": "V3-08 independently accepted; trusted mobile finalizer owns APK/install/runtime/E2E completion.",
   "criteria": [
     {
       "id": "V3-01",
@@ -77,24 +75,16 @@
         "audit-accepted-35271021564",
         "apk-path-repair-correct-exposed-waitFor-bug",
         "trusted-verification-exit-0-426-tests-pass",
-        "audit-repair-35284783701"
+        "audit-repair-35284783701",
+        "audit-accepted-35288409235"
       ]
     }
   ],
-  "openFindings": [
-    {
-      "path": "scripts/e2e-android.js (line 287)",
-      "problem": "The golden path calls waitFor('Contribution', { exact: false, scroll: true, waitMs: 500 }) passing an options object as the timeoutMs parameter. waitFor(label, timeoutMs = 10000) computes 'const until = Date.now() + timeoutMs' — with an object this string-concatenates to '<timestamp>[object Object]' — so 'Date.now() < until' is always false, the polling loop never executes, and the function throws 'Timed out waiting for Contribution' immediately regardless of the app state. This is a guaranteed failure of the golden path E2E (a V3-08 acceptance criterion and the trusted finalizer's last step) at step 6 'Verify dual ledger sections' in the real emulator environment: the finalizer would fail, reopen V3-08, and the repair objective (make the trusted finalizer pass) would not be met. The bug is pre-existing in the accepted baseline (identical line in the pristine tree) and was never reached by previous audits because the APK-path guard threw first; the current candidate's fix now lets the script reach this step, exposing it.",
-      "evidence": "scripts/e2e-android.js line 287: 'waitFor('Contribution', { exact: false, scroll: true, waitMs: 500 });' vs function signature line 175 'function waitFor(label, timeoutMs = 10000)'; node reproduction: 'const until = Date.now() + { exact: false, scroll: true, waitMs: 500 }' -> until type 'string', value '<timestamp>[object Object]', 'Date.now() < until' -> false, waitFor throws 'Timed out waiting for Contribution' immediately; all other 10 waitFor calls in the script pass numeric timeouts (60000/30000/15000/10000); mocked-adb simulation of the candidate reaches this line and throws, confirming the golden path cannot pass step 6; the same line exists in /home/runner/work/_temp/accepted-pristine/scripts/e2e-android.js line 258 (pre-existing, not introduced by this delta)",
-      "mustFix": true,
-      "requiredFix": "Fix the waitFor('Contribution') call to pass a numeric timeout, e.g. waitFor('Contribution', 15000) — the options object is meaningless for waitFor (it accepts only label and timeoutMs); if scrolling is required before the check, use findVisible/tapLabel semantics or a numeric timeout. Keep the APK-path repair intact.",
-      "verification": "With the fix, the script must pass the golden path in the finalizer emulator environment (no CHORESCORE_APK_PATH, package pre-installed via adb install -r): 'npm run e2e:android' must reach writeResult('pass') and exit 0; a mocked-adb simulation must no longer throw at the Contribution step; the trusted finalizer run must pass the Android API 35 install/launch/golden-path step."
-    }
-  ],
+  "openFindings": [],
   "factoryHealth": {
     "stalled": false,
     "consecutiveNoProgress": 0,
-    "lastProductSha": "4603cddb27b9568f8b0277ccbcdcf26c10a2ac9e",
+    "lastProductSha": "772423a91c82a3982d0e2c7d2d8826d9e267e24a",
     "reason": null
   }
 }
