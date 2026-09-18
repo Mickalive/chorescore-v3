@@ -284,7 +284,7 @@ try {
   screenshot('05-balances');
 
   // 6. Verify dual ledger sections
-  waitFor('Contribution', { exact: false, scroll: true, waitMs: 500 });
+  waitFor('Contribution', 15000);
   screenshot('06-balances-detail');
 
   // 7. Switch to A faire tab
