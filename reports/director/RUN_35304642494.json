@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "cycle": "35304642494",
+  "decision": "continue",
+  "reason": "V3-08 repair: the auditor correctly diagnosed that the concrete finalizer blocker is NOT in scripts/e2e-android.js but in the workflow file itself. reactivecircus/android-emulator-runner@v2 splits the multi-line `script: |` block into individual lines and executes each via a separate `sh -c`. Line 1 `set -euo pipefail` fails in dash (Ubuntu /bin/sh) with 'set: Illegal option -o pipefail' and exit code 2 — the E2E script never runs. Even without line 1, the apk variable is lost between separate shells. The Builder's E2E hardening (stale dump deletion, swipe/screencap/force-stop try/catch, longer launch sleep) is sound and must be preserved as WIP baseline, but it cannot fix the finalizer because the script never executes. The fix requires two parts: (1) Builder creates `scripts/finalizer-e2e.sh` containing the complete golden-path logic in a single shell (Builder scope); (2) trusted shell updates the workflow's emulator step to `script: bash scripts/finalizer-e2e.sh` (trusted-shell scope, Builder is forbidden from modifying workflows). Both parts are necessary and neither alone suffices. V3-01..V3-07 remain untouched and preserved — all 426 tests pass, privacy/cost gates green, no product code delta.",
+  "progressEvidence": [
+    "audit-repair-35304642494-V3-08",
+    "trusted-verification-exit-0-426-tests-pass-privacy-cost-gates-green",
+    "root-cause-proven-workflow-multi-line-script-split-by-action-line-by-line",
+    "set-euo-pipefail-fails-in-dash-exit-code-2-before-adb-install",
+    "apk-variable-lost-between-separate-shell-invocations",
+    "independent-simulation-reproduces-exact-finalizer-annotation",
+    "E2E-hardening-delta-preserved-as-WIP-baseline-1-file-17-ins-6-del",
+    "no-product-code-touched-no-regression-V3-01-through-V3-07",
+    "next-cycle-Builder-creates-scripts-finalizer-e2e.sh",
+    "next-cycle-trusted-shell-updates-workflow-emulator-step"
+  ]
+}

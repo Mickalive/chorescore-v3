@@ -1,12 +1,12 @@
 {
   "schemaVersion": 1,
   "milestone": "v3-rc",
-  "lastCycle": "35295951364",
+  "lastCycle": "35304642494",
   "activeCriteria": [
     "V3-08"
   ],
   "pendingArtifact": null,
-  "progressSummary": "V3-08 reopened after trusted finalizer failure in run 35302658175",
+  "progressSummary": "Audited V3-08 requires repair; WIP baseline preserved when a safe delta existed.",
   "criteria": [
     {
       "id": "V3-01",
@@ -85,18 +85,26 @@
   ],
   "openFindings": [
     {
-      "path": "release",
-      "problem": "Trusted V3 finalizer failed",
-      "evidence": "GitHub Actions finalizer run 35302658175",
+      "path": ".github/workflows/chorescore-v3-finalize.yml (step 'Android API 35 install, launch and golden path', script: | block lines 84-94)",
+      "problem": "The concrete trusted finalizer blocker: the emulator step's multi-line script block is executed line-by-line by reactivecircus/android-emulator-runner@v2 (each line via a separate `sh -c`), and line 1 `set -euo pipefail` fails in dash (Ubuntu /bin/sh) with 'set: Illegal option -o pipefail' and exit code 2. The step therefore fails before `adb install` and before `npm run e2e:android` — the E2E golden path never runs. This is the exact failure of finalizer runs 35293489693 and 35302658175 (annotation 'The process /usr/bin/sh failed with exit code 2'). Even if line 1 were removed, the `apk=$(find ...)` variable is lost between lines (separate shells), so `adb install -r \"$apk\"` would receive an empty path.",
+      "evidence": "GitHub Actions API: both finalizer runs failed at step 7 with annotation 'The process /usr/bin/sh failed with exit code 2' (check-runs annotations). Action source at the exact v2 tag commit a421e43855164a8197daf9d8d40fe71c6996bb0d: lib/script-parser.js splits on newlines; lib/main.js runs each line via exec.exec('sh', ['-c', script]). Independent simulation: `sh -c 'set -euo pipefail'` → 'sh: 1: set: Illegal option -o pipefail', exit 2; simulation of the full block fails at line 1 with exit 2; simulation without line 1 fails at `adb install -r \"$apk\"` with an empty path.",
       "mustFix": true,
-      "requiredFix": "Inspect the exact trusted finalizer failure and repair only the concrete product/privacy/cost/APK/runtime/E2E blocker while preserving V3-01..V3-07.",
-      "verification": "Trusted V3 finalizer must pass product, privacy and cost gates, APK build, install/launch and golden path."
+      "requiredFix": "Change the workflow's emulator step to invoke the golden path as a SINGLE line so the action cannot split it, e.g. `script: bash scripts/finalizer-e2e.sh` (or a single-line `bash -euo pipefail -c '...'`). The workflow file is trusted-shell owned; the Builder provides scripts/finalizer-e2e.sh containing: set -euo pipefail; apk=$(find android/app/build/outputs/apk/release -type f -name '*.apk' | head -1); adb install -r \"$apk\"; npm run e2e:android. The E2E script already auto-locates the APK and skips install when the package is present, so the script file only needs the same logic in one shell.",
+      "verification": "A trusted finalizer run passes step 7 end-to-end on an API 35 emulator: adb install succeeds, `npm run e2e:android` executes and exits 0, and the golden-path checkpoints (login, groups, tabs, add, balances, todos, back-to-add) are recorded."
+    },
+    {
+      "path": "scripts/e2e-android.js",
+      "problem": "The candidate does not meet the active criterion: it hardens the E2E script against transient emulator failures (stale dump deletion, swipe/screencap/force-stop try/catch, longer launch sleep), but the script never executes in the finalizer because the workflow fails at line 1 of its script block (see workflow finding). The finalizer would fail again with exit code 2 even with this candidate applied.",
+      "evidence": "Simulation of the action's line-splitting on the workflow's exact script block fails at line 1 (`set -euo pipefail`, exit 2) before any adb or npm command runs; the candidate delta touches only scripts/e2e-android.js; the workflow file is byte-identical on main and lab and unchanged by the candidate.",
+      "mustFix": true,
+      "requiredFix": "In the next cycle, add the workflow-compatible invocation path: create scripts/finalizer-e2e.sh (Builder scope) with the install + golden-path logic in a single shell, and have the trusted shell change the workflow's emulator step to `script: bash scripts/finalizer-e2e.sh`. Keep the E2E hardening — it is necessary once the script actually runs, and it is coherent (no regressions, trusted verification exit 0).",
+      "verification": "Finalizer step 7 passes end-to-end on a real API 35 emulator with the workflow change and the script file; the hardened E2E script survives transient uiautomator dump / swipe / screencap failures while still failing on genuine golden-path violations."
     }
   ],
   "factoryHealth": {
     "stalled": false,
     "consecutiveNoProgress": 0,
-    "lastProductSha": "a5cb78d8cbea74ee49ee82c96cf36d27f5a28889",
+    "lastProductSha": "9a45e363682d9b5a5d792b2106270e684beb701a",
     "reason": null
   }
 }
