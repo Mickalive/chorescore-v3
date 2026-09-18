@@ -4,7 +4,7 @@
   "builder": {
     "enabled": true,
     "criterionId": "V3-08",
-    "objective": "REPAIR V3-08: Trusted shell (sole owner of .github/workflows/ per AGENTS.md): on main, replace the emulator step's multi-line script: | block with the single-line 'script: bash scripts/finalizer-e2e.sh', then re-run the trusted finalizer. The Builder-scoped single-shell wrapper already exists and is preserved; no product code change is needed.",
+    "objective": "REPAIR V3-08: Trusted shell (sole owner of .github/workflows/ per AGENTS.md): on main, replace the emulator step's multi-line 'script: |' block with the single-line 'script: bash scripts/finalizer-e2e.sh', commit to main, then re-run the trusted finalizer. No product code change is needed — the Builder-scoped wrapper is preserved.",
     "scope": "Repair only the audited must-fix findings on the preserved V3 baseline; do not rebuild accepted work.",
     "acceptance": [],
     "previousCriteriaPreserved": [

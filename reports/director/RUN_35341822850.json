@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "cycle": "35341822850",
+  "decision": "continue",
+  "reason": "V3-08 audit decision is repair. The candidate delta is empty (no product code changes vs pristine); the only change is the new audit report files themselves. The single mustFix finding persists unchanged: .github/workflows/chorescore-v3-finalize.yml on origin/main still contains the broken multi-line script: | block at the emulator step (lines 90-94) instead of the single-line 'script: bash scripts/finalizer-e2e.sh'. This is the same root cause documented across 5 consecutive finalizer failures (runs 35293489693, 35302658175, 35315519533, 35333103534, and the current state). The Builder-scoped wrapper (scripts/finalizer-e2e.sh) exists, is valid bash, and is preserved. Trusted verification exits 0 with all product/privacy/cost/export/prebuild/build gates green and 431 tests passing. All V3-01 through V3-07 remain complete with zero regression. However, .github/workflows/ is trusted-shell-owned per AGENTS.md; the Builder cannot edit it. No new Builder cycle can deliver the required one-line workflow fix. The factory Builder loop must stop. V3-08 final completion belongs exclusively to the trusted release finalizer.",
+  "progressEvidence": [
+    "audit-repair-35341822850-V3-08",
+    "candidate-delta-empty-no-product-code-changes-vs-pristine",
+    "trusted-verification-exit-0-typecheck-431-tests-privacy-71-cost-21",
+    "expo-install-check-pass-dependencies-up-to-date",
+    "expo-export-android-ios-pass-1318-modules-3.2MB-hbc",
+    "expo-prebuild-pass-and-gradle-BUILD-SUCCESSFUL-395-tasks",
+    "scripts-finalizer-e2e.sh-preserved-valid-bash",
+    "scripts-e2e-android.js-preserved-valid-node",
+    "wrapper-test-v3-08-finalizer-wrapper-test-passing",
+    "no-regression-V3-01-through-V3-07-all-suites-green",
+    "no-chrono-premium-paywall-in-codebase",
+    "mustFix-unchanged-workflow-emulator-step-multi-line-script-block",
+    "root-cause-dash-rejects-pipefail-exit-2-5th-consecutive-finalizer-failure",
+    "workflow-on-main-still-contains-multi-line-script-block-untouched",
+    "trusted-shell-never-applied-documented-one-line-fix",
+    "Builder-scope-boundary-workflow-edit-is-trusted-shell-owned",
+    "trusted-finalizer-owns-V3-08-completion-APK-install-launch-golden-path-iOS-readiness"
+  ]
+}
