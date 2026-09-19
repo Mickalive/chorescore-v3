@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "cycle": "35414682827",
+  "decision": "continue",
+  "reason": "V3-08 audit decision is repair. The candidate delta adds a valid regression guard test (+24 lines) asserting the workflow emulator step uses the single-line 'script: bash scripts/finalizer-e2e.sh' form. The audit independently confirmed this guard is correct: the workflow at head_sha 0f36b1f already contained the single-line form. However, the audit also proved the candidate's root-cause comment is factually wrong for run 35413347057: that run executed with the single-line form already in place and STILL failed at the emulator step with exit code 1 after ~10 minutes. The multi-line form caused failures in earlier runs (35293489693, 35302658175, 35315519533, 35333103534) via dash rejecting 'set -euo pipefail' (exit 2), but run 35413347057 has a DIFFERENT root cause (exit 1, after 10 minutes): emulator boot timeout/flake, adb install failure, or E2E golden-path failure in the release APK. All V3-01 through V3-07 remain complete with zero regression. 432 tests pass, privacy 71, cost 21, BUILD SUCCESSFUL. The concrete blocker (trusted finalizer emulator step failure) remains open. Next cycle must add diagnostic instrumentation to e2e-android.js and/or finalizer-e2e.sh to surface the actual failure cause, rather than continuing to attribute it to the already-fixed multi-line form.",
+  "progressEvidence": [
+    "audit-repair-35414682827-V3-08",
+    "candidate-delta-regression-guard-test-only-24-lines",
+    "regression-guard-test-valid-workflow-uses-single-line-form",
+    "trusted-verification-exit-0-typecheck-432-tests-privacy-71-cost-21",
+    "expo-export-android-ios-pass",
+    "expo-prebuild-and-gradle-BUILD-SUCCESSFUL",
+    "scripts-finalizer-e2e.sh-preserved-valid-bash",
+    "scripts-e2e-android.js-preserved-valid-node",
+    "wrapper-test-passing-6-6",
+    "no-regression-V3-01-through-V3-07-all-suites-green",
+    "no-chrono-premium-paywall-in-codebase",
+    "audit-root-cause-correction-run-35413347057-had-single-line-form",
+    "run-35413347057-failed-exit-1-after-10-min-different-root-cause",
+    "all-5-actual-finalizer-runs-failed-at-emulator-step",
+    "mustFix-trusted-finalizer-blocker-not-resolved-exit-1-emulator-step",
+    "next-cycle-must-add-diagnostic-instrumentation-to-e2e-scripts"
+  ]
+}

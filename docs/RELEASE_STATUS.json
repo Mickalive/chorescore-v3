@@ -1,12 +1,12 @@
 {
   "schemaVersion": 1,
   "milestone": "v3-rc",
-  "lastCycle": "35351917454",
+  "lastCycle": "35414682827",
   "activeCriteria": [
     "V3-08"
   ],
   "pendingArtifact": null,
-  "progressSummary": "V3-08 reopened after trusted finalizer failure in run 35413347057",
+  "progressSummary": "Audited V3-08 requires repair; WIP baseline preserved when a safe delta existed.",
   "criteria": [
     {
       "id": "V3-01",
@@ -87,18 +87,18 @@
   ],
   "openFindings": [
     {
-      "path": "release",
-      "problem": "Trusted V3 finalizer failed",
-      "evidence": "GitHub Actions finalizer run 35413347057",
+      "path": "release — trusted finalizer emulator step (run 35413347057, step 7 'Android API 35 install, launch and golden path')",
+      "problem": "The candidate misattributes the failure of run 35413347057 to the multi-line 'script: |' form and adds only a regression guard for that already-fixed issue. GitHub API proves the run executed with head_sha 0f36b1f ('Fix V3 finalizer emulator shell'), so the workflow already contained the single-line 'script: bash scripts/finalizer-e2e.sh' form. The run still failed at the emulator step with exit code 1 after ~10 minutes. The candidate changes nothing that affects the emulator step, scripts/finalizer-e2e.sh, scripts/e2e-android.js or the app, so the concrete blocker is unfixed and the trusted finalizer cannot pass. The test comment's root-cause claim ('the multi-line script: | form ... exits 2 before the APK install and golden path ever run' for run 35413347057) is factually incorrect.",
+      "evidence": "GitHub API: run 35413347057 head_sha=0f36b1fdfb69d (workflow at that commit has 'script: bash scripts/finalizer-e2e.sh', verified via git show 0f36b1f:.github/workflows/chorescore-v3-finalize.yml); job 105817142401 step 7 conclusion=failure, started 2026-09-19T01:56:21Z completed 02:06:21Z; check-run annotation 'The process /usr/bin/sh failed with exit code 1' (path .github line 442); steps 5 (gates) and 6 (APK locate/hash) succeeded. All 5 actual finalizer runs (35293489693, 35302658175, 35315519533, 35333103534, 35413347057) failed at the same emulator step; runs 11/12/14/16 used the multi-line form (action source reactivecircus/android-emulator-runner@v2 src/script-parser.ts line-splits and src/main.ts executes each line via 'sh -c', where dash rejects 'set -euo pipefail' with exit 2), while run 22 used the single-line form and failed with exit 1 — a different root cause. The 'successful' schedule runs (35290093639, 35280202077, 35308123555, 35328441596, 35351344961, 35373075367, 35387142937, 35398964518, 35406890615) had the release job SKIPPED (pendingArtifact not set) and never ran the emulator step. Candidate delta vs pristine: only __tests__/domain/v3-08-finalizer-wrapper.test.ts (+24 lines).",
       "mustFix": true,
-      "requiredFix": "Inspect the exact trusted finalizer failure and repair only the concrete product/privacy/cost/APK/runtime/E2E blocker while preserving V3-01..V3-07.",
-      "verification": "Trusted V3 finalizer must pass product, privacy and cost gates, APK build, install/launch and golden path."
+      "requiredFix": "Obtain the actual step-7 logs of run 35413347057 (GitHub Actions logs require admin rights; re-run the finalizer with diagnostics or request the logs) and fix the concrete blocker: (a) emulator boot timeout/flake, (b) 'adb install -r' failure of the release APK, or (c) E2E golden-path failure in the release APK (app launch, demo fixture seeding, tab labels, assertAbsent checks). Preserve the regression guard test but correct its root-cause comment, which wrongly attributes run 35413347057 to the multi-line form. Do not modify protected control-plane files; the workflow fix (single-line form) is already in place on main and synced.",
+      "verification": "Trusted finalizer must pass the Android API 35 emulator step (release APK install, launch without Metro, golden path Ajouter/Balances/A faire via scripts/e2e-android.js) with exit 0, and docs/RELEASE_STATUS.json must contain android-release-apk-sha256-<sha> and android-api35-install-launch-e2e-green in V3-08 evidence."
     }
   ],
   "factoryHealth": {
     "stalled": false,
     "consecutiveNoProgress": 0,
-    "lastProductSha": "7b69c86c76631b441bf31be812986728c0975d9e",
+    "lastProductSha": "d744e75d9581cabd0230f98447da635c4c8b8006",
     "reason": null
   }
 }
