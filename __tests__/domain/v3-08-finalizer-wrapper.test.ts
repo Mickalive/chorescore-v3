@@ -88,6 +88,30 @@ describe('V3-08 finalizer wrapper contract', () => {
   });
 });
 
+describe('V3-08 finalize workflow YAML regression guard', () => {
+  test('emulator step uses single-line script form (not multi-line script: |)', () => {
+    // Regression guard for Actions run 35413347057: the multi-line `script: |`
+    // form is line-split by reactivecircus/android-emulator-runner@v2 into
+    // separate sh -c invocations under dash, where `set -euo pipefail` exits 2
+    // before the APK install and golden path ever run. The single-line form
+    // ensures the wrapper runs as ONE bash process.
+    const workflow = readRepo('.github/workflows/chorescore-v3-finalize.yml');
+
+    // Find the emulator-runner step — the block between `uses: reactivecircus/android-emulator-runner@v2`
+    // and the next top-level step or job. YAML steps under `with:` are indented, so grab everything
+    // from the `uses:` line to the next step marker (`  - name:` at the same indent level) or job.
+    const emulatorStart = workflow.indexOf('uses: reactivecircus/android-emulator-runner@v2');
+    expect(emulatorStart).toBeGreaterThanOrEqual(0);
+    // Grab a generous window: 800 chars covers the `with:` block including `script:`.
+    const emulatorStep = workflow.substring(emulatorStart, emulatorStart + 800);
+
+    // The script directive must be the single-line form, not `script: |`.
+    expect(emulatorStep).toContain('script: bash scripts/finalizer-e2e.sh');
+    // Explicitly reject the multi-line form that caused the regression.
+    expect(emulatorStep).not.toMatch(/script:\s*\|/);
+  });
+});
+
 describe('V3-08 E2E golden-path fixture alignment', () => {
   test('every label asserted by the E2E script exists in the demo fixture or app screens', () => {
     const e2e = readRepo('scripts/e2e-android.js');
