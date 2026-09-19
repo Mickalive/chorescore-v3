@@ -2,10 +2,10 @@
   "schemaVersion": 1,
   "milestone": "v3-rc",
   "builder": {
-    "enabled": false,
-    "criterionId": null,
-    "objective": "V3-08 handed to trusted release finalizer.",
-    "scope": "Trusted finalizer only.",
+    "enabled": true,
+    "criterionId": "V3-08",
+    "objective": "REPAIR V3-08 trusted finalizer failure from Actions run 35430259067. Inspect the exact failed release logs, fix only the concrete product/privacy/cost/APK/runtime/E2E/readiness blocker, and preserve all accepted criteria.",
+    "scope": "Target the trusted release failure and directly necessary product/config/test/scripts repairs. Protected control-plane files remain trusted-shell owned.",
     "acceptance": [],
     "previousCriteriaPreserved": [
       "V3-01: accepted and must not regress",
