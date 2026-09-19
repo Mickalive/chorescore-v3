@@ -65,11 +65,13 @@ echo "APK: $apk ($(stat -c%s "$apk") bytes)"
 echo "Installing APK..."
 INSTALL_ATTEMPTS=0
 MAX_ATTEMPTS=3
+INSTALLED=0
 while [ "$INSTALL_ATTEMPTS" -lt "$MAX_ATTEMPTS" ]; do
   INSTALL_ATTEMPTS=$((INSTALL_ATTEMPTS + 1))
   echo "  Install attempt ${INSTALL_ATTEMPTS}/${MAX_ATTEMPTS}..."
   if adb install -r "$apk" 2>&1; then
     echo "  APK installed successfully on attempt ${INSTALL_ATTEMPTS}"
+    INSTALLED=1
     break
   fi
   if [ "$INSTALL_ATTEMPTS" -lt "$MAX_ATTEMPTS" ]; then
@@ -78,7 +80,7 @@ while [ "$INSTALL_ATTEMPTS" -lt "$MAX_ATTEMPTS" ]; do
   fi
 done
 
-if [ "$INSTALL_ATTEMPTS" -ge "$MAX_ATTEMPTS" ]; then
+if [ "${INSTALLED:-0}" -ne 1 ]; then
   echo "ERROR: APK install failed after ${MAX_ATTEMPTS} attempts" >&2
   adb devices -l 2>/dev/null || true
   adb shell pm list packages 2>/dev/null | head -5 || true

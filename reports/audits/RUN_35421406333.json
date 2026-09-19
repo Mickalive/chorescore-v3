@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "cycle": "35421406333",
+  "role": "builder",
+  "decision": "accept",
+  "summary": "Trusted verification passed (exit 0): typecheck + 432 tests (22 suites), privacy:check (71 tests), cost:check (21 tests, 10 gates), expo export android, prebuild, assembleDebug BUILD SUCCESSFUL in 20m 10s. Candidate delta vs pristine is exactly one file, scripts/finalizer-e2e.sh (3 insertions, 1 deletion): (1) INSTALLED=0 initialized before the install retry loop; (2) INSTALLED=1 set immediately after the successful `adb install -r \"$apk\"` before `break`; (3) error branch changed from `if [ \"$INSTALL_ATTEMPTS\" -ge \"$MAX_ATTEMPTS\" ]` to `if [ \"${INSTALLED:-0}\" -ne 1 ]`. The existing diagnostics (adb devices -l, pm list packages) are kept in the error branch; the boot-wait, connectivity check, APK locate and golden-path parts are unchanged. This exactly implements the required fix from audit RUN_35419214459 (off-by-one: success on the final retry attempt previously triggered the error branch and exited 1). Independent checks: bash -n OK; loop simulation for all permutations — (0) exit 0 golden path, (1,0) exit 0 golden path, (1,1,0) exit 0 golden path (previously failing case now fixed), (1,1,1) ERROR exit 1, (1,1,1,0) ERROR exit 1 with MAX_ATTEMPTS=3 respected; finalizer-wrapper suite 6/6 PASS. No must-fix remains. No product code, domain, analytics, persistence or configuration changed — CI-only repair, so no regression of V3-01..V3-08 invariants, no chrono/premium/paywall/warm-V2 reintroduction, no cost regression on the user path, no fake integration (honest adb-based install check).",
+  "checks": [
+    "trusted-verification-exit-0-432-tests-typecheck-privacy-cost-export-prebuild-build",
+    "candidate-delta-exactly-1-file-vs-pristine-finalizer-e2e-sh",
+    "INSTALLED-0-initialized-before-retry-loop",
+    "INSTALLED-1-set-immediately-after-successful-adb-install-before-break",
+    "error-branch-uses-INSTALLED-flag-instead-of-attempt-count",
+    "diagnostics-adb-devices-l-pm-list-packages-kept-in-error-branch",
+    "boot-wait-connectivity-apk-locate-golden-path-unchanged",
+    "bash-n-finalizer-e2e-sh-ok",
+    "loop-simulation-0-1-0-1-1-0-exit-0-golden-path-1-1-1-exit-1",
+    "finalizer-wrapper-suite-6-6-pass",
+    "no-protected-control-plane-files-modified",
+    "no-product-code-changes-no-v3-01-v3-08-regression",
+    "no-chrono-premium-paywall-warm-v2-reintroduced",
+    "no-cost-regression-ci-only-script",
+    "no-fake-integration-honest-adb-install-check"
+  ],
+  "findings": []
+}
