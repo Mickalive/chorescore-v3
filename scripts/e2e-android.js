@@ -60,7 +60,7 @@ const checkpoints = [];
 const startedAt = new Date().toISOString();
 fs.mkdirSync(outputDir, { recursive: true });
 
-const ADB_TIMEOUT_MS = 60_000;
+const ADB_TIMEOUT_MS = 45_000;
 const ADB_INSTALL_TIMEOUT_MS = 180_000;
 let adbReconnectCount = 0;
 
@@ -104,13 +104,17 @@ function adb(args, { binary = false, retries = 3, timeoutMs, allowReconnect = tr
 }
 
 function shell(...args) {
-  // Allow a trailing { timeoutMs } options object to override the default 30s.
-  // Used by dumpUi to give uiautomator dump more time on loaded emulators.
+  // Allow a trailing { timeoutMs, retries } options object to override the
+  // defaults.  Used by dumpUi to reduce retries and let waitFor() handle
+  // retries at a higher level within its own deadline.
   let opts = {};
-  if (args.length > 0 && typeof args[args.length - 1] === 'object' && args[args.length - 1] !== null && !Array.isArray(args[args.length - 1]) && args[args.length - 1].timeoutMs !== undefined) {
+  if (args.length > 0 && typeof args[args.length - 1] === 'object' && args[args.length - 1] !== null && !Array.isArray(args[args.length - 1]) && (args[args.length - 1].timeoutMs !== undefined || args[args.length - 1].retries !== undefined)) {
     opts = args.pop();
   }
-  return adb(['shell', ...args], { timeoutMs: opts.timeoutMs ?? 30_000 });
+  return adb(['shell', ...args], {
+    timeoutMs: opts.timeoutMs ?? 30_000,
+    ...(opts.retries !== undefined ? { retries: opts.retries } : {}),
+  });
 }
 
 function sleep(ms) {
@@ -134,9 +138,11 @@ function dumpUi() {
   try { shell('rm', '-f', '/sdcard/chorescore-window.xml'); } catch (_) {}
   try {
     // uiautomator dump can take 30-60s on a loaded API 35 x86_64 emulator
-    // under React Native cold-start load.  Use a 60s timeout to avoid
-    // spurious failures that cascade into waitFor timeouts.
-    shell('uiautomator', 'dump', '/sdcard/chorescore-window.xml', { timeoutMs: 60_000 });
+    // under React Native cold-start load.  Use a 45s timeout with 1 retry:
+    // fail fast so that waitFor() can retry at a higher level within its
+    // own deadline.  Previous 3-retry approach wasted up to 180s per dump,
+    // blowing past the 240s Demarrer window.
+    shell('uiautomator', 'dump', '/sdcard/chorescore-window.xml', { timeoutMs: 45_000, retries: 1 });
   } catch (err) {
     dumpFailures++;
     if (dumpFailures <= 3 || dumpFailures % 10 === 0) {
@@ -158,7 +164,8 @@ function dumpUi() {
     // Use 'shell cat' instead of 'exec-out cat' — exec-out consistently
     // ETIMEDOUT on API 35 x86_64 under React Native cold-start load.
     // shell transport is more resilient on slow emulators.
-    xml = adb(['shell', 'cat', '/sdcard/chorescore-window.xml'], { timeoutMs: 30_000 });
+    // Use 1 retry to fail fast and let waitFor() handle retries.
+    xml = adb(['shell', 'cat', '/sdcard/chorescore-window.xml'], { timeoutMs: 30_000, retries: 1 });
     // adb shell may append \r\n; strip trailing whitespace
     xml = xml.replace(/[\r\n]+$/, '');
   } catch (err) {
@@ -166,10 +173,10 @@ function dumpUi() {
     if (dumpFailures <= 3 || dumpFailures % 10 === 0) {
       console.log(`  dumpUi: cat dump file failed (${dumpFailures} total): ${err.message?.slice(0, 120) || err}`);
     }
-    // On cat failure, try one adb reconnect and retry once
+    // On cat failure, try one adb reconnect and retry once (no extra retries)
     try {
       adbReconnect();
-      xml = adb(['shell', 'cat', '/sdcard/chorescore-window.xml'], { timeoutMs: 30_000 });
+      xml = adb(['shell', 'cat', '/sdcard/chorescore-window.xml'], { timeoutMs: 30_000, retries: 1 });
       xml = xml.replace(/[\r\n]+$/, '');
       if (xml && xml.includes('<node')) {
         dumpFailures--; // successful retry — undo the increment
@@ -380,8 +387,8 @@ function launch() {
   try { adb(['logcat', '-c']); } catch (_) {}
   try { shell('monkey', '-p', packageName, '-c', 'android.intent.category.LAUNCHER', '1'); } catch (_) {}
   // Wait for React Native cold start on emulator — API 35 x86_64 can be slow.
-  // 45s gives Hermes time to initialize on slow GitHub Actions runners.
-  sleep(45000);
+  // 60s gives Hermes time to initialize on slow GitHub Actions runners.
+  sleep(60000);
   // Ensure adb transport is healthy after the heavy cold-start phase
   try { adb(['wait-for-device'], { timeoutMs: 10_000, allowReconnect: false }); } catch (_) {}
   // Reset adb transport after the heavy cold-start phase to clear any
@@ -450,10 +457,11 @@ try {
   // Diagnostic screenshot to capture the screen state after launch
   screenshot('diagnostic-post-launch');
   console.log('Waiting for Demarrer button...');
-  // API 35 x86_64 cold start can be very slow — 240s timeout.
-  // Each UI dump takes 10-30s on a loaded emulator, so we need enough
-  // headroom for several successful dumps after the cold start completes.
-  waitFor('Demarrer', 240000);
+  // API 35 x86_64 cold start can be very slow — 300s timeout.
+  // Each UI dump takes 2-45s on a loaded emulator (1 retry, fail fast),
+  // so we need enough headroom for several successful dumps after
+  // the cold start completes.
+  waitFor('Demarrer', 300000);
   screenshot('01-login');
   tapLabel('Demarrer', { exact: false });
   console.log('Waiting for Appartement group...');

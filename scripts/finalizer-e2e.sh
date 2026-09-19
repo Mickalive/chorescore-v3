@@ -48,8 +48,8 @@ if [ "$ELAPSED" -ge "$TIMEOUT" ]; then
 fi
 
 # Additional wait for package manager and runtime to settle (API 35 x86_64 can be slow)
-echo "Waiting for package manager to settle (45s)..."
-sleep 45
+echo "Waiting for package manager to settle (60s)..."
+sleep 60
 
 # Verify adb is connected and log device state
 adb get-state 2>/dev/null || {
