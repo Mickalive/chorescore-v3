@@ -48,8 +48,10 @@ if [ "$ELAPSED" -ge "$TIMEOUT" ]; then
 fi
 
 # Additional wait for package manager and runtime to settle (API 35 x86_64 can be slow)
-echo "Waiting for package manager to settle (60s)..."
-sleep 60
+# 30s is sufficient — the E2E script's launch() and Demarrer waitFor() window
+# provide additional headroom for any remaining initialization.
+echo "Waiting for package manager to settle (30s)..."
+sleep 30
 
 # Verify adb is connected and log device state
 adb get-state 2>/dev/null || {
@@ -124,16 +126,10 @@ if [ "${INSTALLED:-0}" -ne 1 ]; then
   exit 1
 fi
 
-# Post-install: restart the adb server to clear any stale state from the
-# heavy install operation.  This prevents cascading command timeouts during
-# the E2E golden path that follows.
-echo "Post-install adb server restart..."
-adb kill-server 2>/dev/null || true
-sleep 3
-adb start-server 2>/dev/null || true
-sleep 2
-adb wait-for-device 2>/dev/null || true
-sleep 1
+# Post-install: the adb connection is stable after install.  The E2E script's
+# adb function handles transient transport issues via its own retry+reconnect
+# logic, so an explicit server restart here is unnecessary overhead that
+# delays the golden path by ~13s.
 echo "Post-install adb state: $(adb get-state 2>/dev/null || echo 'unknown')"
 
 # 3. Run the golden-path E2E

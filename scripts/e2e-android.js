@@ -399,20 +399,24 @@ function launch() {
   try { adb(['logcat', '-c']); } catch (_) {}
   try { shell('monkey', '-p', packageName, '-c', 'android.intent.category.LAUNCHER', '1'); } catch (_) {}
   // Wait for React Native cold start on emulator — API 35 x86_64 can be slow.
-  // 60s gives Hermes time to initialize on slow GitHub Actions runners.
-  sleep(60000);
-  // Ensure adb transport is healthy after the heavy cold-start phase
+  // 30s is sufficient: the process check below catches any crash, and the
+  // Demarrer waitFor() window provides additional headroom for Hermes init.
+  // Avoid 60s here because the Demarrer window is the real deadline, not
+  // this initial sleep.
+  sleep(30000);
+  // Ensure adb transport is healthy after the cold-start phase.
+  // Do NOT call adbReconnect() (kill-server + start-server) here — it
+  // disrupts the adb connection right when the uiautomator server needs
+  // to initialize, and the adb function's own retry+reconnect logic
+  // handles transient transport issues within each call.
   try { adb(['wait-for-device'], { timeoutMs: 10_000, allowReconnect: false }); } catch (_) {}
-  // Reset adb transport after the heavy cold-start phase to clear any
-  // stale exec-out channels that developed during Hermes init.
-  try { adbReconnect(); } catch (_) {}
 
-  // Warm up the uiautomator server after the adb server restart.
+  // Warm up the uiautomator server.
   // On API 35 x86_64 emulators the uiautomator server needs a fresh
-  // session after a kill-server + start-server cycle.  Without this
-  // warm-up the first real dumpUi() call can block for the full 45s
-  // timeout while the server initializes, burning one of the limited
-  // retry cycles in the Demarrer waitFor() window.
+  // session after the emulator boots.  Without this warm-up the first
+  // real dumpUi() call can block for the full 45s timeout while the
+  // server initializes, burning one of the limited retry cycles in the
+  // Demarrer waitFor() window.
   console.log('  Warming up uiautomator server...');
   try {
     shell('uiautomator', 'dump', '/sdcard/chorescore-warmup.xml', { timeoutMs: 45_000, retries: 1 });
@@ -439,7 +443,7 @@ function launch() {
         if (pid2) {
           console.log(`App process alive after extended wait (pid ${pid2})`);
         } else {
-          console.log('WARN: App process still not found after 55s — capture logcat for diagnosis');
+          console.log('WARN: App process still not found after 40s — capture logcat for diagnosis');
           try {
             const logcat = adb(['logcat', '-d', '-t', '50'], { timeoutMs: 10_000 });
             console.error('--- Post-launch logcat (last 50 lines) ---');

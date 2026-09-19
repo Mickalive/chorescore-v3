@@ -1,0 +1,39 @@
+{
+  "schemaVersion": 1,
+  "cycle": "35473025592",
+  "role": "builder",
+  "decision": "accept",
+  "summary": "V3-08 repair candidate accepted. The candidate is a non-empty delta (changedFiles=2, hasDelta=true, verificationOnly=false, agentExitCode=0) repairing the trusted finalizer step-7 blocker of Actions run 35470723768 within Builder scope: scripts/e2e-android.js and scripts/finalizer-e2e.sh only. Public run metadata confirms steps 5-6 (product/privacy/cost gates, release APK assembleRelease, iOS export, APK locate/hash) succeeded and only step 7 (Android API 35 install/launch/golden path) failed. The repair removes the adb kill-server/start-server restart from launch() (executed under cold-start load, immediately before the uiautomator warm-up dump) and the post-install restart in finalizer-e2e.sh, keeping the pre-E2E restart at idle and all reactive adbReconnect() recovery paths (adb() retry, dumpUi() cat-failure, waitFor() consecutive-failure). Rationale: a server-process restart under heavy Hermes cold-start load disrupts the adb transport exactly when the uiautomator server needs to initialize, so the warm-up dump fails and the first real dumpUi() blocks for the full 45s timeout, burning the Demarrer waitFor() window. The 360s Demarrer window is unchanged; the reduced sleeps (60s->30s) are non-deadline and do not shrink the window. No E2E assertion weakened (golden-path steps byte-identical), no product code, tests or protected control-plane files changed, diagnostic evidence capture preserved. Trusted verification passed exit 0: typecheck, 432 tests (22 suites), privacy 71 tests, cost 21 tests (10 gates), expo export android, prebuild, assembleDebug BUILD SUCCESSFUL. All V3-01..V3-07 invariants preserved; no chrono/premium/paywall/warm-V2 reintroduction; no cost regression (CI-script-only delta). Empirical confirmation of the emulator fix remains with the next trusted finalizer run.",
+  "checks": [
+    "trusted verification: exit 0 (reports/audits/TRUSTED_35473025592.md) — typecheck PASS, 432 tests / 22 suites PASS, privacy 71 PASS, cost 21 PASS (10 gates), expo install --check up to date, expo export android OK, prebuild OK, :app:assembleDebug BUILD SUCCESSFUL in 16m20s",
+    "candidate patch matches git diff --cached byte-for-byte (diff candidate.patch vs staged diff: identical)",
+    "syntax checks: node --check scripts/e2e-android.js PASS; bash -n scripts/finalizer-e2e.sh PASS",
+    "pristine accepted tree (/home/runner/work/_temp/accepted-pristine @ eb0f7a2) diff: only scripts/e2e-android.js and scripts/finalizer-e2e.sh differ; no product code, tests, governance, directives, docs or workflow files changed",
+    "failed run 35470723768 (public GitHub API): release job steps 5 'Trusted product, privacy and cost gates' success, 6 'Locate and hash APK' success, 7 'Android API 35 install, launch and golden path' failure — blocker isolated to the emulator E2E step, exactly what the candidate repairs",
+    "no E2E assertion weakened: all waitFor/assertAbsent/tapLabel targets and timeouts identical between baseline a46a20b and candidate (waitFor('Demarrer',360000), Appartement, Ajouter/Balances/A faire, Vaisselle du soir, no-chrono asserts, Alex/Sam/Contribution, Sortir les poubelles, no-warm-V2 asserts)",
+    "Demarrer waitFor() window unchanged at 360s; reduced sleeps (launch 60s->30s, settle 60s->30s) are non-deadline and do not shrink the window; worst-case pre-window time actually decreases because the disruptive restart is removed",
+    "reactive adbReconnect() (kill-server/start-server) preserved at all recovery points: adb() timeout retry (line 109), dumpUi() cat-failure (line 190), waitFor() consecutive-dump-failure (line 311); only the proactive launch() call site was removed",
+    "pre-E2E adb server restart in finalizer-e2e.sh (idle, before install) retained; post-install restart removed — consistent with the diagnosis that restarts under cold-start load wedge the transport while idle restarts are safe",
+    "diagnostic evidence survival preserved: logcat-wait-*, dumpsys-wait-*, pidof state, result.json echo to step logs, logcat-failure.txt, dumpsys-activities-failure.txt all unchanged",
+    "regression of accepted criteria: 432 tests + 71 privacy + 21 cost tests pass; no chrono/premium/paywall/warm-V2 reintroduction; no cost regression (CI-script-only delta); V3-01..V3-07 preserved",
+    "timing budget verified: candidate worst case before Demarrer window ~147s (30s sleep + 10s wait-for-device + 90s warm-up worst case + 5s fallback + 10s pidof) vs baseline ~218s; window 360s unchanged; app cold-start (60-120s typical) fits with ample margin"
+  ],
+  "findings": [
+    {
+      "path": "release",
+      "problem": "Exact step-7 logs of failed finalizer run 35470723768 are not directly accessible to the auditor (GitHub log download requires admin rights; run page HTML does not embed step logs).",
+      "evidence": "GET /actions/runs/35470723768/logs and /actions/jobs/105971098048/logs return 403 'Must have admin rights to Repository'; run page HTML contains no embedded log content. Public run metadata (jobs API) confirms steps 5-6 success and step 7 failure.",
+      "mustFix": false,
+      "requiredFix": "None for this cycle. The Builder's diagnosis is documented in the candidate code comments and is technically coherent with the failure history (8+ step-7 failures with the boot/install-succeed, UI-dump-slow/failing signature); the next trusted finalizer run is the empirical confirmation gate.",
+      "verification": "Next trusted finalizer run must pass step 7 (Android API 35 install, launch and golden path) to close the open finding."
+    },
+    {
+      "path": "scripts/e2e-android.js",
+      "problem": "Empirical confirmation of the emulator-step repair is pending: the candidate removes the adb server restart under cold-start load, but the repo alone cannot prove the next finalizer run will pass.",
+      "evidence": "Failure history: runs 35464672760, 35457974999, 35451816114, 35445913329, 35437961965, 35430259067, 35424139784 and 35470723768 all failed at step 7 despite successive CI-script repairs; each repair was accepted and the finalizer is the empirical gate.",
+      "mustFix": false,
+      "requiredFix": "None within Builder scope. The change is low-risk (CI scripts only, no assertion weakened, reactive recovery preserved) and directly targets the mechanism identified in cycle 35466799695 (uiautomator server session not initialized after adb server-process restart).",
+      "verification": "Trusted finalizer step 7 green on the next run; if it fails again, the surviving diagnostic evidence (logcat-wait-*, dumpsys-wait-*, pidof, result.json echoed to step logs) must identify the next concrete cause."
+    }
+  ]
+}
