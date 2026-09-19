@@ -1,0 +1,52 @@
+{
+  "schemaVersion": 1,
+  "cycle": "35448051096",
+  "role": "builder",
+  "decision": "accept",
+  "summary": "Trusted verification passed (exit 0): typecheck + 432 tests (22 suites), privacy:check (71 tests), cost:check (21 tests, 10 gates), expo install --check up to date, expo export android, prebuild, assembleDebug BUILD SUCCESSFUL in 19m 15s. The candidate is a NON-EMPTY delta (changedFiles=2, hasDelta=true, verificationOnly=false, agentExitCode=0) repairing the trusted finalizer step-7 blocker of run 35445913329 within Builder scope: scripts/e2e-android.js and scripts/finalizer-e2e.sh only. Failed run confirmed via public GitHub API: release job step 5 (trusted product/privacy/cost gates) SUCCESS, step 6 (APK locate/hash) SUCCESS, step 7 (Android API 35 install, launch and golden path) FAILURE after ~21.5 min (13:51:13Z-14:12:47Z), step 8 (artifact upload) skipped — the same long-running E2E signature as the previous six emulator-step failures (boot/install succeed, UI dumps slow/failing, waitFor budgets exhausted). Repair: uiautomator dump timeout 30s->60s via a new shell() trailing-options-object override (the remaining dump-failure source after the previous cycle fixed the exec-out cat path), cold-start headroom (launch wait 30s->45s + post-cold-start adb reconnect, package-manager settle 30s->45s), screenshot fallback switched from exec-out cat to shell cat, and richer timeout diagnostics (dumpsys activity top, pidof process state, pre-E2E logcat) so the next cycle can identify any persisting cause precisely. No E2E assertion weakened (all waitFor/tapLabel/findVisible/assertAbsent checks unchanged except timeouts), no product code changed, no protected control-plane file touched, no chrono/premium/paywall/warm-V2 pattern introduced, no cost regression (CI-only changes). Independent checks: candidate.patch matches the staged diff byte-for-byte; bash -n scripts/finalizer-e2e.sh OK; node --check scripts/e2e-android.js OK; V3-08 finalizer-wrapper + e2e-golden-path + cost-gates-v3-08 suites 41/41 PASS; regression spot-check 357/357 PASS across V3-01..V3-07 suites; control-plane files (finalize.yml, RELEASE_STATUS.json, TASKS.json) byte-identical to pristine. No must-fix finding remains within Builder scope.",
+  "checks": [
+    "trusted-verification-exit-0 (TRUSTED_35448051096.md: typecheck, 432 tests/22 suites, privacy 71, cost 21, expo install --check, expo export android, prebuild, assembleDebug BUILD SUCCESSFUL in 19m 15s)",
+    "candidate-delta-non-empty-changedFiles-2-hasDelta-true-verificationOnly-false-agentExitCode-0",
+    "candidate-patch-matches-staged-diff-byte-for-byte",
+    "failed-run-35445913329-step-7-failure-confirmed-via-public-github-api-13-51-13Z-to-14-12-47Z-21m34s",
+    "steps-5-6-gates-and-apk-locate-succeeded-in-failed-run",
+    "cause-identified-uiautomator-dump-30s-timeout-kills-slow-dumps-30-60s-on-loaded-api-35-x86-64-emulator-cascading-into-waitFor-timeouts",
+    "repair-scoped-to-dump-timeout-cold-start-headroom-and-diagnostics-only",
+    "no-e2e-assertion-weakened-only-timeouts-and-diagnostics-changed",
+    "no-product-code-changed-scripts-only",
+    "no-protected-control-plane-file-touched-finalize-yml-RELEASE_STATUS-TASKS-identical-to-pristine",
+    "bash-n-finalizer-e2e-sh-ok",
+    "node-check-e2e-android-js-ok",
+    "finalizer-wrapper-e2e-golden-path-cost-gates-41-41-pass",
+    "regression-spot-check-357-tests-pass",
+    "no-chrono-premium-paywall-warm-v2-reintroduced",
+    "no-cost-regression-ci-only-changes",
+    "no-mustfix-remains-within-builder-scope"
+  ],
+  "findings": [
+    {
+      "path": "scripts/e2e-android.js + scripts/finalizer-e2e.sh (trusted finalizer step 7 repair)",
+      "problem": "None — the candidate repairs the audited blocker. The trusted finalizer failed again at step 7 'Android API 35 install, launch and golden path' in run 35445913329 (run_number 28) with steps 5 (product/privacy/cost gates incl. iOS export and assembleRelease) and 6 (APK locate/hash) succeeding. Step 7 ran 13:51:13Z-14:12:47Z (~21.5 min) — the same long-running E2E signature as the previous six emulator-step failures, i.e. boot and install succeed while UI dumps are slow/failing and waitFor budgets are exhausted. The previous cycle (35441953837) fixed the exec-out cat path (ETIMEDOUT under cold-start load); this cycle fixes the remaining dump-failure source: uiautomator dump itself can take 30-60s on a loaded API 35 x86_64 emulator, so the 30s default shell() timeout killed it, each dumpUi failure costing ~96s (3x30s attempts + reconnects) and exhausting the 240s Demarrer window after only ~2 iterations. Repair: shell() gains a trailing { timeoutMs } options override; uiautomator dump timeout raised to 60s; launch cold-start wait 30s->45s with a post-cold-start adb reconnect; package-manager settle 30s->45s; screenshot fallback switched from exec-out cat to shell cat; waitFor/dumpUi timeout paths now capture dumpsys activity top + pidof process state + pre-E2E logcat so the next cycle can distinguish 'app crashed' from 'dump too slow' if the failure persists. All new waits are bounded (60s dump, 45s launch, 45s settle, 15s dumpsys, 10s logcat, 10s/15s reconnect), all positive assertions are unchanged, and the golden path still requires the real UI nodes to appear — a genuinely broken app cannot pass spuriously.",
+      "evidence": "candidate-builder metadata.json: changedFiles=2, hasDelta=true, verificationOnly=false, agentExitCode=0, trustedVerificationPassed=true, trustedVerificationExitCode=0. candidate.patch (7682 bytes) matches git diff --cached byte-for-byte. GitHub API run 35445913329: release job step 5 success (13:29:46Z-13:51:13Z), step 6 success (13:51:13Z-13:51:13Z), step 7 failure (13:51:13Z-14:12:47Z), step 8 skipped; no artifacts uploaded. Builder comments reference the specific failure mode: 'uiautomator dump can take 30-60s on a loaded API 35 x86_64 emulator under React Native cold-start load. Use a 60s timeout to avoid spurious failures that cascade into waitFor timeouts.' TRUSTED_35448051096.md final line 'Trusted verification exit code: 0' with BUILD SUCCESSFUL in 19m 15s.",
+      "mustFix": false,
+      "requiredFix": "None — the repair is complete within Builder scope. The next trusted finalizer run will empirically confirm the fix.",
+      "verification": "Next trusted finalizer run: step 7 exit 0 (install/launch/golden path green), or surviving step-7 evidence (now enriched with dumpsys activity, pidof and pre-E2E logcat) identifying any remaining concrete cause."
+    },
+    {
+      "path": "release — empirical confirmation pending (non-blocking observation)",
+      "problem": "The repair's effectiveness can only be proven by the next trusted finalizer run. The RELEASE_STATUS.json open finding requires the trusted finalizer to pass install/launch/golden path, or the next cycle to present the concrete step-7 evidence and the specific repair applied. This cycle presents the specific repair applied (uiautomator dump 60s timeout + cold-start headroom + diagnostics); the empirical confirmation is the next finalizer run. The Auditor environment carries no GitHub token, so the raw step-7 logs of run 35445913329 are not independently readable (403 on the logs endpoint); the repair is consistent with the public timing evidence and the previous cycle's accepted diagnosis chain.",
+      "evidence": "RELEASE_STATUS.json openFindings[0].verification: 'Trusted V3 finalizer must pass product, privacy and cost gates, APK build, install/launch and golden path.' GitHub API logs endpoint for run 35445913329 returns 403 without authentication; step timings and conclusions are public and confirm the step-7 failure signature.",
+      "mustFix": false,
+      "requiredFix": "None within Builder scope — the repair is the maximum in-scope action; the finalizer run is trusted-shell owned.",
+      "verification": "Next trusted finalizer run step 7 exit 0."
+    },
+    {
+      "path": "scripts/e2e-android.js — dump-timeout trade-off (non-blocking observation)",
+      "problem": "Raising the uiautomator dump timeout from 30s to 60s makes each fully-failed dump cycle more expensive (~186s vs ~96s: 3x60s attempts + reconnects). This is an acceptable trade-off: the targeted failure mode is dumps that complete in 30-60s and were previously killed, and the added diagnostics (dumpsys activity top, pidof) will reveal whether the app is alive if dumps genuinely hang. No action required this cycle.",
+      "evidence": "scripts/e2e-android.js dumpUi(): shell('uiautomator', 'dump', '/sdcard/chorescore-window.xml', { timeoutMs: 60_000 }) with adb() default retries=3 and allowReconnect=true; waitFor('Demarrer', 240000) unchanged.",
+      "mustFix": false,
+      "requiredFix": "None — monitor the next finalizer run; if dumps still fail, the enriched diagnostics will identify whether the cause is a hung dump, a crashed app, or a transport issue.",
+      "verification": "Next trusted finalizer run step 7 outcome and the new dumpsys-wait-*/pidof evidence if it fails."
+    }
+  ]
+}

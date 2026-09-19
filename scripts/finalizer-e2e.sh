@@ -48,8 +48,8 @@ if [ "$ELAPSED" -ge "$TIMEOUT" ]; then
 fi
 
 # Additional wait for package manager and runtime to settle (API 35 x86_64 can be slow)
-echo "Waiting for package manager to settle (30s)..."
-sleep 30
+echo "Waiting for package manager to settle (45s)..."
+sleep 45
 
 # Verify adb is connected and log device state
 adb get-state 2>/dev/null || {
@@ -131,6 +131,10 @@ echo "Post-install adb state: $(adb get-state 2>/dev/null || echo 'unknown')"
 
 # 3. Run the golden-path E2E
 echo "Running golden-path E2E..."
+# Capture pre-E2E logcat for diagnosis of any startup issues
+mkdir -p audit/android-e2e
+echo "Capturing pre-E2E logcat..."
+adb logcat -d -t 200 > audit/android-e2e/logcat-pre-e2e.txt 2>/dev/null || true
 set +e
 npm run e2e:android
 E2E_EXIT=$?
