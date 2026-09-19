@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "cycle": "35432141926",
+  "decision": "continue",
+  "reason": "V3-08 audit decision is repair. The Builder produced zero changes (changedFiles=0, hasDelta=false) and the concrete mustFix from the trusted finalizer remains unresolved. The trusted finalizer has now failed 7 consecutive times at step 7 'Android API 35 install, launch and golden path' (runs 35293489693 through 35430259067). Steps 5 (product/privacy/cost gates) and 6 (APK locate/hash) succeed each time, confirming the release APK builds correctly — the blocker is exclusively in the emulator install/launch/E2E step. The diagnostic instrumentation writes logcat/dumpsys/screenshots/result.json to audit/android-e2e/ in the runner workspace, but the workflow uploads only the APK (step 8) which is skipped on failure, so the exact failure cause of every failed run is lost. Raw step logs require admin rights (403). The Builder produced no delta and therefore did not address the mustFix. The next cycle must ensure diagnostic evidence survives by having the scripts output diagnostic content to stdout/stderr (which GitHub Actions preserves in step logs even on failure), so the concrete blocker can be identified and repaired. No product code was changed; all V3-01..V3-07 remain accepted with zero regression. No chrono/premium/paywall/warm-V2 reintroduction. No cost regression.",
+  "progressEvidence": [
+    "audit-repair-35432141926-V3-08",
+    "trusted-verification-exit-0-432-tests-typecheck-privacy-71-cost-21",
+    "expo-export-android-pass",
+    "expo-prebuild-and-gradle-BUILD-SUCCESSFUL",
+    "candidate-delta-empty-changedFiles-0-hasDelta-false-verificationOnly",
+    "candidate-patch-0-bytes-no-builder-report",
+    "7th-consecutive-emulator-step-failure-runs-35293489693-through-35430259067",
+    "steps-5-6-gates-and-apk-locate-succeeded-release-apk-built",
+    "diagnostic-evidence-audit-android-e2e-not-uploaded-on-failure-step-8-skipped",
+    "raw-step-logs-require-admin-rights-403",
+    "product-tree-byte-identical-to-pristine-accepted-baseline",
+    "workflow-yaml-byte-identical-to-pristine",
+    "bash-n-finalizer-e2e-sh-ok",
+    "node-check-e2e-android-js-ok",
+    "finalizer-wrapper-e2e-golden-path-cost-gates-41-41-pass",
+    "regression-spot-check-130-tests-pass",
+    "no-product-regression-v3-01-through-V3-07-preserved",
+    "no-chrono-premium-paywall-warm-v2-reintroduced",
+    "no-cost-regression-no-privacy-impact",
+    "mustfix-trusted-finalizer-blocker-not-resolved",
+    "builder-produced-no-delta-no-repair-attempted"
+  ]
+}
