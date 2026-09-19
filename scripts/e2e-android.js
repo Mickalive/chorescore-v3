@@ -406,6 +406,25 @@ function launch() {
   // Reset adb transport after the heavy cold-start phase to clear any
   // stale exec-out channels that developed during Hermes init.
   try { adbReconnect(); } catch (_) {}
+
+  // Warm up the uiautomator server after the adb server restart.
+  // On API 35 x86_64 emulators the uiautomator server needs a fresh
+  // session after a kill-server + start-server cycle.  Without this
+  // warm-up the first real dumpUi() call can block for the full 45s
+  // timeout while the server initializes, burning one of the limited
+  // retry cycles in the Demarrer waitFor() window.
+  console.log('  Warming up uiautomator server...');
+  try {
+    shell('uiautomator', 'dump', '/sdcard/chorescore-warmup.xml', { timeoutMs: 45_000, retries: 1 });
+    console.log('  uiautomator server warmed up successfully');
+    // Clean up the warm-up dump file
+    try { shell('rm', '-f', '/sdcard/chorescore-warmup.xml'); } catch (_) {}
+  } catch (warmErr) {
+    console.log(`  WARN: uiautomator warm-up failed: ${warmErr.message?.slice(0, 100) || warmErr}`);
+    // If warm-up fails, give the server a few extra seconds to initialize
+    sleep(5000);
+  }
+
   // Verify the process is alive after launch attempt
   try {
     const pid = shell('pidof', packageName).trim();
@@ -469,11 +488,12 @@ try {
   // Diagnostic screenshot to capture the screen state after launch
   screenshot('diagnostic-post-launch');
   console.log('Waiting for Demarrer button...');
-  // API 35 x86_64 cold start can be very slow — 300s timeout.
-  // Each UI dump takes 2-45s on a loaded emulator (1 retry, fail fast),
-  // so we need enough headroom for several successful dumps after
-  // the cold start completes.
-  waitFor('Demarrer', 300000);
+  // API 35 x86_64 cold start can be very slow — 360s timeout.
+  // The warm-up dump adds ~45s but ensures the uiautomator server is
+  // ready for subsequent real dumps.  Each UI dump takes 2-45s on a
+  // loaded emulator (1 retry, fail fast), so we need enough headroom
+  // for several successful dumps after the cold start completes.
+  waitFor('Demarrer', 360000);
   screenshot('01-login');
   tapLabel('Demarrer', { exact: false });
   console.log('Waiting for Appartement group...');
