@@ -48,8 +48,8 @@ if [ "$ELAPSED" -ge "$TIMEOUT" ]; then
 fi
 
 # Additional wait for package manager and runtime to settle (API 35 x86_64 can be slow)
-echo "Waiting for package manager to settle (20s)..."
-sleep 20
+echo "Waiting for package manager to settle (30s)..."
+sleep 30
 
 # Verify adb is connected and log device state
 adb get-state 2>/dev/null || {
@@ -59,6 +59,15 @@ adb get-state 2>/dev/null || {
 echo "adb device state: $(adb get-state)"
 echo "adb devices:"
 adb devices -l 2>/dev/null || true
+
+# Reset adb transport to ensure a clean connection after the heavy boot phase.
+# API 35 x86_64 emulators often develop flaky exec-out connections after boot.
+echo "Resetting adb transport..."
+adb reconnect 2>/dev/null || true
+sleep 2
+adb wait-for-device 2>/dev/null || true
+sleep 1
+echo "adb device state after reconnect: $(adb get-state)"
 echo "sys.boot_completed: $(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r' || echo 'unknown')"
 echo "ro.build.version.sdk: $(adb shell getprop ro.build.version.sdk 2>/dev/null | tr -d '\r' || echo 'unknown')"
 
@@ -109,6 +118,16 @@ if [ "${INSTALLED:-0}" -ne 1 ]; then
   adb shell pm path app.chorescore.v3 2>/dev/null || echo "Package not found"
   exit 1
 fi
+
+# Post-install: reconnect adb to clear any stale transport state from the
+# heavy install operation.  This prevents cascading exec-out timeouts during
+# the E2E golden path that follows.
+echo "Post-install adb reconnect..."
+adb reconnect 2>/dev/null || true
+sleep 2
+adb wait-for-device 2>/dev/null || true
+sleep 1
+echo "Post-install adb state: $(adb get-state 2>/dev/null || echo 'unknown')"
 
 # 3. Run the golden-path E2E
 echo "Running golden-path E2E..."

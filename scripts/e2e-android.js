@@ -62,8 +62,22 @@ fs.mkdirSync(outputDir, { recursive: true });
 
 const ADB_TIMEOUT_MS = 60_000;
 const ADB_INSTALL_TIMEOUT_MS = 180_000;
+let adbReconnectCount = 0;
 
-function adb(args, { binary = false, retries = 3, timeoutMs } = {}) {
+function adbReconnect() {
+  // Kill and restart the adb server to recover from flaky connections.
+  // API 35 x86_64 emulators on GitHub Actions often develop ETIMEDOUT on
+  // exec-out after React Native cold start.  A reconnect resets the
+  // transport layer without rebooting the emulator.
+  adbReconnectCount++;
+  console.log(`  adb reconnect #${adbReconnectCount} — resetting transport`);
+  try { execFileSync('adb', ['reconnect'], { timeout: 10_000, stdio: 'ignore' }); } catch (_) {}
+  sleep(2000);
+  try { execFileSync('adb', ['wait-for-device'], { timeout: 15_000, stdio: 'ignore' }); } catch (_) {}
+  sleep(1000);
+}
+
+function adb(args, { binary = false, retries = 3, timeoutMs, allowReconnect = true } = {}) {
   const effectiveTimeout = timeoutMs ?? (args[0] === 'install' ? ADB_INSTALL_TIMEOUT_MS : ADB_TIMEOUT_MS);
   let lastError;
   for (let attempt = 1; attempt <= retries; attempt++) {
@@ -76,8 +90,12 @@ function adb(args, { binary = false, retries = 3, timeoutMs } = {}) {
     } catch (err) {
       lastError = err;
       const signal = err.killed ? ' (TIMEOUT — killed)' : '';
+      const isTimeout = err.killed || /ETIMEDOUT|TIMEOUT/i.test(err.message || '');
       console.log(`  adb ${args[0]} failed (attempt ${attempt}/${retries})${signal}: ${err.message?.slice(0, 200) || err}`);
-      if (attempt < retries) {
+      // On timeout, try reconnecting adb transport before next attempt
+      if (isTimeout && allowReconnect && attempt < retries) {
+        try { adbReconnect(); } catch (_) {}
+      } else if (attempt < retries) {
         sleep(2000);
       }
     }
@@ -117,13 +135,28 @@ function dumpUi() {
   }
   let xml = '';
   try {
-    xml = adb(['exec-out', 'cat', '/sdcard/chorescore-window.xml'], { timeoutMs: 10_000 });
+    // Use 'shell cat' instead of 'exec-out cat' — exec-out consistently
+    // ETIMEDOUT on API 35 x86_64 under React Native cold-start load.
+    // shell transport is more resilient on slow emulators.
+    xml = adb(['shell', 'cat', '/sdcard/chorescore-window.xml'], { timeoutMs: 30_000 });
+    // adb shell may append \r\n; strip trailing whitespace
+    xml = xml.replace(/[\r\n]+$/, '');
   } catch (err) {
     dumpFailures++;
     if (dumpFailures <= 3 || dumpFailures % 10 === 0) {
       console.log(`  dumpUi: cat dump file failed (${dumpFailures} total): ${err.message?.slice(0, 120) || err}`);
     }
-    return { xml: '', nodes: [] };
+    // On cat failure, try one adb reconnect and retry once
+    try {
+      adbReconnect();
+      xml = adb(['shell', 'cat', '/sdcard/chorescore-window.xml'], { timeoutMs: 30_000 });
+      xml = xml.replace(/[\r\n]+$/, '');
+      if (xml && xml.includes('<node')) {
+        dumpFailures--; // successful retry — undo the increment
+      }
+    } catch (_) {
+      return { xml: '', nodes: [] };
+    }
   }
   if (!xml || !xml.includes('<node')) {
     dumpFailures++;
@@ -234,8 +267,9 @@ function waitFor(label, timeoutMs = 10000) {
     // Detect if the dump that just ran inside findNodes failed
     if (dumpFailures > previousDumpFailures) {
       consecutiveDumpFails += dumpFailures - previousDumpFailures;
-      if (consecutiveDumpFails >= 5) {
-        console.log(`  WARN: ${consecutiveDumpFails} consecutive UI dump failures while waiting for "${label}" — logcat may help diagnose`);
+      if (consecutiveDumpFails >= 3 && consecutiveDumpFails % 3 === 0) {
+        console.log(`  WARN: ${consecutiveDumpFails} consecutive UI dump failures while waiting for "${label}" — attempting adb reconnect`);
+        try { adbReconnect(); } catch (_) {}
       }
     } else {
       consecutiveDumpFails = 0;
@@ -262,10 +296,18 @@ function assertAbsent(label) {
 function screenshot(name) {
   const prefix = `${String(checkpoints.length + 1).padStart(2, '0')}-${name}`;
   const file = path.join(outputDir, `${prefix}.png`);
+  // Try exec-out screencap first; on ETIMEDOUT fall back to shell-based approach
   try {
-    fs.writeFileSync(file, adb(['exec-out', 'screencap', '-p'], { binary: true, timeoutMs: 15_000 }));
+    fs.writeFileSync(file, adb(['exec-out', 'screencap', '-p'], { binary: true, timeoutMs: 30_000 }));
   } catch (_) {
-    // Screencap failed (emulator transient) — record checkpoint without file
+    // Fallback: write screencap to device, pull it via shell cat (binary-unreliable but better than nothing)
+    try {
+      shell('screencap', '-p', '/sdcard/chorescore-e2e-screen.png');
+      const data = adb(['exec-out', 'cat', '/sdcard/chorescore-e2e-screen.png'], { binary: true, timeoutMs: 30_000 });
+      fs.writeFileSync(file, data);
+    } catch (_) {
+      // Screencap failed completely — record checkpoint without file
+    }
   }
   let uiDump = null;
   try {
@@ -296,9 +338,11 @@ function launch() {
   // Clear any previous logcat to get clean logs for this launch
   try { adb(['logcat', '-c']); } catch (_) {}
   try { shell('monkey', '-p', packageName, '-c', 'android.intent.category.LAUNCHER', '1'); } catch (_) {}
-  // Wait for React Native cold start on emulator — API 35 x86_64 can be slow
-  // Increased from 12s to 20s to handle slower cold starts on GitHub Actions runners
-  sleep(20000);
+  // Wait for React Native cold start on emulator — API 35 x86_64 can be slow.
+  // 30s gives Hermes time to initialize on slow GitHub Actions runners.
+  sleep(30000);
+  // Ensure adb transport is healthy after the heavy cold-start phase
+  try { adb(['wait-for-device'], { timeoutMs: 10_000, allowReconnect: false }); } catch (_) {}
   // Verify the process is alive after launch attempt
   try {
     const pid = shell('pidof', packageName).trim();
@@ -307,13 +351,13 @@ function launch() {
     } else {
       console.log('WARN: App process not found after launch — may still be starting');
       // One more wait and check
-      sleep(5000);
+      sleep(10000);
       try {
         const pid2 = shell('pidof', packageName).trim();
         if (pid2) {
           console.log(`App process alive after extended wait (pid ${pid2})`);
         } else {
-          console.log('WARN: App process still not found after 25s — capture logcat for diagnosis');
+          console.log('WARN: App process still not found after 40s — capture logcat for diagnosis');
           try {
             const logcat = adb(['logcat', '-d', '-t', '50'], { timeoutMs: 10_000 });
             console.error('--- Post-launch logcat (last 50 lines) ---');
@@ -362,8 +406,10 @@ try {
   // Diagnostic screenshot to capture the screen state after launch
   screenshot('diagnostic-post-launch');
   console.log('Waiting for Demarrer button...');
-  // API 35 x86_64 cold start can be very slow — 120s timeout
-  waitFor('Demarrer', 120000);
+  // API 35 x86_64 cold start can be very slow — 240s timeout.
+  // Each UI dump takes 10-30s on a loaded emulator, so we need enough
+  // headroom for several successful dumps after the cold start completes.
+  waitFor('Demarrer', 240000);
   screenshot('01-login');
   tapLabel('Demarrer', { exact: false });
   console.log('Waiting for Appartement group...');
