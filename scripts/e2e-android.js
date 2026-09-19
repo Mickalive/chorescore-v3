@@ -65,16 +65,28 @@ const ADB_INSTALL_TIMEOUT_MS = 180_000;
 let adbReconnectCount = 0;
 
 function adbReconnect() {
-  // Kill and restart the adb server to recover from flaky connections.
-  // API 35 x86_64 emulators on GitHub Actions often develop ETIMEDOUT on
-  // exec-out after React Native cold start.  A reconnect resets the
-  // transport layer without rebooting the emulator.
+  // Kill and restart the adb SERVER PROCESS to recover from degraded state.
+  // API 35 x86_64 emulators on GitHub Actions develop a broken adb server
+  // after React Native Hermes cold start — 'adb reconnect' only resets the
+  // transport layer but the server process remains in a degraded state where
+  // 'adb shell cat' consistently times out.  kill-server + start-server
+  // fully restarts the server process, which automatically rediscovers the
+  // running emulator via its broadcast channel.
   adbReconnectCount++;
-  console.log(`  adb reconnect #${adbReconnectCount} — resetting transport`);
-  try { execFileSync('adb', ['reconnect'], { timeout: 10_000, stdio: 'ignore' }); } catch (_) {}
+  console.log(`  adb reconnect #${adbReconnectCount} — killing and restarting adb server`);
+  try { execFileSync('adb', ['kill-server'], { timeout: 10_000, stdio: 'ignore' }); } catch (_) {}
+  sleep(3000);
+  try { execFileSync('adb', ['start-server'], { timeout: 10_000, stdio: 'pipe' }); } catch (_) {}
   sleep(2000);
-  try { execFileSync('adb', ['wait-for-device'], { timeout: 15_000, stdio: 'ignore' }); } catch (_) {}
-  sleep(1000);
+  try { execFileSync('adb', ['wait-for-device'], { timeout: 30_000, stdio: 'ignore' }); } catch (_) {}
+  sleep(1500);
+  // Verify the server is healthy after restart
+  try {
+    const state = execFileSync('adb', ['get-state'], { encoding: 'utf8', timeout: 5_000, stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+    console.log(`  adb server restarted — device state: ${state}`);
+  } catch (_) {
+    console.log('  adb server restarted — state check failed (proceeding)');
+  }
 }
 
 function adb(args, { binary = false, retries = 3, timeoutMs, allowReconnect = true } = {}) {

@@ -60,10 +60,15 @@ echo "adb device state: $(adb get-state)"
 echo "adb devices:"
 adb devices -l 2>/dev/null || true
 
-# Reset adb transport to ensure a clean connection after the heavy boot phase.
-# API 35 x86_64 emulators often develop flaky exec-out connections after boot.
-echo "Resetting adb transport..."
-adb reconnect 2>/dev/null || true
+# Restart the adb server process to ensure a clean connection after the heavy
+# boot phase.  'adb reconnect' only resets the transport layer, but the server
+# process itself can be in a degraded state after the emulator cold-start
+# (API 35 x86_64 on GitHub Actions).  kill-server + start-server fully
+# restarts the process and automatically rediscovers the running emulator.
+echo "Restarting adb server process..."
+adb kill-server 2>/dev/null || true
+sleep 3
+adb start-server 2>/dev/null || true
 sleep 2
 adb wait-for-device 2>/dev/null || true
 sleep 1
@@ -119,11 +124,13 @@ if [ "${INSTALLED:-0}" -ne 1 ]; then
   exit 1
 fi
 
-# Post-install: reconnect adb to clear any stale transport state from the
-# heavy install operation.  This prevents cascading exec-out timeouts during
+# Post-install: restart the adb server to clear any stale state from the
+# heavy install operation.  This prevents cascading command timeouts during
 # the E2E golden path that follows.
-echo "Post-install adb reconnect..."
-adb reconnect 2>/dev/null || true
+echo "Post-install adb server restart..."
+adb kill-server 2>/dev/null || true
+sleep 3
+adb start-server 2>/dev/null || true
 sleep 2
 adb wait-for-device 2>/dev/null || true
 sleep 1
