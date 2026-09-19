@@ -2,10 +2,10 @@
   "schemaVersion": 1,
   "milestone": "v3-rc",
   "builder": {
-    "enabled": true,
-    "criterionId": "V3-08",
-    "objective": "REPAIR V3-08: Track install success explicitly with a flag, e.g. set INSTALLED=1 immediately after the successful `adb install -r \"$apk\"` before `break`, and change the error branch to `if [ \"${INSTALLED:-0}\" -ne 1 ]; then echo \"ERROR: APK install failed after ${MAX_ATTEMPTS} attempts\" >&2; ...; exit 1; fi`. Keep the existing diagnostics (adb devices -l, pm list packages) in the error branch. Do not change the boot-wait, diagnostics or golden-path parts, which are correct.",
-    "scope": "Repair only the audited must-fix findings on the preserved V3 baseline; do not rebuild accepted work.",
+    "enabled": false,
+    "criterionId": null,
+    "objective": "V3-08 handed to trusted release finalizer.",
+    "scope": "Trusted finalizer only.",
     "acceptance": [],
     "previousCriteriaPreserved": [
       "V3-01: accepted and must not regress",

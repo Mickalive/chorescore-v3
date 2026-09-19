@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "cycle": "35421406333",
+  "decision": "stop",
+  "reason": "V3-08 audit decision is accept. The off-by-one fix in scripts/finalizer-e2e.sh is correct and complete: INSTALLED flag tracks success explicitly, error branch keys on the flag, diagnostics preserved, all loop permutations verified. Trusted verification passed (exit 0): typecheck + 432 tests (22 suites), privacy:check (71 tests), cost:check (21 tests, 10 gates), BUILD SUCCESSFUL. All previously accepted criteria V3-01 through V3-07 remain green with zero regression. No must-fix findings remain. V3-08 is the final criterion and all product/privacy/cost gates are now satisfied at the audit level. The only remaining step is the trusted finalizer completing runtime verification (APK install, golden-path E2E on emulator, iOS readiness check) to formally mark V3-08 complete. No product code was changed in this cycle — CI/script only repair. No chrono/premium/paywall/warm-V2 reintroduction. No cost regression.",
+  "progressEvidence": [
+    "audit-accept-35421406333-V3-08",
+    "trusted-verification-exit-0-432-tests-typecheck-privacy-71-cost-21",
+    "expo-export-android-pass",
+    "expo-prebuild-and-gradle-BUILD-SUCCESSFUL",
+    "candidate-delta-exactly-1-file-vs-pristine-finalizer-e2e-sh",
+    "INSTALLED-0-initialized-before-retry-loop",
+    "INSTALLED-1-set-immediately-after-successful-adb-install-before-break",
+    "error-branch-uses-installed-flag-instead-of-attempt-count",
+    "diagnostics-adb-devices-l-pm-list-packages-kept-in-error-branch",
+    "loop-simulation-all-permutations-pass",
+    "bash-n-finalizer-e2e-sh-ok",
+    "finalizer-wrapper-suite-6-6-pass",
+    "no-regression-V3-01-through-V3-07-all-suites-green",
+    "no-chrono-premium-paywall-in-codebase",
+    "no-product-code-changes-no-cost-regression",
+    "no-mustFix-remaining",
+    "V3-08-repair-complete-awaiting-trusted-finalizer-for-formal-completion"
+  ]
+}

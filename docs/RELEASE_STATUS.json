@@ -1,12 +1,10 @@
 {
   "schemaVersion": 1,
   "milestone": "v3-rc",
-  "lastCycle": "35419214459",
-  "activeCriteria": [
-    "V3-08"
-  ],
-  "pendingArtifact": null,
-  "progressSummary": "Audited V3-08 requires repair; WIP baseline preserved when a safe delta existed.",
+  "lastCycle": "35421406333",
+  "activeCriteria": [],
+  "pendingArtifact": "V3-08-RELEASE",
+  "progressSummary": "V3-08 independently accepted; trusted mobile finalizer owns APK/install/runtime/E2E completion.",
   "criteria": [
     {
       "id": "V3-01",
@@ -81,24 +79,16 @@
         "audit-accepted-35288409235",
         "audit-accepted-35295951364",
         "audit-accepted-35310569665",
-        "audit-accepted-35325991233"
+        "audit-accepted-35325991233",
+        "audit-accepted-35421406333"
       ]
     }
   ],
-  "openFindings": [
-    {
-      "path": "scripts/finalizer-e2e.sh (install retry loop, lines 64-86)",
-      "problem": "Off-by-one in the APK install retry loop: the error condition `if [ \"$INSTALL_ATTEMPTS\" -ge \"$MAX_ATTEMPTS\" ]` is true both when all 3 attempts failed AND when the install succeeds on the final (3rd) attempt, because INSTALL_ATTEMPTS is incremented to 3 before the successful attempt breaks. A success on the last retry therefore prints 'APK installed successfully on attempt 3' and then still reports 'ERROR: APK install failed after 3 attempts' and exits 1. This directly defeats the purpose of the retry added to fix blocker (b) ('adb install -r' failure of the release APK): the exact transient-flake scenario the repair targets (first attempts fail, last attempt succeeds) would still fail the trusted finalizer with a misleading error.",
-      "evidence": "Simulation of the exact loop logic with adb exit codes 1,1,0: 'Install attempt 3/3... APK installed successfully on attempt 3' followed by 'ERROR: APK install failed after 3 attempts' and exit=1. Control cases: success on attempt 1 or 2 exits 0 and continues to the golden path; all three failures exit 1 (correct). bash -n passes (syntax is valid; the defect is logic, not syntax).",
-      "mustFix": true,
-      "requiredFix": "Track install success explicitly with a flag, e.g. set INSTALLED=1 immediately after the successful `adb install -r \"$apk\"` before `break`, and change the error branch to `if [ \"${INSTALLED:-0}\" -ne 1 ]; then echo \"ERROR: APK install failed after ${MAX_ATTEMPTS} attempts\" >&2; ...; exit 1; fi`. Keep the existing diagnostics (adb devices -l, pm list packages) in the error branch. Do not change the boot-wait, diagnostics or golden-path parts, which are correct.",
-      "verification": "Re-run the loop simulation for all permutations: (1,1,0) must print 'APK installed successfully on attempt 3' and continue to the golden path with exit 0; (1,0) and (0) must continue with exit 0; (1,1,1) must print the ERROR and exit 1. Then re-run `bash -n scripts/finalizer-e2e.sh` and `npx jest __tests__/domain/v3-08-finalizer-wrapper.test.ts` (6/6 must stay green), and the trusted finalizer must pass the Android API 35 emulator step with exit 0."
-    }
-  ],
+  "openFindings": [],
   "factoryHealth": {
     "stalled": false,
     "consecutiveNoProgress": 0,
-    "lastProductSha": "a13a2832b7cdf468c24d4c8f339c7eaf71766089",
+    "lastProductSha": "5590bdefdebdfbae389d0216854b3d6e59b9ee2a",
     "reason": null
   }
 }
