@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "cycle": "35460432762",
+  "decision": "stop",
+  "reason": "V3-08 audit decision is accept. The candidate is a non-empty delta (changedFiles=2, hasDelta=true, verificationOnly=false, agentExitCode=0) repairing the trusted finalizer step-7 blocker of run 35457974999 within Builder scope: scripts/e2e-android.js and scripts/finalizer-e2e.sh only. The root cause was identified as the adb SERVER PROCESS being degraded after React Native Hermes cold start — 'adb shell cat' consistently times out, and the previous 'adb reconnect' only resets the transport layer of the degraded server process and cannot recover it. With fail-fast dump strategy (45s timeout, 1 attempt) from the previous cycle, each failed dumpUi cycle costs ~110s, so ~2.7 cycles exhaust the 300s Demarrer window. Repair: replace 'adb reconnect' with 'adb kill-server' + 'adb start-server' (full server process restart, which automatically rediscovers the running emulator via its broadcast channel) plus a post-restart 'adb get-state' health check, in the JS adbReconnect() and in both shell restart points (pre-E2E and post-install). All new waits bounded (kill 10s, start 10s, wait-for-device 30s, get-state 5s in JS; shell matches pristine pattern with || true guards). No E2E assertion or timeout changed. No product code changed. No protected control-plane file touched. Trusted verification passed exit 0: typecheck, 432 tests (22 suites), privacy 71 tests, cost 21 tests (10 gates), expo install --check up to date, expo export android, prebuild, assembleDebug BUILD SUCCESSFUL. Regression spot check391 tests pass (19 suites). All V3-01 through V3-07 remain accepted with zero regression. No chrono/premium/paywall/warm-V2 reintroduction. No cost regression. V3-08 is the final criterion. The next trusted finalizer run will empirically confirm the fix: if step 7 passes, V3-08 is complete and the release is ready for final promotion by the trusted release finalizer.",
+  "progressEvidence": [
+    "audit-accepted-35460432762-V3-08",
+    "trusted-verification-exit-0-432-tests-22-suites-privacy-71-cost-21-expo-export-android-prebuild-assembleDebug-BUILD-SUCCESSFUL",
+    "candidate-delta-non-empty-changedFiles-2-hasDelta-true-verificationOnly-false-agentExitCode-0",
+    "candidate-patch-matches-staged-diff-byte-for-byte",
+    "failed-run-35457974999-step-7-failure-confirmed-23m05s-steps-5-6-success",
+    "cause-identified-degraded-adb-server-process-shell-cat-consistently-times-out-after-hermes-cold-start",
+    "previous-fail-fast-dump-strategy-45s-1-attempt-still-exhausts-300s-window-due-to-degraded-server",
+    "repair-adb-server-process-restart-kill-server-start-server-plus-health-check",
+    "repair-no-e2e-assertion-or-timeout-changed-only-reconnect-mechanism",
+    "all-new-waits-bounded-kill-10s-start-10s-wait-for-device-30s-get-state-5s",
+    "no-product-code-changed-scripts-only",
+    "no-protected-control-plane-file-touched",
+    "bash-n-finalizer-e2e-sh-ok",
+    "node-check-e2e-android-js-ok",
+    "finalizer-wrapper-e2e-golden-path-cost-gates-41-41-pass",
+    "regression-spot-check-391-tests-pass-19-suites",
+    "no-chrono-premium-paywall-warm-v2-reintroduced",
+    "no-cost-regression-ci-only-changes",
+    "no-mustfix-remains-within-builder-scope",
+    "all-V3-01-through-V3-07-regression-suites-pass",
+    "trusted-finalizer-step-7-empirical-confirmation-pending-next-run"
+  ]
+}
