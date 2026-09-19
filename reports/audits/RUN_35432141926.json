@@ -1,0 +1,38 @@
+{
+  "schemaVersion": 1,
+  "cycle": "35432141926",
+  "role": "builder",
+  "decision": "repair",
+  "summary": "Trusted verification passed (exit 0): typecheck + 432 tests (22 suites), privacy:check (71 tests), cost:check (21 tests, 10 gates), expo install --check up to date, expo export android, prebuild, assembleDebug BUILD SUCCESSFUL in 15m 55s. However the candidate delta is EMPTY (changedFiles=0, hasDelta=false, verificationOnly=true; candidate.patch is 0 bytes; no Builder report exists) and the open mustFix remains: trusted finalizer run 35430259067 failed at step 7 'Android API 35 install, launch and golden path' (started 08:11:09Z, completed 08:29:31Z, ~18.5 min) — the 7th consecutive failure at the emulator step (runs 35293489693, 35302658175, 35315519533, 35333103534, 35413347057, 35424139784, 35430259067). Steps 5 (trusted product/privacy/cost gates incl. assembleRelease) and 6 (locate/hash APK) succeeded, so the release APK was built and located and the blocker is exclusively the emulator install/launch/golden-path step. The diagnostic instrumentation from cycles 35419214459/35425284987 writes logcat/dumpsys/screenshots/result.json to audit/android-e2e/ in the runner workspace, but the workflow uploads only the APK (step 8) and that step is skipped on failure, so the exact failure evidence of run 35430259067 was lost and the Builder produced no repair and no evidence of inspecting the failed logs (raw step logs return 403 without admin rights). Independent checks: product tree byte-identical to pristine accepted baseline (only control-plane/state files differ, trusted-shell owned); workflow YAML byte-identical to pristine; bash -n scripts/finalizer-e2e.sh OK; node --check scripts/e2e-android.js OK; finalizer-wrapper + v3-08-e2e-golden-path + cost-gates-v3-08 suites 41/41 PASS; regression spot-check (ledgers, property-invariants, v3-07 privacy, materialized-balances, merged-pagination) 130/130 PASS. No product regression, no chrono/premium/paywall/warm-V2 reintroduction, no cost regression, no privacy impact — but the concrete trusted-finalizer blocker is unfixed, so the trusted finalizer cannot be expected to pass and the mustFix remains. Decision: repair — the empty delta is coherent and preserved as WIP baseline; the next cycle must obtain the actual step-7 evidence of run 35430259067 and fix the concrete blocker.",
+  "checks": [
+    "trusted-verification-exit-0-432-tests-typecheck-privacy-cost-export-prebuild-build",
+    "candidate-delta-empty-changedFiles-0-hasDelta-false-verificationOnly",
+    "candidate-patch-0-bytes-no-builder-report",
+    "failed-run-35430259067-inspected-via-public-github-api",
+    "run-35430259067-failed-at-step-7-emulator-install-launch-golden-path",
+    "steps-5-6-gates-and-apk-locate-succeeded-release-apk-built",
+    "7th-consecutive-emulator-step-failure-across-finalizer-runs",
+    "raw-step-logs-require-admin-rights-403",
+    "diagnostic-evidence-audit-android-e2e-not-uploaded-on-failure-step-8-skipped",
+    "product-tree-byte-identical-to-pristine-accepted-baseline",
+    "workflow-yaml-byte-identical-to-pristine",
+    "bash-n-finalizer-e2e-sh-ok",
+    "node-check-e2e-android-js-ok",
+    "finalizer-wrapper-e2e-golden-path-cost-gates-41-41-pass",
+    "regression-spot-check-130-tests-pass",
+    "no-product-regression-v3-01-v3-07-preserved",
+    "no-chrono-premium-paywall-warm-v2-reintroduced",
+    "no-cost-regression-no-privacy-impact",
+    "mustfix-trusted-finalizer-blocker-not-resolved"
+  ],
+  "findings": [
+    {
+      "path": "release — trusted finalizer emulator step (run 35430259067, step 7 'Android API 35 install, launch and golden path')",
+      "problem": "The candidate made zero changes (changedFiles=0, hasDelta=false, verificationOnly=true) and therefore did not repair the concrete blocker it was tasked to fix. The trusted finalizer failed at the Android API 35 emulator step for the 7th consecutive time (run 35430259067, step 7, started 08:11:09Z completed 08:29:31Z), while steps 5 (product/privacy/cost gates incl. assembleRelease) and 6 (APK locate/hash) succeeded. The diagnostic instrumentation added in cycles 35419214459/35425284987 writes logcat/dumpsys/screenshots/result.json to audit/android-e2e/ in the runner workspace, but the finalizer workflow uploads only the APK (step 8) and that step is skipped on failure, so the exact failure evidence of run 35430259067 was lost. Raw step logs return 403 without admin rights, so neither the Builder nor the Auditor can identify the concrete cause (emulator boot timeout/flake, adb install failure, or E2E golden-path failure in the release APK). The open mustFix in docs/RELEASE_STATUS.json ('Trusted V3 finalizer failed', mustFix=true) remains unaddressed and the trusted finalizer cannot be expected to pass with the current state.",
+      "evidence": "GitHub API run 35430259067: conclusion=failure; job 'release' step 7 'Android API 35 install, launch and golden path' conclusion=failure (started 2026-09-19T08:11:09Z, completed 08:29:31Z); steps 5 and 6 success; step 8 (upload-artifact, APK only) skipped; reopen-on-failure correctly reopened V3-08. /home/runner/work/_temp/candidate-builder/metadata.json: changedFiles=0, hasDelta=false, verificationOnly=true, agentExitCode=0; candidate.patch is 0 bytes. diff -rq candidate vs pristine accepted tree: only reports/audits/TRUSTED_35432141926.md differs (product tree identical). Trusted verification exit 0 (typecheck, 432 tests, privacy 71, cost 21, export, prebuild, assembleDebug BUILD SUCCESSFUL).",
+      "mustFix": true,
+      "requiredFix": "Obtain the actual step-7 evidence of run 35430259067 and fix the concrete blocker. Concretely: (a) request the raw step-7 logs (admin rights) or re-run the trusted finalizer and ensure the diagnostic evidence survives — the audit/android-e2e/ directory (logcat-finalizer.txt, logcat-failure.txt, dumpsys-activities-failure.txt, result.json, screenshots, UI dumps) must be uploaded as an artifact on failure so the next cycle can read it; (b) identify which of the three candidate blockers occurred — emulator boot timeout/flake, 'adb install -r' failure of the release APK, or E2E golden-path failure in the release APK (app launch, demo fixture seeding, tab labels, assertAbsent checks) — and repair only that cause within Builder scope (scripts/tests/product/config), preserving V3-01..V3-07 and the accepted diagnostic/resilience baseline. Do not modify protected control-plane files (workflow YAML, RELEASE_STATUS.json, TASKS.json).",
+      "verification": "Trusted finalizer must pass the Android API 35 emulator step (release APK install, launch without Metro, golden path Ajouter/Balances/A faire via scripts/e2e-android.js) with exit 0, and docs/RELEASE_STATUS.json must contain android-release-apk-sha256-<sha> and android-api35-install-launch-e2e-green in V3-08 evidence. Until then the mustFix remains open."
+    }
+  ]
+}
