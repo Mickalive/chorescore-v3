@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "cycle": "35425284987",
+  "decision": "stop",
+  "reason": "V3-08 audit decision is accept. The candidate delta adds diagnostic instrumentation and resilience to scripts/e2e-android.js and scripts/finalizer-e2e.sh, plus a regression guard test with corrected comment. Exactly 3 files changed vs pristine (CI/E2E scripts only, no product code). Trusted verification passed (exit 0): typecheck + 432 tests (22 suites), privacy:check (71 tests), cost:check (21 tests, 10 gates), expo install --check up to date, expo export android+ios, prebuild, assembleDebug BUILD SUCCESSFUL. All previously accepted criteria V3-01 through V3-07 remain green with zero regression. No chrono/premium/paywall/warm-V2 reintroduction. No cost regression (CI-only scripts). The candidate addresses the emulator step failure identified in run 35424139784 with bounded adb timeouts, increased cold-start tolerances, graceful dumpUi failure handling, and comprehensive diagnostics. The off-by-one in the install retry loop was fixed in cycle 35421406333. The open finding 'Trusted V3 finalizer failed' is now addressed by the diagnostic/resilience improvements; the next trusted finalizer run will produce the actual step-7 evidence. V3-08 is the final criterion. No product code was changed in this cycle. Hand off to the trusted finalizer for V3-08 formal completion (APK install, golden-path E2E, iOS readiness).",
+  "progressEvidence": [
+    "audit-accept-35425284987-V3-08",
+    "trusted-verification-exit-0-432-tests-typecheck-privacy-71-cost-21",
+    "expo-export-android-ios-pass",
+    "expo-prebuild-and-gradle-BUILD-SUCCESSFUL",
+    "expo-install-check-up-to-date",
+    "candidate-delta-exactly-3-files-vs-pristine",
+    "e2e-android-js-bounded-adb-timeouts-and-diagnostic-instrumentation",
+    "finalizer-e2e-sh-settle-30s-device-state-logging-exit-code-propagation",
+    "regression-guard-test-preserved-with-corrected-comment",
+    "finalizer-wrapper-suite-6-6-pass",
+    "bash-n-finalizer-e2e-sh-ok",
+    "node-check-e2e-android-js-ok",
+    "workflow-yaml-identical-to-pristine",
+    "no-protected-control-plane-files-modified",
+    "no-regression-V3-01-through-V3-07-all-suites-green",
+    "no-chrono-premium-paywall-in-codebase",
+    "no-product-code-changes-no-cost-regression",
+    "no-mustFix-remaining",
+    "emulator-step-failure-addressed-by-diagnostics-and-resilience",
+    "V3-08-awaiting-trusted-finalizer-for-formal-completion"
+  ]
+}
