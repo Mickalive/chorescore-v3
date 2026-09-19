@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "cycle": "35434905999",
+  "decision": "stop",
+  "reason": "V3-08 audit decision is accept. The candidate fixes the evidence-survival root cause that blocked 7 consecutive trusted finalizer cycles: scripts/finalizer-e2e.sh now echoes the full diagnostic payload (audit/android-e2e/ directory listing, result.json, logcat-finalizer.txt, logcat-failure.txt, dumpsys-activities-failure.txt, logcat-wait-* dumps) to stdout/stderr on E2E failure, so the exact step-7 failure evidence survives in GitHub Actions step logs readable by the next cycle. It also hardens all three candidate blockers of run 35430259067: emulator boot timeout 180s->300s with boot-state diagnostics, adb install retry with captured output and device diagnostics, and E2E cold-start tolerance (launch wait 12s->20s+5s, Demarrer wait 90s->120s). Trusted verification passed exit 0 (typecheck, 432 tests, privacy 71, cost 21, expo export, prebuild, assembleDebug BUILD SUCCESSFUL). All V3-01..V3-07 remain accepted with zero regression. No product code changed; only CI E2E scripts modified. No chrono/premium/paywall/warm-V2 reintroduction. No cost regression. However V3-08 cannot be marked complete yet because the trusted finalizer has not yet successfully passed the Android API 35 emulator step (step 7) — the evidence-survival mechanism ensures the next run will either pass or produce readable evidence identifying the concrete cause, but the step itself has not yet been confirmed green. The next cycle must re-run the trusted finalizer and either confirm step 7 success (completing V3-08) or read the surviving diagnostic evidence to identify and repair the remaining concrete blocker.",
+  "progressEvidence": [
+    "audit-accepted-35434905999-V3-08",
+    "trusted-verification-exit-0-432-tests-typecheck-privacy-71-cost-21",
+    "expo-export-android-pass",
+    "expo-prebuild-and-gradle-BUILD-SUCCESSFUL",
+    "candidate-delta-2-files-scripts-e2e-android-js-scripts-finalizer-e2e-sh",
+    "candidate-patch-9623-bytes-exact-match-cached-diff",
+    "diagnostic-echo-to-stdout-stderr-on-e2e-failure-evidence-survival-mechanism",
+    "emulator-boot-timeout-180s-to-300s-with-boot-state-diagnostics",
+    "adb-install-retry-with-captured-output-and-device-diagnostics",
+    "e2e-cold-start-tolerance-launch-20s-demarrer-120s-logcat-clear",
+    "protected-control-plane-files-byte-identical-to-pristine",
+    "finalizer-wrapper-and-e2e-golden-path-and-cost-gates-41-41-pass",
+    "regression-spot-check-ledgers-property-invariants-v3-07-analytics-materialized-balances-114-114-pass",
+    "e2e-assertions-unchanged-except-timeouts-no-masking",
+    "no-product-regression-v3-01-through-V3-07-preserved",
+    "no-chrono-premium-paywall-warm-v2-reintroduced",
+    "no-cost-regression-no-privacy-impact",
+    "trusted-finalizer-step-7-not-yet-confirmed-green-pending-next-run"
+  ]
+}

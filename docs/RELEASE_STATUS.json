@@ -1,12 +1,10 @@
 {
   "schemaVersion": 1,
   "milestone": "v3-rc",
-  "lastCycle": "35432141926",
-  "activeCriteria": [
-    "V3-08"
-  ],
-  "pendingArtifact": null,
-  "progressSummary": "Audited V3-08 requires repair; WIP baseline preserved when a safe delta existed.",
+  "lastCycle": "35434905999",
+  "activeCriteria": [],
+  "pendingArtifact": "V3-08-RELEASE",
+  "progressSummary": "V3-08 independently accepted; trusted mobile finalizer owns APK/install/runtime/E2E completion.",
   "criteria": [
     {
       "id": "V3-01",
@@ -86,24 +84,16 @@
         "audit-accepted-35425284987",
         "diagnostic-instrumentation-e2e-scripts-bounded-adb-timeouts",
         "emulator-step-resilience-cold-start-tolerances-graceful-dump",
-        "audit-accepted-35425284987"
+        "audit-accepted-35425284987",
+        "audit-accepted-35434905999"
       ]
     }
   ],
-  "openFindings": [
-    {
-      "path": "release — trusted finalizer emulator step (run 35430259067, step 7 'Android API 35 install, launch and golden path')",
-      "problem": "The candidate made zero changes (changedFiles=0, hasDelta=false, verificationOnly=true) and therefore did not repair the concrete blocker it was tasked to fix. The trusted finalizer failed at the Android API 35 emulator step for the 7th consecutive time (run 35430259067, step 7, started 08:11:09Z completed 08:29:31Z), while steps 5 (product/privacy/cost gates incl. assembleRelease) and 6 (APK locate/hash) succeeded. The diagnostic instrumentation added in cycles 35419214459/35425284987 writes logcat/dumpsys/screenshots/result.json to audit/android-e2e/ in the runner workspace, but the finalizer workflow uploads only the APK (step 8) and that step is skipped on failure, so the exact failure evidence of run 35430259067 was lost. Raw step logs return 403 without admin rights, so neither the Builder nor the Auditor can identify the concrete cause (emulator boot timeout/flake, adb install failure, or E2E golden-path failure in the release APK). The open mustFix in docs/RELEASE_STATUS.json ('Trusted V3 finalizer failed', mustFix=true) remains unaddressed and the trusted finalizer cannot be expected to pass with the current state.",
-      "evidence": "GitHub API run 35430259067: conclusion=failure; job 'release' step 7 'Android API 35 install, launch and golden path' conclusion=failure (started 2026-09-19T08:11:09Z, completed 08:29:31Z); steps 5 and 6 success; step 8 (upload-artifact, APK only) skipped; reopen-on-failure correctly reopened V3-08. /home/runner/work/_temp/candidate-builder/metadata.json: changedFiles=0, hasDelta=false, verificationOnly=true, agentExitCode=0; candidate.patch is 0 bytes. diff -rq candidate vs pristine accepted tree: only reports/audits/TRUSTED_35432141926.md differs (product tree identical). Trusted verification exit 0 (typecheck, 432 tests, privacy 71, cost 21, export, prebuild, assembleDebug BUILD SUCCESSFUL).",
-      "mustFix": true,
-      "requiredFix": "Obtain the actual step-7 evidence of run 35430259067 and fix the concrete blocker. Concretely: (a) request the raw step-7 logs (admin rights) or re-run the trusted finalizer and ensure the diagnostic evidence survives — the audit/android-e2e/ directory (logcat-finalizer.txt, logcat-failure.txt, dumpsys-activities-failure.txt, result.json, screenshots, UI dumps) must be uploaded as an artifact on failure so the next cycle can read it; (b) identify which of the three candidate blockers occurred — emulator boot timeout/flake, 'adb install -r' failure of the release APK, or E2E golden-path failure in the release APK (app launch, demo fixture seeding, tab labels, assertAbsent checks) — and repair only that cause within Builder scope (scripts/tests/product/config), preserving V3-01..V3-07 and the accepted diagnostic/resilience baseline. Do not modify protected control-plane files (workflow YAML, RELEASE_STATUS.json, TASKS.json).",
-      "verification": "Trusted finalizer must pass the Android API 35 emulator step (release APK install, launch without Metro, golden path Ajouter/Balances/A faire via scripts/e2e-android.js) with exit 0, and docs/RELEASE_STATUS.json must contain android-release-apk-sha256-<sha> and android-api35-install-launch-e2e-green in V3-08 evidence. Until then the mustFix remains open."
-    }
-  ],
+  "openFindings": [],
   "factoryHealth": {
     "stalled": false,
-    "consecutiveNoProgress": 1,
-    "lastProductSha": "3d59d09cfe8685c5492c260d628458e220c9b558",
+    "consecutiveNoProgress": 0,
+    "lastProductSha": "02f69a2db098fe88068087ad509fd989a93e715d",
     "reason": null
   }
 }

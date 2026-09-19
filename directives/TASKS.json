@@ -2,10 +2,10 @@
   "schemaVersion": 1,
   "milestone": "v3-rc",
   "builder": {
-    "enabled": true,
-    "criterionId": "V3-08",
-    "objective": "REPAIR V3-08: Obtain the actual step-7 evidence of run 35430259067 and fix the concrete blocker. Concretely: (a) request the raw step-7 logs (admin rights) or re-run the trusted finalizer and ensure the diagnostic evidence survives — the audit/android-e2e/ directory (logcat-finalizer.txt, logcat-failure.txt, dumpsys-activities-failure.txt, result.json, screenshots, UI dumps) must be uploaded as an artifact on failure so the next cycle can read it; (b) identify which of the three candidate blockers occurred — emulator boot timeout/flake, 'adb install -r' failure of the release APK, or E2E golden-path failure in the release APK (app launch, demo fixture seeding, tab labels, assertAbsent checks) — and repair only that cause within Builder scope (scripts/tests/product/config), preserving V3-01..V3-07 and the accepted diagnostic/resilience baseline. Do not modify protected control-plane files (workflow YAML, RELEASE_STATUS.json, TASKS.json).",
-    "scope": "Repair only the audited must-fix findings on the preserved V3 baseline; do not rebuild accepted work.",
+    "enabled": false,
+    "criterionId": null,
+    "objective": "V3-08 handed to trusted release finalizer.",
+    "scope": "Trusted finalizer only.",
     "acceptance": [],
     "previousCriteriaPreserved": [
       "V3-01: accepted and must not regress",
