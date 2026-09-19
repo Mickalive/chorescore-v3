@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "cycle": "35466799695",
+  "decision": "stop",
+  "reason": "V3-08 audit decision is accept. The candidate is a non-empty delta (changedFiles=1, hasDelta=true, verificationOnly=false, agentExitCode=0) repairing the trusted finalizer step-7 blocker of run 35464672760 within Builder scope: scripts/e2e-android.js only. The previous cycle's adb kill-server + start-server repair was in the baseline and the finalizer STILL failed, so the remaining failure source is the uiautomator server session not being initialized after the adb server-process restart — the first real dumpUi() call blocks for the full 45s timeout while the server initializes, burning one of the limited retry cycles in the Demarrer waitFor() window. Repair: (a) a bounded uiautomator warm-up dump (45s timeout, 1 attempt, non-fatal with 5s sleep fallback) immediately after the adb server restart in launch(), forcing the server to initialize before the window begins; (b) Demarrer window 300s → 360s (+60s), compensating the worst-case warm-up cost (+50s) with +10s net headroom. No E2E assertion weakened, no product code changed, no protected control-plane file touched. Trusted verification passed exit 0: typecheck, 432 tests (22 suites), privacy 71 tests, cost 21 tests (10 gates), expo export android, prebuild, assembleDebug BUILD SUCCESSFUL in 20m 25s. Regression spot check 391 tests pass. All V3-01 through V3-07 remain accepted with zero regression. No chrono/premium/paywall/warm-V2 reintroduction. No cost regression. V3-08 is the final criterion on the roadmap. The next trusted finalizer run will empirically confirm the uiautomator warm-up fix: if step 7 passes (install/launch/golden path green), V3-08 is complete and the release is ready for final promotion by the trusted release finalizer.",
+  "progressEvidence": [
+    "audit-accepted-35466799695-V3-08",
+    "trusted-verification-exit-0-432-tests-22-suites-privacy-71-cost-21-expo-export-android-prebuild-assembleDebug-BUILD-SUCCESSFUL-20m25s",
+    "candidate-delta-non-empty-changedFiles-1-hasDelta-true-verificationOnly-false-agentExitCode-0",
+    "candidate-patch-matches-staged-diff-byte-for-byte",
+    "failed-run-35464672760-step-7-failure-confirmed-via-public-github-api-19-53-40Z-to-20-14-50Z-21m10s",
+    "steps-5-6-gates-and-apk-locate-succeeded-in-failed-run",
+    "cause-identified-previous-kill-server-start-server-repair-was-in-place-and-finalizer-still-failed-remaining-source-is-uiautomator-server-session-initialization-after-adb-server-restart",
+    "repair-scoped-to-uiautomator-warm-up-dump-and-Demarrer-window-headroom-only",
+    "timing-verified-warm-up-worst-case-50s-window-extension-60s-net-plus-10s-headroom-360s-window-fits-4-8-failed-dump-cycles-vs-4-0",
+    "no-e2e-assertion-weakened-only-Demarrer-window-timeout-changed-warm-up-is-not-an-assertion",
+    "no-product-code-changed-scripts-only",
+    "no-protected-control-plane-file-touched",
+    "regression-spot-check-391-tests-pass",
+    "no-chrono-premium-paywall-warm-v2-reintroduced",
+    "no-cost-regression-ci-only-changes",
+    "V3-08-is-final-criterion-no-next-roadmap-step",
+    "trusted-finalizer-step-7-empirical-confirmation-pending-next-run"
+  ]
+}
