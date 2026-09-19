@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 1,
+  "cycle": "35453691894",
+  "decision": "stop",
+  "reason": "Audit decision is accept: the candidate is a non-empty delta (changedFiles=2, hasDelta=true, verificationOnly=false, agentExitCode=0) repairing the trusted finalizer step-7 blocker of run 35451816114 within Builder scope. The root cause was identified as the previous cycle's 60s uiautomator dump timeout with adb() default 3 attempts making each failed dumpUi cycle cost up to 270s (3×60s dump + 3×30s cat), exceeding the 240s Demarrer window — 0.89 cycles fit, so a single failed dump after cold start guaranteed a waitFor timeout. Repair: fail-fast dump strategy (45s timeout, 1 attempt) so waitFor() retries at a higher level within its own deadline, Demarrer window 240s→300s, launch cold-start wait 45s→60s, package-manager settle 45s→60s, general ADB_TIMEOUT_MS 60s→45s, cat reads reduced to 1 attempt. Independent timing verification: candidate worst-case failed dumpUi cycle = 75s, 4.0 cycles fit in the 300s window (3.75 with reconnect overhead) vs 0.89 before. No assertion weakened, no product code changed, no protected control-plane file touched. Trusted verification passed exit 0: typecheck, 432 tests (22 suites), privacy 71 tests, cost 21 tests (10 gates), expo install --check up to date, expo export android, prebuild, assembleDebug BUILD SUCCESSFUL in 15m 36s. All V3-01..V3-07 regression suites pass (357/357 spot-checked). No must-fix findings remain within Builder scope. The RELEASE_STATUS.json open finding requires the trusted finalizer to pass product/privacy/cost gates, APK build, install/launch and golden path before V3-08 can be marked complete. This cycle presents the repair; the empirical confirmation is the next trusted finalizer run. V3-08 is the final criterion. After its completion, the release is ready for final promotion by the trusted release finalizer.",
+  "progressEvidence": [
+    "audit-accepted-35453691894-V3-08",
+    "trusted-verification-exit-0-432-tests-22-suites-privacy-71-cost-21-expo-export-android-prebuild-assembleDebug-BUILD-SUCCESSFUL-15m36s",
+    "candidate-delta-non-empty-changedFiles-2-hasDelta-true-verificationOnly-false-agentExitCode-0",
+    "candidate-patch-matches-staged-diff-byte-for-byte",
+    "failed-run-35451816114-step-7-failure-confirmed-18m19s-steps-5-6-success",
+    "cause-identified-previous-60s-dump-timeout-with-3-attempts-270s-per-failed-dumpUi-cycle-exceeded-240s-Demarrer-window-0-89-cycles-fit",
+    "repair-fail-fast-dump-strategy-45s-timeout-1-attempt-so-waitFor-retries-at-higher-level",
+    "repair-Demarrer-window-240s-to-300s",
+    "repair-launch-cold-start-wait-45s-to-60s",
+    "repair-package-manager-settle-45s-to-60s",
+    "repair-general-ADB_TIMEOUT_MS-60s-to-45s",
+    "repair-cat-reads-reduced-to-1-attempt",
+    "timing-verified-candidate-75s-per-failed-dumpUi-cycle-4-0-cycles-fit-in-300s-window-vs-0-89-before",
+    "no-e2e-assertion-weakened-only-timeouts-and-retry-counts-changed",
+    "no-product-code-changed-scripts-only",
+    "no-protected-control-plane-file-touched",
+    "bash-n-finalizer-e2e-sh-ok",
+    "node-check-e2e-android-js-ok",
+    "finalizer-wrapper-e2e-golden-path-cost-gates-41-41-pass",
+    "regression-spot-check-357-tests-pass",
+    "no-chrono-premium-paywall-warm-V2-reintroduced",
+    "no-cost-regression-ci-only-changes",
+    "all-V3-01-through-V3-07-regression-suites-pass",
+    "empirical-confirmation-pending-next-trusted-finalizer-run"
+  ]
+}
