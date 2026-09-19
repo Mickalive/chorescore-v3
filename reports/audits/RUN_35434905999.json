@@ -1,0 +1,37 @@
+{
+  "schemaVersion": 1,
+  "cycle": "35434905999",
+  "role": "builder",
+  "decision": "accept",
+  "summary": "V3-08 repair accepted. The candidate fixes the evidence-loss root cause that blocked 7 consecutive finalizer cycles: scripts/finalizer-e2e.sh now echoes the full diagnostic payload (audit/android-e2e/ directory listing, result.json, logcat-finalizer.txt, logcat-failure.txt, dumpsys-activities-failure.txt, logcat-wait-* dumps) to stdout/stderr on E2E failure, so the exact step-7 failure evidence survives in the GitHub Actions step logs (readable by the next cycle via the factory token with actions:write, or in the UI) even though the workflow YAML artifact upload remains protected/out of Builder scope. It also adds bounded resilience for all three candidate blockers of run 35430259067: emulator boot timeout 180s->300s with boot-state diagnostics, adb install retry with captured output/exit code and device diagnostics (devices, packages, disk, pm path), and E2E cold-start tolerance (launch wait 12s->20s+5s extended pidof check, Demarrer wait 90s->120s, logcat cleared before launch, result.json echoed to stderr on failure). No E2E assertion was weakened (only timeouts increased), no product code changed, no protected control-plane file touched, and trusted verification passed with exit 0 (typecheck, 432 tests, privacy 71, cost 21, expo export, prebuild, assembleDebug BUILD SUCCESSFUL). The exact cause of run 35430259067 remains unidentified because its evidence was lost and raw logs require admin rights; the candidate's design guarantees the next trusted finalizer run either passes or produces surviving, readable evidence, which is the maximum in-scope repair and matches the factory pattern endorsed in RUN_35419214459/RUN_35425284987.",
+  "checks": [
+    "trusted-verification-exit-0 (TRUSTED_35434905999.md: typecheck, 432 tests/22 suites, privacy 71, cost 21, expo install --check, expo export android, prebuild, assembleDebug BUILD SUCCESSFUL in 19m52s)",
+    "candidate.patch (9623 bytes) matches git diff --cached exactly (scripts/e2e-android.js +30/-2, scripts/finalizer-e2e.sh +69/-10)",
+    "protected control-plane files byte-identical to pristine: .github/workflows/chorescore-v3-finalize.yml, docs/RELEASE_STATUS.json, directives/TASKS.json",
+    "bash -n scripts/finalizer-e2e.sh OK; node --check scripts/e2e-android.js OK",
+    "npx jest v3-08-finalizer-wrapper + v3-08-e2e-golden-path + cost-gates-v3-08: 41/41 PASS",
+    "regression spot-check ledgers/property-invariants/v3-07-analytics-privacy/materialized-balances: 114/114 PASS",
+    "E2E assertions unchanged vs pristine except timeouts (Demarrer 90s->120s, launch 12s->20s+5s); all waitFor/tapLabel/assertAbsent/findVisible/typeInto positive assertions intact — no masking",
+    "fixture alignment intact: Demarrer (app/index.tsx), Appartement/Vaisselle du soir/Sortir les poubelles/Alex/Sam (demoFixture.ts), Ajouter/Balances/A faire (tabs layout), Contribution (balances screen)",
+    "diagnostic echo block bounded (tail -200/-100/-50, ls -la) and guarded (|| echo missing) — cannot hang or mask the E2E exit code (exit \"$E2E_EXIT\" preserved)",
+    "no product/domain/analytics/persistence change -> no V3-01..V3-07 regression; CI-only delta -> no user-path cost regression; no chrono/premium/paywall/warm-V2 reintroduction"
+  ],
+  "findings": [
+    {
+      "path": "release — trusted finalizer emulator step (run 35430259067, step 7 'Android API 35 install, launch and golden path')",
+      "problem": "The exact failure cause of run 35430259067 (emulator boot timeout/flake vs 'adb install -r' failure vs E2E golden-path failure) remains unidentified: the diagnostic files written to audit/android-e2e/ were lost because the finalizer workflow uploads only the APK (step 8, skipped on failure) and raw step logs return 403 without admin rights. The candidate could not identify the single concrete cause and instead hardened all three candidate failure modes.",
+      "evidence": "RELEASE_STATUS.json open finding (mustFix=true) documents run 35430259067 step 7 failure (08:11:09Z-08:29:31Z, ~18.5 min) with steps 5/6 success and step 8 skipped; previous audits RUN_35432141926/RUN_35425284987 confirm raw logs 403 without admin rights and no artifact upload on failure.",
+      "mustFix": false,
+      "requiredFix": "The evidence-survival mechanism added by this candidate (diagnostic echo to stdout/stderr on failure) ensures the next trusted finalizer run either passes or produces surviving, readable step-7 evidence; the next cycle can then identify and repair the single concrete cause. Workflow YAML artifact upload remains protected control-plane and out of Builder scope.",
+      "verification": "Next trusted finalizer run: if it fails, the step logs must contain the audit/android-e2e/ directory listing, result.json, logcat-finalizer.txt, logcat-failure.txt, dumpsys-activities-failure.txt and logcat-wait-* dumps; if it passes, V3-08 completes with android-release-apk-sha256-<sha> and android-api35-install-launch-e2e-green in RELEASE_STATUS.json."
+    },
+    {
+      "path": "scripts/finalizer-e2e.sh — package-manager settle wait reduced 30s -> 20s",
+      "problem": "The settle wait after boot was reduced from 30s to 20s while the boot wait increased 180s -> 300s. The reduction is a minor trade-off: a slower package-manager settle could in theory cause an install attempt to fail earlier than before.",
+      "evidence": "finalizer-e2e.sh line 51-52: 'Waiting for package manager to settle (20s)...' sleep 20; boot wait TIMEOUT=300 (line 26). Net total wait budget increased by 110s; install now retries 3x with captured output and the E2E script independently re-checks pm list packages and installs when absent.",
+      "mustFix": false,
+      "requiredFix": "None — the reduction is offset by the +120s boot wait, the 3-attempt install retry with diagnostics, and the E2E script's own install fallback; risk is negligible and bounded.",
+      "verification": "Trusted finalizer emulator step exit 0 on the next run, or surviving step-7 evidence identifying a concrete install failure."
+    }
+  ]
+}

@@ -293,9 +293,12 @@ function writeResult(status, error = null) {
 function launch() {
   try { shell('am', 'force-stop', packageName); } catch (_) {}
   sleep(1000);
+  // Clear any previous logcat to get clean logs for this launch
+  try { adb(['logcat', '-c']); } catch (_) {}
   try { shell('monkey', '-p', packageName, '-c', 'android.intent.category.LAUNCHER', '1'); } catch (_) {}
   // Wait for React Native cold start on emulator — API 35 x86_64 can be slow
-  sleep(12000);
+  // Increased from 12s to 20s to handle slower cold starts on GitHub Actions runners
+  sleep(20000);
   // Verify the process is alive after launch attempt
   try {
     const pid = shell('pidof', packageName).trim();
@@ -303,6 +306,22 @@ function launch() {
       console.log(`App process alive (pid ${pid})`);
     } else {
       console.log('WARN: App process not found after launch — may still be starting');
+      // One more wait and check
+      sleep(5000);
+      try {
+        const pid2 = shell('pidof', packageName).trim();
+        if (pid2) {
+          console.log(`App process alive after extended wait (pid ${pid2})`);
+        } else {
+          console.log('WARN: App process still not found after 25s — capture logcat for diagnosis');
+          try {
+            const logcat = adb(['logcat', '-d', '-t', '50'], { timeoutMs: 10_000 });
+            console.error('--- Post-launch logcat (last 50 lines) ---');
+            console.error(logcat);
+            console.error('--- end logcat ---');
+          } catch (_) {}
+        }
+      } catch (_) {}
     }
   } catch (_) {
     console.log('WARN: Could not check app process state');
@@ -343,7 +362,8 @@ try {
   // Diagnostic screenshot to capture the screen state after launch
   screenshot('diagnostic-post-launch');
   console.log('Waiting for Demarrer button...');
-  waitFor('Demarrer', 90000);
+  // API 35 x86_64 cold start can be very slow — 120s timeout
+  waitFor('Demarrer', 120000);
   screenshot('01-login');
   tapLabel('Demarrer', { exact: false });
   console.log('Waiting for Appartement group...');
@@ -431,6 +451,14 @@ try {
   } catch (_) {}
   try { screenshot('failure'); } catch (_) {}
   writeResult('fail', error);
+  // Echo result.json to stderr so the step logs contain structured diagnostic data
+  // even when the audit/android-e2e/ directory is not uploaded as an artifact.
+  try {
+    const resultContent = fs.readFileSync(resultPath, 'utf8');
+    console.error('--- result.json (structured diagnostic) ---');
+    console.error(resultContent);
+    console.error('--- end result.json ---');
+  } catch (_) {}
   console.error(error.stack || error);
   process.exit(1);
 }

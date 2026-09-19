@@ -20,8 +20,10 @@ echo "=== ChoreScore V3 finalizer E2E ==="
 echo "Time: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
 # 0. Wait for emulator to be fully booted
+# API 35 x86_64 emulators on GitHub Actions can take 120-240s to boot.
+# We use 300s (5 min) to handle slow cold starts.
 echo "Waiting for emulator to be fully booted..."
-TIMEOUT=180
+TIMEOUT=300
 ELAPSED=0
 while [ "$ELAPSED" -lt "$TIMEOUT" ]; do
   BOOT_COMPLETED=$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r' || true)
@@ -31,16 +33,23 @@ while [ "$ELAPSED" -lt "$TIMEOUT" ]; do
   fi
   sleep 5
   ELAPSED=$((ELAPSED + 5))
-  echo "  Waiting... (${ELAPSED}s/${TIMEOUT}s)"
+  # Log every 30s to avoid excessive output
+  if [ $((ELAPSED % 30)) -eq 0 ]; then
+    echo "  Waiting for boot... (${ELAPSED}s/${TIMEOUT}s)"
+  fi
 done
 
 if [ "$ELAPSED" -ge "$TIMEOUT" ]; then
   echo "WARNING: Emulator boot timeout after ${TIMEOUT}s, proceeding anyway"
+  echo "Boot state diagnostics:"
+  echo "  sys.boot_completed: $(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r' || echo 'unavailable')"
+  echo "  ro.build.version.sdk: $(adb shell getprop ro.build.version.sdk 2>/dev/null | tr -d '\r' || echo 'unavailable')"
+  echo "  init.svc.bootanim: $(adb shell getprop init.svc.bootanim 2>/dev/null | tr -d '\r' || echo 'unavailable')"
 fi
 
-# Additional wait for package manager to settle (API 35 x86_64 can be slow)
-echo "Waiting for package manager to settle..."
-sleep 30
+# Additional wait for package manager and runtime to settle (API 35 x86_64 can be slow)
+echo "Waiting for package manager to settle (20s)..."
+sleep 20
 
 # Verify adb is connected and log device state
 adb get-state 2>/dev/null || {
@@ -51,6 +60,7 @@ echo "adb device state: $(adb get-state)"
 echo "adb devices:"
 adb devices -l 2>/dev/null || true
 echo "sys.boot_completed: $(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r' || echo 'unknown')"
+echo "ro.build.version.sdk: $(adb shell getprop ro.build.version.sdk 2>/dev/null | tr -d '\r' || echo 'unknown')"
 
 # 1. Locate the release APK
 apk=$(find android/app/build/outputs/apk/release -type f -name '*.apk' | head -1)
@@ -66,27 +76,37 @@ echo "APK: $apk ($(stat -c%s "$apk") bytes)"
 
 # 2. Install on the emulator with retry
 echo "Installing APK..."
+echo "APK file: $apk ($(stat -c%s "$apk") bytes, $(sha256sum "$apk" | awk '{print $1}'))"
 INSTALL_ATTEMPTS=0
 MAX_ATTEMPTS=3
 INSTALLED=0
 while [ "$INSTALL_ATTEMPTS" -lt "$MAX_ATTEMPTS" ]; do
   INSTALL_ATTEMPTS=$((INSTALL_ATTEMPTS + 1))
   echo "  Install attempt ${INSTALL_ATTEMPTS}/${MAX_ATTEMPTS}..."
-  if adb install -r "$apk" 2>&1; then
+  INSTALL_OUTPUT=$(adb install -r "$apk" 2>&1) && INSTALL_EXIT=0 || INSTALL_EXIT=$?
+  echo "  Install exit: $INSTALL_EXIT"
+  echo "  Install output: $INSTALL_OUTPUT"
+  if [ "$INSTALL_EXIT" -eq 0 ]; then
     echo "  APK installed successfully on attempt ${INSTALL_ATTEMPTS}"
     INSTALLED=1
     break
   fi
   if [ "$INSTALL_ATTEMPTS" -lt "$MAX_ATTEMPTS" ]; then
-    echo "  Install failed, waiting 10s before retry..."
-    sleep 10
+    echo "  Install failed, waiting 15s before retry..."
+    sleep 15
   fi
 done
 
 if [ "${INSTALLED:-0}" -ne 1 ]; then
   echo "ERROR: APK install failed after ${MAX_ATTEMPTS} attempts" >&2
+  echo "--- Device diagnostics ---"
   adb devices -l 2>/dev/null || true
-  adb shell pm list packages 2>/dev/null | head -5 || true
+  echo "--- Installed packages (first 10) ---"
+  adb shell pm list packages 2>/dev/null | head -10 || true
+  echo "--- Disk space ---"
+  adb shell df /data 2>/dev/null || true
+  echo "--- Package manager state ---"
+  adb shell pm path app.chorescore.v3 2>/dev/null || echo "Package not found"
   exit 1
 fi
 
@@ -103,8 +123,47 @@ echo "Capturing logcat for post-mortem..."
 adb logcat -d -t 300 > audit/android-e2e/logcat-finalizer.txt 2>/dev/null || true
 echo "E2E exit code: $E2E_EXIT"
 
+# ── Diagnostic echo: make evidence survive step failure ────────────────
+# GitHub Actions preserves step output (stdout/stderr) in the workflow run
+# logs even when a step fails.  Raw step logs require admin API access,
+# but the step output IS visible in the GitHub Actions UI and accessible
+# via the standard repo token.  By echoing the diagnostic file contents to
+# stdout/stderr here, the NEXT Builder cycle can read the actual failure
+# cause from the step logs without needing admin rights.
 if [ "$E2E_EXIT" -ne 0 ]; then
-  echo "E2E FAILED — logcat saved to audit/android-e2e/logcat-finalizer.txt" >&2
+  echo ""
+  echo "═══════════════════════════════════════════════════════════════"
+  echo "  E2E FAILED — DIAGNOSTIC EVIDENCE (stdout for step logs)"
+  echo "═══════════════════════════════════════════════════════════════"
+  echo ""
+  echo "--- audit/android-e2e/ directory listing ---"
+  ls -la audit/android-e2e/ 2>/dev/null || echo "(directory missing)"
+  echo ""
+  echo "--- result.json ---"
+  cat audit/android-e2e/result.json 2>/dev/null || echo "(result.json missing)"
+  echo ""
+  echo "--- logcat-finalizer.txt (last 200 lines) ---"
+  tail -200 audit/android-e2e/logcat-finalizer.txt 2>/dev/null || echo "(logcat-finalizer.txt missing)"
+  echo ""
+  echo "--- logcat-failure.txt (last 200 lines) ---"
+  tail -200 audit/android-e2e/logcat-failure.txt 2>/dev/null || echo "(logcat-failure.txt missing)"
+  echo ""
+  echo "--- dumpsys-activities-failure.txt (last 50 lines) ---"
+  tail -50 audit/android-e2e/dumpsys-activities-failure.txt 2>/dev/null || echo "(dumpsys-activities-failure.txt missing)"
+  echo ""
+  echo "--- logcat-wait-* timeout dumps ---"
+  for f in audit/android-e2e/logcat-wait-*.txt; do
+    if [ -f "$f" ]; then
+      echo "=== $(basename "$f") (last 100 lines) ==="
+      tail -100 "$f"
+    fi
+  done
+  echo ""
+  echo "═══════════════════════════════════════════════════════════════"
+  echo "  END DIAGNOSTIC EVIDENCE"
+  echo "═══════════════════════════════════════════════════════════════"
+  echo ""
+  echo "E2E FAILED — diagnostic evidence echoed to stdout for step logs" >&2
 fi
 
 exit "$E2E_EXIT"
