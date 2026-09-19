@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "cycle": "35448051096",
+  "decision": "stop",
+  "reason": "Audit decision is accept: the candidate is a non-empty delta (changedFiles=2, hasDelta=true, verificationOnly=false) that repairs the trusted finalizer step-7 blocker of run 35445913329 within Builder scope. The root cause was identified as uiautomator dump timeout (30s default killing dumps that complete in 30-60s on a loaded API 35 x86_64 emulator under React Native cold-start load) cascading into waitFor assertion timeouts. The repair raises the dump timeout to 60s via a new shell() trailing options object, adds cold-start headroom (launch wait 45s, package-manager settle 45s, post-cold-start adb reconnect), switches screenshot fallback from exec-out cat to shell cat, and adds diagnostic evidence capture (dumpsys activity top, pidof, pre-E2E logcat). No assertion weakened, no product code changed, no protected control-plane file touched. Trusted verification passed exit 0: typecheck, 432 tests (22 suites), privacy 71 tests, cost 21 tests (10 gates), expo export android, prebuild, assembleDebug BUILD SUCCESSFUL in 19m 15s. All V3-01..V3-07 regression suites pass (357/357 spot-checked). No must-fix findings remain within Builder scope. The RELEASE_STATUS.json open finding requires the trusted finalizer to pass product/privacy/cost gates, APK build, install/launch and golden path before V3-08 can be marked complete. This cycle presents the repair; the empirical confirmation is the next trusted finalizer run. V3-08 is the final criterion. After its completion, the release is ready for final promotion by the trusted release finalizer.",
+  "progressEvidence": [
+    "audit-accepted-35448051096-V3-08",
+    "trusted-verification-exit-0-432-tests-22-suites-privacy-71-cost-21-expo-export-android-prebuild-assembleDebug-BUILD-SUCCESSFUL-19m15s",
+    "candidate-delta-non-empty-changedFiles-2-hasDelta-true-verificationOnly-false-agentExitCode-0",
+    "candidate-patch-7682-bytes-byte-for-byte-match-cached-diff",
+    "failed-run-35445913329-step-7-failure-confirmed-21m34s-steps-5-6-success",
+    "cause-identified-uiautomator-dump-30s-timeout-kills-slow-dumps-30-60s-on-loaded-api-35-x86-64-emulator-cascading-into-waitFor-timeouts",
+    "repair-uiautomator-dump-timeout-30s-to-60s-via-shell-options-override",
+    "repair-cold-start-headroom-launch-45s-settle-45s-post-cold-start-adb-reconnect",
+    "repair-screenshot-fallback-shell-cat-instead-of-exec-out-cat",
+    "repair-diagnostic-evidence-capture-dumpsys-activity-pidof-pre-e2e-logcat",
+    "no-e2e-assertion-weakened-only-timeouts-and-diagnostics-changed",
+    "no-product-code-changed-scripts-only",
+    "no-protected-control-plane-file-touched",
+    "bash-n-finalizer-e2e-sh-ok-node-check-e2e-android-js-ok",
+    "finalizer-wrapper-e2e-golden-path-cost-gates-41-41-pass",
+    "regression-spot-check-357-tests-pass",
+    "no-chrono-premium-paywall-warm-V2-reintroduced",
+    "no-cost-regression-ci-only-changes",
+    "all-V3-01-through-V3-07-regression-suites-pass",
+    "empirical-confirmation-pending-next-trusted-finalizer-run"
+  ]
+}
