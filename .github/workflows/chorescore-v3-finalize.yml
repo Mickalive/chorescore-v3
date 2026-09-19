@@ -87,11 +87,7 @@ jobs:
           api-level: 35
           arch: x86_64
           profile: pixel_6
-          script: |
-            set -euo pipefail
-            apk=$(find android/app/build/outputs/apk/release -type f -name '*.apk' | head -1)
-            adb install -r "$apk"
-            npm run e2e:android
+          script: bash scripts/finalizer-e2e.sh
       - uses: actions/upload-artifact@v4
         with:
           name: chorescore-v3-android-release
