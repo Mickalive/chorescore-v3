@@ -60,18 +60,24 @@ const checkpoints = [];
 const startedAt = new Date().toISOString();
 fs.mkdirSync(outputDir, { recursive: true });
 
-function adb(args, binary = false, retries = 3) {
+const ADB_TIMEOUT_MS = 60_000;
+const ADB_INSTALL_TIMEOUT_MS = 180_000;
+
+function adb(args, { binary = false, retries = 3, timeoutMs } = {}) {
+  const effectiveTimeout = timeoutMs ?? (args[0] === 'install' ? ADB_INSTALL_TIMEOUT_MS : ADB_TIMEOUT_MS);
   let lastError;
   for (let attempt = 1; attempt <= retries; attempt++) {
     try {
       return execFileSync('adb', args, {
         encoding: binary ? null : 'utf8',
         stdio: ['ignore', 'pipe', 'pipe'],
+        timeout: effectiveTimeout,
       });
     } catch (err) {
       lastError = err;
+      const signal = err.killed ? ' (TIMEOUT — killed)' : '';
+      console.log(`  adb ${args[0]} failed (attempt ${attempt}/${retries})${signal}: ${err.message?.slice(0, 200) || err}`);
       if (attempt < retries) {
-        console.log(`  adb ${args[0]} failed (attempt ${attempt}/${retries}), retrying in 2s...`);
         sleep(2000);
       }
     }
@@ -79,7 +85,7 @@ function adb(args, binary = false, retries = 3) {
   throw lastError;
 }
 
-function shell(...args) { return adb(['shell', ...args]); }
+function shell(...args) { return adb(['shell', ...args], { timeoutMs: 30_000 }); }
 
 function sleep(ms) {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
@@ -94,17 +100,40 @@ function decode(value) {
     .replace(/&amp;/g, '&');
 }
 
+let dumpFailures = 0;
+
 function dumpUi() {
   // Delete any previous dump file so that a failed dump always yields
   // empty nodes instead of stale XML from a prior screen state.
   try { shell('rm', '-f', '/sdcard/chorescore-window.xml'); } catch (_) {}
-  try { shell('uiautomator', 'dump', '/sdcard/chorescore-window.xml'); } catch (_) {}
-  let xml = '';
   try {
-    xml = adb(['exec-out', 'cat', '/sdcard/chorescore-window.xml']);
-  } catch (_) {
+    shell('uiautomator', 'dump', '/sdcard/chorescore-window.xml');
+  } catch (err) {
+    dumpFailures++;
+    if (dumpFailures <= 3 || dumpFailures % 10 === 0) {
+      console.log(`  dumpUi: uiautomator dump failed (${dumpFailures} total): ${err.message?.slice(0, 120) || err}`);
+    }
     return { xml: '', nodes: [] };
   }
+  let xml = '';
+  try {
+    xml = adb(['exec-out', 'cat', '/sdcard/chorescore-window.xml'], { timeoutMs: 10_000 });
+  } catch (err) {
+    dumpFailures++;
+    if (dumpFailures <= 3 || dumpFailures % 10 === 0) {
+      console.log(`  dumpUi: cat dump file failed (${dumpFailures} total): ${err.message?.slice(0, 120) || err}`);
+    }
+    return { xml: '', nodes: [] };
+  }
+  if (!xml || !xml.includes('<node')) {
+    dumpFailures++;
+    if (dumpFailures <= 3 || dumpFailures % 10 === 0) {
+      console.log(`  dumpUi: dump returned empty/invalid XML (${dumpFailures} total), length=${xml?.length || 0}`);
+    }
+    return { xml: xml || '', nodes: [] };
+  }
+  // Successful dump — reset consecutive failure counter
+  dumpFailures = 0;
   const nodes = [];
   for (const nodeMatch of xml.matchAll(/<node\b([^>]*)\/?>(?:<\/node>)?/g)) {
     const attrs = {};
@@ -198,18 +227,30 @@ function back() { shell('input', 'keyevent', 'KEYCODE_BACK'); sleep(500); }
 
 function waitFor(label, timeoutMs = 10000) {
   const until = Date.now() + timeoutMs;
-  let dumpErrors = 0;
+  let previousDumpFailures = dumpFailures;
+  let consecutiveDumpFails = 0;
   while (Date.now() < until) {
-    try {
-      if (findNodes(label).length) return;
-      dumpErrors = 0; // reset on successful dump
-    } catch (err) {
-      dumpErrors++;
-      if (dumpErrors > 10) {
-        console.log(`  WARN: ${dumpErrors} consecutive UI dump failures while waiting for "${label}"`);
+    if (findNodes(label).length) return;
+    // Detect if the dump that just ran inside findNodes failed
+    if (dumpFailures > previousDumpFailures) {
+      consecutiveDumpFails += dumpFailures - previousDumpFailures;
+      if (consecutiveDumpFails >= 5) {
+        console.log(`  WARN: ${consecutiveDumpFails} consecutive UI dump failures while waiting for "${label}" — logcat may help diagnose`);
       }
+    } else {
+      consecutiveDumpFails = 0;
     }
-    sleep(500); // increased from 300ms to reduce busy-looping on slow emulators
+    previousDumpFailures = dumpFailures;
+    sleep(500);
+  }
+  // On timeout, dump logcat for post-mortem diagnosis
+  try {
+    const logcat = adb(['logcat', '-d', '-t', '80'], { timeoutMs: 10_000 });
+    const logcatPath = path.join(outputDir, `logcat-wait-${label.replace(/\s+/g, '_')}.txt`);
+    fs.writeFileSync(logcatPath, logcat);
+    console.log(`  Logcat on timeout saved to ${logcatPath}`);
+  } catch (_) {
+    console.log('  Could not capture logcat on timeout');
   }
   throw new Error(`Timed out waiting for ${label} after ${timeoutMs}ms`);
 }
@@ -222,7 +263,7 @@ function screenshot(name) {
   const prefix = `${String(checkpoints.length + 1).padStart(2, '0')}-${name}`;
   const file = path.join(outputDir, `${prefix}.png`);
   try {
-    fs.writeFileSync(file, adb(['exec-out', 'screencap', '-p'], true));
+    fs.writeFileSync(file, adb(['exec-out', 'screencap', '-p'], { binary: true, timeoutMs: 15_000 }));
   } catch (_) {
     // Screencap failed (emulator transient) — record checkpoint without file
   }
@@ -253,8 +294,19 @@ function launch() {
   try { shell('am', 'force-stop', packageName); } catch (_) {}
   sleep(1000);
   try { shell('monkey', '-p', packageName, '-c', 'android.intent.category.LAUNCHER', '1'); } catch (_) {}
-  // Wait for app to fully launch (React Native cold start can be slow on emulators)
-  sleep(8000);
+  // Wait for React Native cold start on emulator — API 35 x86_64 can be slow
+  sleep(12000);
+  // Verify the process is alive after launch attempt
+  try {
+    const pid = shell('pidof', packageName).trim();
+    if (pid) {
+      console.log(`App process alive (pid ${pid})`);
+    } else {
+      console.log('WARN: App process not found after launch — may still be starting');
+    }
+  } catch (_) {
+    console.log('WARN: Could not check app process state');
+  }
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -288,8 +340,10 @@ try {
   // 1. Launch and sign in
   console.log('Launching app...');
   launch();
+  // Diagnostic screenshot to capture the screen state after launch
+  screenshot('diagnostic-post-launch');
   console.log('Waiting for Demarrer button...');
-  waitFor('Demarrer', 60000);
+  waitFor('Demarrer', 90000);
   screenshot('01-login');
   tapLabel('Demarrer', { exact: false });
   console.log('Waiting for Appartement group...');
@@ -362,6 +416,19 @@ try {
   console.log(`V3 Android golden path PASS — ${outputDir}`);
 } catch (error) {
   console.error(`V3 Android golden path FAIL: ${error.message}`);
+  // Capture logcat for post-mortem diagnosis
+  try {
+    const logcat = adb(['logcat', '-d', '-t', '200'], { timeoutMs: 10_000 });
+    fs.writeFileSync(path.join(outputDir, 'logcat-failure.txt'), logcat);
+    console.log('  Logcat saved to logcat-failure.txt');
+  } catch (_) {
+    console.log('  Could not capture logcat on failure');
+  }
+  // Capture dumpstate for deeper diagnosis
+  try {
+    const dumpsys = adb(['shell', 'dumpsys', 'activity', 'activities'], { timeoutMs: 15_000 });
+    fs.writeFileSync(path.join(outputDir, 'dumpsys-activities-failure.txt'), dumpsys);
+  } catch (_) {}
   try { screenshot('failure'); } catch (_) {}
   writeResult('fail', error);
   console.error(error.stack || error);

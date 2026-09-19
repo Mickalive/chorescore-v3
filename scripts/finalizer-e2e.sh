@@ -38,16 +38,19 @@ if [ "$ELAPSED" -ge "$TIMEOUT" ]; then
   echo "WARNING: Emulator boot timeout after ${TIMEOUT}s, proceeding anyway"
 fi
 
-# Additional wait for package manager to settle
+# Additional wait for package manager to settle (API 35 x86_64 can be slow)
 echo "Waiting for package manager to settle..."
-sleep 10
+sleep 30
 
-# Verify adb is connected
+# Verify adb is connected and log device state
 adb get-state 2>/dev/null || {
   echo "ERROR: adb device not available after emulator boot" >&2
   exit 1
 }
 echo "adb device state: $(adb get-state)"
+echo "adb devices:"
+adb devices -l 2>/dev/null || true
+echo "sys.boot_completed: $(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r' || echo 'unknown')"
 
 # 1. Locate the release APK
 apk=$(find android/app/build/outputs/apk/release -type f -name '*.apk' | head -1)
@@ -89,4 +92,19 @@ fi
 
 # 3. Run the golden-path E2E
 echo "Running golden-path E2E..."
+set +e
 npm run e2e:android
+E2E_EXIT=$?
+set -e
+
+# Capture logcat for post-mortem regardless of E2E outcome
+mkdir -p audit/android-e2e
+echo "Capturing logcat for post-mortem..."
+adb logcat -d -t 300 > audit/android-e2e/logcat-finalizer.txt 2>/dev/null || true
+echo "E2E exit code: $E2E_EXIT"
+
+if [ "$E2E_EXIT" -ne 0 ]; then
+  echo "E2E FAILED — logcat saved to audit/android-e2e/logcat-finalizer.txt" >&2
+fi
+
+exit "$E2E_EXIT"
