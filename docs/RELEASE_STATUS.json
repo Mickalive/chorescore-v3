@@ -5,8 +5,8 @@
   "activeCriteria": [
     "V3-08"
   ],
-  "pendingArtifact": null,
-  "progressSummary": "Factory STALLED on V3-08 after repeated no-delta repair/reject cycles.",
+  "pendingArtifact": "V3-08-RELEASE",
+  "progressSummary": "V3-08 auditor accepted; trusted finalizer re-armed after control-plane emulator shell repair.",
   "criteria": [
     {
       "id": "V3-01",
@@ -85,20 +85,11 @@
       ]
     }
   ],
-  "openFindings": [
-    {
-      "path": ".github/workflows/chorescore-v3-finalize.yml (emulator step, lines 90-94) — same root cause as runs 35293489693, 35302658175, 35315519533, 35333103534",
-      "problem": "The trusted shell has not applied the documented one-line workflow fix on origin/main. The emulator step still contains a multi-line script: | block (4 lines: set -euo pipefail; apk=$(find ...); adb install -r; npm run e2e:android) which reactivecircus/android-emulator-runner@v2 line-splits and executes via sh -c (dash); dash rejects 'set -euo pipefail' (exit 2) before the APK install/golden path runs. The Builder-scoped wrapper scripts/finalizer-e2e.sh exists, is valid bash, and is preserved in the candidate. The candidate delta is empty (no product code changes). This is a trusted-shell-owned action outside the Builder's scope.",
-      "evidence": "git show origin/main:.github/workflows/chorescore-v3-finalize.yml lines 90-94 still show 'script: |' with 4 indented lines; last commit touching this file on main is 8b245b2 (2026-09-16); GitHub API run 35333103534 conclusion=failure, step 7 'Android API 35 install, launch and golden path' conclusion=failure, reopen-on-failure ran; no subsequent finalizer run exists; scripts/finalizer-e2e.sh exists, bash -n passes; diff -rq pristine vs candidate shows no product code changes; RELEASE_STATUS.json V3-08 still in_progress with same open finding",
-      "mustFix": true,
-      "requiredFix": "Trusted shell (sole owner of .github/workflows/ per AGENTS.md): on main, replace the emulator step's multi-line 'script: |' block with the single-line 'script: bash scripts/finalizer-e2e.sh', commit to main, then re-run the trusted finalizer. No product code change is needed — the Builder-scoped wrapper is preserved.",
-      "verification": "Trusted finalizer must pass the Android API 35 emulator step (release APK install, launch without Metro, golden path Ajouter/Balances/A faire via scripts/e2e-android.js) with exit 0, and docs/RELEASE_STATUS.json must contain android-release-apk-sha256-<sha> and android-api35-install-launch-e2e-green in V3-08 evidence."
-    }
-  ],
+  "openFindings": [],
   "factoryHealth": {
-    "stalled": true,
-    "consecutiveNoProgress": 3,
+    "stalled": false,
+    "consecutiveNoProgress": 0,
     "lastProductSha": "7b69c86c76631b441bf31be812986728c0975d9e",
-    "reason": "Two consecutive non-accepted cycles produced no product delta; human/control-plane review required."
+    "reason": null
   }
 }
