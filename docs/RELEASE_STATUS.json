@@ -1,12 +1,12 @@
 {
   "schemaVersion": 1,
   "milestone": "v3-rc",
-  "lastCycle": "35434905999",
+  "lastCycle": "35440061993",
   "activeCriteria": [
     "V3-08"
   ],
   "pendingArtifact": null,
-  "progressSummary": "V3-08 reopened after trusted finalizer failure in run 35437961965",
+  "progressSummary": "Audited V3-08 requires repair; WIP baseline preserved when a safe delta existed.",
   "criteria": [
     {
       "id": "V3-01",
@@ -93,18 +93,18 @@
   ],
   "openFindings": [
     {
-      "path": "release",
-      "problem": "Trusted V3 finalizer failed",
-      "evidence": "GitHub Actions finalizer run 35437961965",
+      "path": "release — trusted finalizer emulator step (run 35437961965, step 7 'Android API 35 install, launch and golden path')",
+      "problem": "The candidate made zero changes (changedFiles=0, hasDelta=false, verificationOnly=true) and therefore did not repair the concrete blocker it was tasked to fix. The trusted finalizer failed at the Android API 35 emulator step for the 6th consecutive real run (35437961965, step 7, started 11:03:58Z completed 11:25:06Z, ~21 min) with steps 5 (product/privacy/cost gates incl. iOS export and assembleRelease) and 6 (APK locate/hash) succeeding and step 8 (artifact upload) skipped. The objective required inspecting the exact failed release logs and fixing the concrete product/privacy/cost/APK/runtime/E2E/readiness blocker; the candidate artifact contains no Builder report and no evidence that the step-7 logs of run 35437961965 were read, even though the evidence-survival mechanism accepted in cycle 35434905999 was active in that run and the factory Builder job carries GH_TOKEN with actions:write (implies read). The mustFix in RELEASE_STATUS.json ('Trusted V3 finalizer failed') therefore remains open and the trusted finalizer cannot be expected to pass.",
+      "evidence": "GitHub API: run 35437961965 conclusion=failure; release job step 5 success (10:39:00Z-11:03:57Z), step 6 success (11:03:57Z-11:03:58Z), step 7 failure (11:03:58Z-11:25:06Z), step 8 skipped; reopen-on-failure job success. candidate-builder metadata.json: changedFiles=0, hasDelta=false, verificationOnly=true, agentExitCode=0; candidate.patch 0 bytes. RELEASE_STATUS.json openFindings[0] mustFix=true. Precedent RUN_35432141926 decided repair for the identical empty-delta + step-7-failure situation.",
       "mustFix": true,
-      "requiredFix": "Inspect the exact trusted finalizer failure and repair only the concrete product/privacy/cost/APK/runtime/E2E blocker while preserving V3-01..V3-07.",
-      "verification": "Trusted V3 finalizer must pass product, privacy and cost gates, APK build, install/launch and golden path."
+      "requiredFix": "Read the surviving step-7 diagnostic evidence of run 35437961965 (audit/android-e2e/ listing, result.json, logcat-finalizer.txt, logcat-failure.txt, dumpsys-activities-failure.txt, logcat-wait-* dumps echoed to the step logs; accessible via the factory token with actions:write), identify the single concrete cause (emulator boot timeout vs adb install failure vs E2E assertion timeout), and repair only that cause within Builder scope (scripts/config/tests), preserving V3-01..V3-07. If the cause is demonstrably environmental and unfixable from the product repo, document the evidence and the reasoning in the Builder report instead of producing an empty delta.",
+      "verification": "Trusted V3 finalizer must pass product, privacy and cost gates, APK build, install/launch and golden path (RELEASE_STATUS.json verification criterion), or the next cycle must present the concrete step-7 evidence and the specific repair applied."
     }
   ],
   "factoryHealth": {
     "stalled": false,
-    "consecutiveNoProgress": 0,
-    "lastProductSha": "02f69a2db098fe88068087ad509fd989a93e715d",
+    "consecutiveNoProgress": 1,
+    "lastProductSha": "718faffe663eef6bb53408cf45cd721cec398ec2",
     "reason": null
   }
 }
