@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "cycle": "35419214459",
+  "decision": "continue",
+  "reason": "V3-08 audit decision is repair. Trusted verification passed (exit 0): typecheck + 432 tests (22 suites), privacy:check (71 tests), cost:check (21 tests, 10 gates), expo export android+ios, prebuild, assembleDebug BUILD SUCCESSFUL. The candidate delta adds diagnostic instrumentation and retry logic to scripts/finalizer-e2e.sh and scripts/e2e-android.js, correctly preserving the regression guard test with a corrected root-cause comment. All previously accepted criteria V3-01 through V3-07 remain green with zero regression. However, the audit identified one must-fix: the APK install retry loop in scripts/finalizer-e2e.sh has an off-by-one where a success on the final (3rd) attempt still triggers the error branch and exits 1, defeating the purpose of the retry for blocker (b) 'adb install -r failure'. The candidate correctly addresses the diagnostic goal but the retry logic itself is broken. Next cycle must fix the off-by-one by tracking install success explicitly (e.g. INSTALLED flag) so that a success-on-last-attempt continues to the golden path instead of exiting with a misleading error. No product code, domain, analytics, persistence or configuration was changed; the changes are CI/E2E scripts only so there is no product cost regression.",
+  "progressEvidence": [
+    "audit-repair-35419214459-V3-08",
+    "trusted-verification-exit-0-432-tests-typecheck-privacy-71-cost-21",
+    "expo-export-android-ios-pass",
+    "expo-prebuild-and-gradle-BUILD-SUCCESSFUL",
+    "candidate-delta-exactly-3-files-vs-pristine",
+    "regression-guard-test-preserved-with-corrected-root-cause-comment",
+    "finalizer-wrapper-suite-6-6-pass",
+    "bash-n-finalizer-e2e-sh-ok",
+    "node-check-e2e-android-js-ok",
+    "workflow-yaml-identical-to-pristine-single-line-form-in-place",
+    "diagnostics-added-for-next-finalizer-run-step-7-logs",
+    "resilience-covers-boot-timeout-install-failure-e2e-flake",
+    "no-regression-V3-01-through-V3-07-all-suites-green",
+    "no-chrono-premium-paywall-in-codebase",
+    "no-product-code-changes-no-cost-regression",
+    "mustFix-install-retry-loop-off-by-one-on-last-attempt-exits-1-despite-success",
+    "mustFix-required-fix-track-installed-flag-after-successful-adb-install",
+    "next-cycle-must-fix-off-by-one-and-re-run-loop-simulation-all-permutations"
+  ]
+}
