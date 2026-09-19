@@ -90,11 +90,15 @@ describe('V3-08 finalizer wrapper contract', () => {
 
 describe('V3-08 finalize workflow YAML regression guard', () => {
   test('emulator step uses single-line script form (not multi-line script: |)', () => {
-    // Regression guard for Actions run 35413347057: the multi-line `script: |`
-    // form is line-split by reactivecircus/android-emulator-runner@v2 into
-    // separate sh -c invocations under dash, where `set -euo pipefail` exits 2
-    // before the APK install and golden path ever run. The single-line form
-    // ensures the wrapper runs as ONE bash process.
+    // Regression guard: the multi-line `script: |` form is line-split by
+    // reactivecircus/android-emulator-runner@v2 into separate sh -c invocations
+    // under dash, where `set -euo pipefail` exits 2 before the APK install and
+    // golden path ever run. The single-line form ensures the wrapper runs as
+    // ONE bash process. Earlier runs (e.g. 35293489693, 35315519533, 35333103534)
+    // used the multi-line form and failed with exit 2. Run 35413347057 already
+    // used the single-line form but still failed with exit 1 at the emulator
+    // step — a different root cause (emulator boot timeout or adb install
+    // failure), not the multi-line form issue this guard protects against.
     const workflow = readRepo('.github/workflows/chorescore-v3-finalize.yml');
 
     // Find the emulator-runner step — the block between `uses: reactivecircus/android-emulator-runner@v2`

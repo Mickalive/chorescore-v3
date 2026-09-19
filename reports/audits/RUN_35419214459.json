@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "cycle": "35419214459",
+  "role": "builder",
+  "decision": "repair",
+  "summary": "Trusted verification passed (exit 0): typecheck + 432 tests (22 suites), privacy:check (71 tests), cost:check (21 tests, 10 gates), expo export android+ios, prebuild, assembleDebug BUILD SUCCESSFUL. Candidate delta vs pristine is exactly 3 files: (1) __tests__/domain/v3-08-finalizer-wrapper.test.ts — regression guard preserved with corrected root-cause comment (run 35413347057 already used the single-line form and failed with exit 1 at the emulator step, a different root cause than the multi-line form); (2) scripts/e2e-android.js — adb retry wrapper (3 attempts), longer launch/wait tolerances, step-by-step diagnostics logging; (3) scripts/finalizer-e2e.sh — emulator boot wait (sys.boot_completed, 180s), package-manager settle, adb connectivity check, APK install retry (3 attempts), failure diagnostics (adb devices -l, pm list packages). The candidate satisfies the required fix 're-run the finalizer with diagnostics' within Builder scope: the added diagnostics will produce the actual step-7 logs on the next trusted finalizer run, and the resilience measures cover all three candidate blockers (a) emulator boot timeout/flake, (b) 'adb install -r' failure, (c) E2E golden-path failure. Independent checks: bash -n OK, node --check OK, finalizer-wrapper suite 6/6 PASS, workflow YAML byte-identical to pristine (single-line form in place; protected control-plane file untouched). MUST-FIX REMAINS: the install retry loop in scripts/finalizer-e2e.sh has an off-by-one — when adb install -r succeeds on the final (3rd) attempt, INSTALL_ATTEMPTS=3 >= MAX_ATTEMPTS=3 triggers the error branch and exits 1 despite the successful install (simulated: 'APK installed successfully on attempt 3' followed by 'ERROR: APK install failed after 3 attempts', exit 1). This defeats the purpose of the retry for blocker (b): a transient install failure recovered on the last retry would still fail the trusted finalizer with a misleading error. No product code changed; no regression of V3-01..V3-07 invariants; no chrono/premium/paywall/warm-V2 reintroduced; no cost regression (CI-only scripts). Decision: repair — the delta is coherent and preserved as WIP baseline, but the off-by-one must be fixed before the trusted finalizer can be expected to pass.",
+  "checks": [
+    "trusted-verification-exit-0-432-tests-typecheck-privacy-cost-export-prebuild-build",
+    "candidate-delta-exactly-3-files-vs-pristine",
+    "regression-guard-test-preserved-with-corrected-root-cause-comment",
+    "finalizer-wrapper-suite-6-6-pass",
+    "bash-n-finalizer-e2e-sh-ok",
+    "node-check-e2e-android-js-ok",
+    "workflow-yaml-identical-to-pristine-single-line-form-in-place",
+    "no-protected-control-plane-files-modified",
+    "diagnostics-added-for-next-finalizer-run-step-7-logs",
+    "resilience-covers-boot-timeout-install-failure-e2e-flake",
+    "install-retry-loop-off-by-one-simulated-false-failure-on-last-attempt",
+    "no-product-code-changes-no-v3-01-v3-07-regression",
+    "no-chrono-premium-paywall-warm-v2-reintroduced",
+    "no-cost-regression-ci-only-scripts"
+  ],
+  "findings": [
+    {
+      "path": "scripts/finalizer-e2e.sh (install retry loop, lines 64-86)",
+      "problem": "Off-by-one in the APK install retry loop: the error condition `if [ \"$INSTALL_ATTEMPTS\" -ge \"$MAX_ATTEMPTS\" ]` is true both when all 3 attempts failed AND when the install succeeds on the final (3rd) attempt, because INSTALL_ATTEMPTS is incremented to 3 before the successful attempt breaks. A success on the last retry therefore prints 'APK installed successfully on attempt 3' and then still reports 'ERROR: APK install failed after 3 attempts' and exits 1. This directly defeats the purpose of the retry added to fix blocker (b) ('adb install -r' failure of the release APK): the exact transient-flake scenario the repair targets (first attempts fail, last attempt succeeds) would still fail the trusted finalizer with a misleading error.",
+      "evidence": "Simulation of the exact loop logic with adb exit codes 1,1,0: 'Install attempt 3/3... APK installed successfully on attempt 3' followed by 'ERROR: APK install failed after 3 attempts' and exit=1. Control cases: success on attempt 1 or 2 exits 0 and continues to the golden path; all three failures exit 1 (correct). bash -n passes (syntax is valid; the defect is logic, not syntax).",
+      "mustFix": true,
+      "requiredFix": "Track install success explicitly with a flag, e.g. set INSTALLED=1 immediately after the successful `adb install -r \"$apk\"` before `break`, and change the error branch to `if [ \"${INSTALLED:-0}\" -ne 1 ]; then echo \"ERROR: APK install failed after ${MAX_ATTEMPTS} attempts\" >&2; ...; exit 1; fi`. Keep the existing diagnostics (adb devices -l, pm list packages) in the error branch. Do not change the boot-wait, diagnostics or golden-path parts, which are correct.",
+      "verification": "Re-run the loop simulation for all permutations: (1,1,0) must print 'APK installed successfully on attempt 3' and continue to the golden path with exit 0; (1,0) and (0) must continue with exit 0; (1,1,1) must print the ERROR and exit 1. Then re-run `bash -n scripts/finalizer-e2e.sh` and `npx jest __tests__/domain/v3-08-finalizer-wrapper.test.ts` (6/6 must stay green), and the trusted finalizer must pass the Android API 35 emulator step with exit 0."
+    }
+  ]
+}

@@ -60,11 +60,23 @@ const checkpoints = [];
 const startedAt = new Date().toISOString();
 fs.mkdirSync(outputDir, { recursive: true });
 
-function adb(args, binary = false) {
-  return execFileSync('adb', args, {
-    encoding: binary ? null : 'utf8',
-    stdio: ['ignore', 'pipe', 'pipe'],
-  });
+function adb(args, binary = false, retries = 3) {
+  let lastError;
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    try {
+      return execFileSync('adb', args, {
+        encoding: binary ? null : 'utf8',
+        stdio: ['ignore', 'pipe', 'pipe'],
+      });
+    } catch (err) {
+      lastError = err;
+      if (attempt < retries) {
+        console.log(`  adb ${args[0]} failed (attempt ${attempt}/${retries}), retrying in 2s...`);
+        sleep(2000);
+      }
+    }
+  }
+  throw lastError;
 }
 
 function shell(...args) { return adb(['shell', ...args]); }
@@ -186,15 +198,20 @@ function back() { shell('input', 'keyevent', 'KEYCODE_BACK'); sleep(500); }
 
 function waitFor(label, timeoutMs = 10000) {
   const until = Date.now() + timeoutMs;
+  let dumpErrors = 0;
   while (Date.now() < until) {
     try {
       if (findNodes(label).length) return;
-    } catch (_) {
-      // UI dump failed transiently — retry after sleep
+      dumpErrors = 0; // reset on successful dump
+    } catch (err) {
+      dumpErrors++;
+      if (dumpErrors > 10) {
+        console.log(`  WARN: ${dumpErrors} consecutive UI dump failures while waiting for "${label}"`);
+      }
     }
-    sleep(300);
+    sleep(500); // increased from 300ms to reduce busy-looping on slow emulators
   }
-  throw new Error(`Timed out waiting for ${label}`);
+  throw new Error(`Timed out waiting for ${label} after ${timeoutMs}ms`);
 }
 
 function assertAbsent(label) {
@@ -234,8 +251,10 @@ function writeResult(status, error = null) {
 
 function launch() {
   try { shell('am', 'force-stop', packageName); } catch (_) {}
+  sleep(1000);
   try { shell('monkey', '-p', packageName, '-c', 'android.intent.category.LAUNCHER', '1'); } catch (_) {}
-  sleep(5000);
+  // Wait for app to fully launch (React Native cold start can be slow on emulators)
+  sleep(8000);
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -244,9 +263,11 @@ function launch() {
 
 try {
   if (!/device/.test(adb(['get-state']))) throw new Error('No adb device/emulator');
+  console.log('adb device connected');
 
   // Check if the package is already installed; only install when needed
   const alreadyInstalled = shell('pm', 'list', 'packages', packageName).includes(packageName);
+  console.log(`Package ${packageName} installed: ${alreadyInstalled}`);
   if (!alreadyInstalled) {
     const apkPath = resolveApkPath();
     if (!apkPath) {
@@ -254,7 +275,9 @@ try {
         'Package not installed and no APK found. Set CHORESCORE_APK_PATH or build the release APK first.'
       );
     }
+    console.log(`Installing APK: ${apkPath}`);
     adb(['install', '-r', apkPath]);
+    console.log('APK installed successfully');
   }
 
   // Re-enable network in case a previous test disabled it
@@ -263,10 +286,13 @@ try {
   sleep(1000);
 
   // 1. Launch and sign in
+  console.log('Launching app...');
   launch();
+  console.log('Waiting for Demarrer button...');
   waitFor('Demarrer', 60000);
   screenshot('01-login');
   tapLabel('Demarrer', { exact: false });
+  console.log('Waiting for Appartement group...');
   waitFor('Appartement', 60000);
   screenshot('02-groups');
 
@@ -278,7 +304,9 @@ try {
   assertAbsent('Gratuit');
 
   // 2. Open demo household
+  console.log('Opening Appartement group...');
   tapLabel('Appartement', { exact: true });
+  console.log('Waiting for tabs (Ajouter, Balances, A faire)...');
   waitFor('Ajouter', 30000);
   waitFor('Balances', 30000);
   waitFor('A faire', 30000);
@@ -287,8 +315,10 @@ try {
   // Verify three tabs are present
   const tabNodes = findNodes('Ajouter');
   if (tabNodes.length < 1) throw new Error('Ajouter tab not found');
+  console.log('Tabs verified: Ajouter, Balances, A faire');
 
   // 3. Verify existing demo contribution is visible
+  console.log('Waiting for demo contribution "Vaisselle du soir"...');
   waitFor('Vaisselle du soir', 15000);
   screenshot('04-add-tab');
 
@@ -298,17 +328,21 @@ try {
   assertAbsent('Duree reelle');
 
   // 5. Switch to Balances tab
+  console.log('Switching to Balances tab...');
   tapLabel('Balances', { exact: true });
   waitFor('Alex', 15000);
   waitFor('Sam', 15000);
   screenshot('05-balances');
 
   // 6. Verify dual ledger sections
+  console.log('Verifying Contribution section...');
   waitFor('Contribution', 15000);
   screenshot('06-balances-detail');
 
   // 7. Switch to A faire tab
+  console.log('Switching to A faire tab...');
   tapLabel('A faire', { exact: true });
+  console.log('Waiting for demo todo "Sortir les poubelles"...');
   waitFor('Sortir les poubelles', 15000);
   screenshot('07-todos');
 
@@ -327,6 +361,7 @@ try {
   writeResult('pass');
   console.log(`V3 Android golden path PASS — ${outputDir}`);
 } catch (error) {
+  console.error(`V3 Android golden path FAIL: ${error.message}`);
   try { screenshot('failure'); } catch (_) {}
   writeResult('fail', error);
   console.error(error.stack || error);
