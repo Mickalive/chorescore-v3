@@ -2,10 +2,10 @@
   "schemaVersion": 1,
   "milestone": "v3-rc",
   "builder": {
-    "enabled": true,
-    "criterionId": "V3-08",
-    "objective": "REPAIR V3-08: Read the surviving step-7 diagnostic evidence of run 35437961965 (audit/android-e2e/ listing, result.json, logcat-finalizer.txt, logcat-failure.txt, dumpsys-activities-failure.txt, logcat-wait-* dumps echoed to the step logs; accessible via the factory token with actions:write), identify the single concrete cause (emulator boot timeout vs adb install failure vs E2E assertion timeout), and repair only that cause within Builder scope (scripts/config/tests), preserving V3-01..V3-07. If the cause is demonstrably environmental and unfixable from the product repo, document the evidence and the reasoning in the Builder report instead of producing an empty delta.",
-    "scope": "Repair only the audited must-fix findings on the preserved V3 baseline; do not rebuild accepted work.",
+    "enabled": false,
+    "criterionId": null,
+    "objective": "V3-08 handed to trusted release finalizer.",
+    "scope": "Trusted finalizer only.",
     "acceptance": [],
     "previousCriteriaPreserved": [
       "V3-01: accepted and must not regress",
@@ -15,7 +15,7 @@
       "V3-05: accepted and must not regress",
       "V3-06: accepted and must not regress",
       "V3-07: accepted and must not regress",
-      "V3-08: auditor accepted, pending trusted finalizer completion"
+      "V3-08: audit accepted, trusted finalizer empirical confirmation pending"
     ]
   }
 }

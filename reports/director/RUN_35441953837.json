@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "cycle": "35441953837",
+  "decision": "stop",
+  "reason": "Audit decision is accept: the candidate is a non-empty delta (changedFiles=2, hasDelta=true) that repairs the concrete cause of 6 consecutive trusted finalizer step-7 failures (run 35437961965 and predecessors). The single root cause was identified as E2E assertion timeout from adb transport flakiness — exec-out consistently ETIMEDOUT on the API 35 x86_64 emulator under React Native cold-start load. The repair is bounded to scripts/e2e-android.js and scripts/finalizer-e2e.sh only: adb transport resilience (reconnect on timeout, shell cat instead of exec-out cat, reconnect at 3 consecutive dump failures, screenshot fallback) plus cold-start headroom (launch wait 30s+10s, Demarrer wait 240s, settle 30s, post-boot/post-install adb reconnect). No assertion weakened, no product code changed, no protected control-plane file touched, all waits bounded. Trusted verification passed exit 0 (typecheck, 432 tests/22 suites, privacy 71 tests, cost 21 tests/10 gates, expo install --check up to date, expo export android, prebuild, assembleDebug BUILD SUCCESSFUL in 19m 20s). All V3-01..V3-07 regression suites pass. No chrono/premium/paywall/warm-V2 reintroduction. No cost regression. The RELEASE_STATUS.json verification criterion requires the trusted finalizer to pass product/privacy/cost gates, APK build, install/launch and golden path before V3-08 can be marked complete. The next cycle must re-run the trusted finalizer: if step 7 passes, V3-08 is complete; if step 7 fails again, the surviving step-7 evidence must be read to identify any remaining concrete cause.",
+  "progressEvidence": [
+    "audit-accepted-35441953837-V3-08",
+    "trusted-verification-exit-0-432-tests-22-suites-typecheck-privacy-71-cost-21",
+    "expo-export-android-pass-prebuild-assembleDebug-BUILD-SUCCESSFUL-19m20s",
+    "candidate-delta-non-empty-changedFiles-2-hasDelta-true-verificationOnly-false",
+    "candidate-patch-9311-bytes-byte-for-byte-match-cached-diff",
+    "cause-identified-exec-out-ETIMEDOUT-on-API-35-x86-64-under-cold-start-load",
+    "repair-adb-transport-resilience-shell-cat-reconnect-at-3-dump-failures",
+    "repair-cold-start-headroom-launch-30s-demarrer-240s-settle-30s-reconnect",
+    "no-assertion-weakened-only-timeouts-changed",
+    "no-product-code-changed-scripts-only",
+    "no-protected-control-plane-file-touched",
+    "bash-n-finalizer-e2e-sh-ok-node-check-e2e-android-js-ok",
+    "finalizer-wrapper-e2e-golden-path-cost-gates-41-41-pass",
+    "regression-spot-check-313-tests-pass",
+    "no-chrono-premium-paywall-warm-V2-reintroduced",
+    "no-cost-regression-ci-only-changes",
+    "all-V3-01-through-V3-07-regression-suites-pass",
+    "failed-run-35437961965-step-7-cause-repaired",
+    "trusted-finalizer-empirical-confirmation-pending-next-run"
+  ]
+}

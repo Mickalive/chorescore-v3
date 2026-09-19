@@ -1,12 +1,10 @@
 {
   "schemaVersion": 1,
   "milestone": "v3-rc",
-  "lastCycle": "35440061993",
-  "activeCriteria": [
-    "V3-08"
-  ],
-  "pendingArtifact": null,
-  "progressSummary": "Audited V3-08 requires repair; WIP baseline preserved when a safe delta existed.",
+  "lastCycle": "35441953837",
+  "activeCriteria": [],
+  "pendingArtifact": "V3-08-RELEASE",
+  "progressSummary": "V3-08 independently accepted; trusted mobile finalizer owns APK/install/runtime/E2E completion.",
   "criteria": [
     {
       "id": "V3-01",
@@ -87,24 +85,24 @@
         "diagnostic-instrumentation-e2e-scripts-bounded-adb-timeouts",
         "emulator-step-resilience-cold-start-tolerances-graceful-dump",
         "audit-accepted-35425284987",
-        "audit-accepted-35434905999"
+        "audit-accepted-35434905999",
+        "audit-accepted-35441953837",
+        "step-7-root-cause-identified-exec-out-ETIMEDOUT-adb-transport-flakiness",
+        "repair-adb-transport-resilience-shell-cat-reconnect-dump-failures",
+        "repair-cold-start-headroom-launch-30s-demarrer-240s-settle-30s",
+        "trusted-verification-exit-0-432-tests-22-suites-privacy-71-cost-21",
+        "expo-export-android-prebuild-assembleDebug-BUILD-SUCCESSFUL-19m20s",
+        "finalizer-wrapper-e2e-golden-path-cost-gates-41-41-pass",
+        "regression-spot-check-313-tests-pass",
+        "audit-accepted-35441953837"
       ]
     }
   ],
-  "openFindings": [
-    {
-      "path": "release — trusted finalizer emulator step (run 35437961965, step 7 'Android API 35 install, launch and golden path')",
-      "problem": "The candidate made zero changes (changedFiles=0, hasDelta=false, verificationOnly=true) and therefore did not repair the concrete blocker it was tasked to fix. The trusted finalizer failed at the Android API 35 emulator step for the 6th consecutive real run (35437961965, step 7, started 11:03:58Z completed 11:25:06Z, ~21 min) with steps 5 (product/privacy/cost gates incl. iOS export and assembleRelease) and 6 (APK locate/hash) succeeding and step 8 (artifact upload) skipped. The objective required inspecting the exact failed release logs and fixing the concrete product/privacy/cost/APK/runtime/E2E/readiness blocker; the candidate artifact contains no Builder report and no evidence that the step-7 logs of run 35437961965 were read, even though the evidence-survival mechanism accepted in cycle 35434905999 was active in that run and the factory Builder job carries GH_TOKEN with actions:write (implies read). The mustFix in RELEASE_STATUS.json ('Trusted V3 finalizer failed') therefore remains open and the trusted finalizer cannot be expected to pass.",
-      "evidence": "GitHub API: run 35437961965 conclusion=failure; release job step 5 success (10:39:00Z-11:03:57Z), step 6 success (11:03:57Z-11:03:58Z), step 7 failure (11:03:58Z-11:25:06Z), step 8 skipped; reopen-on-failure job success. candidate-builder metadata.json: changedFiles=0, hasDelta=false, verificationOnly=true, agentExitCode=0; candidate.patch 0 bytes. RELEASE_STATUS.json openFindings[0] mustFix=true. Precedent RUN_35432141926 decided repair for the identical empty-delta + step-7-failure situation.",
-      "mustFix": true,
-      "requiredFix": "Read the surviving step-7 diagnostic evidence of run 35437961965 (audit/android-e2e/ listing, result.json, logcat-finalizer.txt, logcat-failure.txt, dumpsys-activities-failure.txt, logcat-wait-* dumps echoed to the step logs; accessible via the factory token with actions:write), identify the single concrete cause (emulator boot timeout vs adb install failure vs E2E assertion timeout), and repair only that cause within Builder scope (scripts/config/tests), preserving V3-01..V3-07. If the cause is demonstrably environmental and unfixable from the product repo, document the evidence and the reasoning in the Builder report instead of producing an empty delta.",
-      "verification": "Trusted V3 finalizer must pass product, privacy and cost gates, APK build, install/launch and golden path (RELEASE_STATUS.json verification criterion), or the next cycle must present the concrete step-7 evidence and the specific repair applied."
-    }
-  ],
+  "openFindings": [],
   "factoryHealth": {
     "stalled": false,
-    "consecutiveNoProgress": 1,
-    "lastProductSha": "718faffe663eef6bb53408cf45cd721cec398ec2",
+    "consecutiveNoProgress": 0,
+    "lastProductSha": "a8f9dcb60a19f1dd7f347d3aa9e73ec7b9cebe97",
     "reason": null
   }
 }
