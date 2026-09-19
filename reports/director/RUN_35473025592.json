@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "cycle": "35473025592",
+  "decision": "stop",
+  "reason": "V3-08 audit decision is accept. The candidate is a non-empty delta (changedFiles=2, hasDelta=true, verificationOnly=false, agentExitCode=0) repairing the trusted finalizer step-7 blocker of Actions run 35470723768 within Builder scope: scripts/e2e-android.js and scripts/finalizer-e2e.sh only. The previous cycle added a uiautomator warm-up dump and widened the Demarrer window to 360s, but the finalizer STILL failed. Root cause identified: a proactive adb kill-server/start-server restart in launch() executed under heavy Hermes cold-start load, immediately before the uiautomator warm-up dump, disrupted the adb transport and caused the first dumpUi() to block for the full 45s timeout, burning the Demarrer waitFor() window. Repair: (a) removed the proactive adb server restart from launch() under cold-start load while preserving all reactive adbReconnect() recovery paths (adb() retry, dumpUi() cat-failure, waitFor() consecutive-dump-failure); (b) removed the post-install adb server restart in finalizer-e2e.sh while retaining the pre-E2E idle restart; (c) reduced non-deadline sleeps (60s to 30s) without shrinking the Demarrer window (360s unchanged). No E2E assertion weakened, no product code changed, no protected control-plane file touched. Trusted verification passed exit 0: typecheck, 432 tests (22 suites), privacy 71 tests, cost 21 tests (10 gates), expo export android, prebuild, assembleDebug BUILD SUCCESSFUL. Regression of accepted criteria: all V3-01 through V3-07 remain accepted with zero regression. No chrono/premium/paywall/warm-V2 reintroduction. No cost regression (CI-script-only delta). V3-08 is the final criterion on the roadmap. The next trusted finalizer run will empirically confirm the repair: if step 7 passes, V3-08 is complete and the release is ready for final promotion.",
+  "progressEvidence": [
+    "audit-accepted-35473025592-V3-08",
+    "trusted-verification-exit-0-432-tests-22-suites-privacy-71-cost-21-expo-export-android-prebuild-assembleDebug-BUILD-SUCCESSFUL",
+    "candidate-delta-non-empty-changedFiles-2-hasDelta-true-verificationOnly-false-agentExitCode-0",
+    "candidate-patch-matches-staged-diff-byte-for-byte",
+    "failed-run-35470723768-step-7-failure-confirmed-via-public-github-api-steps-5-6-success-step-7-failure",
+    "cause-identified-proactive-adb-restart-under-cold-start-load-disrupts-uiautomator-warm-up",
+    "repair-scoped-to-e2e-scripts-only-removed-proactive-restart-preserved-reactive-recovery-paths",
+    "no-e2e-assertion-weakened-Demarrer-window-unchanged-360s-sleeps-reduced-non-deadline",
+    "no-product-code-changed-ci-scripts-only",
+    "no-protected-control-plane-file-touched",
+    "V3-08-is-final-criterion-no-next-roadmap-step",
+    "trusted-finalizer-step-7-empirical-confirmation-pending-next-run"
+  ]
+}
