@@ -1,0 +1,38 @@
+{
+  "schemaVersion": 1,
+  "cycle": "35540196125",
+  "role": "builder",
+  "decision": "repair",
+  "summary": "Trusted verification failed (exit 1); candidate retained as WIP for repair. Candidate repairs the two audited V3-08 must-fix findings from cycle 35533036264: (1) scripts/e2e-android.js now exposes a fromCache flag from dumpUi() (true on 30s dump-cache hits, false on real dumps/failures), propagates it via findNodes() as nodes._fromCache, and guards the consecutiveEmptyMatchCount increment with `!nodes._fromCache && dumpFailures <= previousDumpFailures`, so cache hits neither increment nor reset the counter; force-stop + relaunch recovery and counter resets on crash/dump-failure/stuck recovery are preserved. (2) The contract test gains two new tests asserting the fromCache flag plumbing and the cache-miss guard; reverting the guard fails the test (verified empirically). Independent verification: typecheck PASS; 450/451 tests PASS; loop simulations confirm 0 force-stops during a 120s cold start with cache hits, cache hits neither increment nor reset, and a genuinely stuck app still triggers force-stop + relaunch recovery. However, trusted verification exit code is 1 (mandatory mustFix): the new test asserts expect(e2e).toContain('Cache hits must NOT increment the counter') but the script comment wraps that phrase across two lines ('...increment the' + newline + '// counter — ...'), so the exact substring is not contiguous and the assertion fails. This is a brittle string-vs-comment line-wrap mismatch, not a logic defect: the guard itself is correct and simulation-verified. Decision: repair — keep the coherent delta as WIP baseline; next cycle must make the comment contain the exact asserted phrase on one line (or relax the assertion to a whitespace-tolerant regex) so the full trusted verification exits 0.",
+  "checks": [
+    "Trusted verification log TRUSTED_35540196125.md: exit code 1 — typecheck PASS, 450/451 tests PASS, single failure __tests__/domain/v3-08-finalizer-wrapper.test.ts:289 expect(e2e).toContain('Cache hits must NOT increment the counter')",
+    "Candidate delta vs pristine accepted tree (/home/runner/work/_temp/accepted-pristine): exactly 2 files — scripts/e2e-android.js (fromCache flag in dumpUi, _fromCache propagation in findNodes, guarded increment in waitFor) and __tests__/domain/v3-08-finalizer-wrapper.test.ts (+31 lines, 2 new tests); no control-plane/governance/product file touched",
+    "npm run typecheck (tsc --noEmit): PASS",
+    "npx jest full suite: 21 suites PASS, 1 suite FAIL (1 test), 450 PASS / 1 FAIL — failure scope identical to trusted log",
+    "node --check scripts/e2e-android.js: PASS (candidate script parses)",
+    "Guard logic simulation (virtual time, exact waitFor loop semantics): 120s cold start with warm-up cache hits + real dumps → 0 force-stops; cache hits neither increment nor reset consecutiveEmptyMatchCount; genuinely stuck app (real dumps, no match) still triggers force-stop + relaunch recovery; realistic 30s-dump timing: recovery triggers within the 600s window",
+    "Guard-revert sensitivity: replacing `if (!nodes._fromCache && dumpFailures <= previousDumpFailures)` with the buggy `if (dumpFailures <= previousDumpFailures)` makes the new test 'consecutiveEmptyMatchCount increment is guarded on real dump (cache miss)' FAIL at line 287 (regex !nodes\\._fromCache\\s*&&\\s*dumpFailures\\s*<=\\s*previousDumpFailures) — reverting the guard fails the test as required",
+    "Counter-reset preservation scan: consecutiveEmptyMatchCount = 0 present on crash recovery (pidof branches), dump-failure branch (dumpFailures > previousDumpFailures), and stuck recovery (after force-stop + monkey); force-stop + relaunch recovery intact",
+    "Prohibited-pattern scan: no chrono/premium/paywall/warm-V2/cross-currency/silent-conversion reintroduction; no analytics/privacy/ledger code touched; V3-01..V3-07 accepted invariants unaffected",
+    "Working tree integrity after audit checks: candidate restored byte-for-byte (git diff --cached shows exactly the 2 candidate files; guard present at scripts/e2e-android.js:426)",
+    "trusted verification: FAIL exit 1; see reports/audits/TRUSTED_35540196125.md"
+  ],
+  "findings": [
+    {
+      "path": "__tests__/domain/v3-08-finalizer-wrapper.test.ts",
+      "problem": "The new test 'consecutiveEmptyMatchCount increment is guarded on real dump (cache miss)' fails on its final assertion: expect(e2e).toContain('Cache hits must NOT increment the counter') at line 289. The script comment in scripts/e2e-android.js wraps the phrase across two lines ('// that returned no matching node.  Cache hits must NOT increment the' + newline + '// counter — the dump cache returns the same result without touching'), so the exact substring is not contiguous in the file and toContain fails. This is a brittle string-vs-comment line-wrap mismatch, not a defect in the guard logic: the guard itself is correct (verified by simulation and by the guard-revert experiment, which fails the test at line 287 as required). Trusted verification exit code is 1, which is a mandatory mustFix and forbids accept.",
+      "evidence": "Trusted log TRUSTED_35540196125.md: 'FAIL __tests__/domain/v3-08-finalizer-wrapper.test.ts ... Expected substring: \"Cache hits must NOT increment the counter\"' at line 289; scripts/e2e-android.js lines 419-421 contain 'Cache hits must NOT increment the' then '// counter — the dump cache...' on the next line; local npx jest reproduces the identical single failure (450 PASS / 1 FAIL); typecheck PASS.",
+      "mustFix": true,
+      "requiredFix": "Make the asserted phrase contiguous: reword the comment in scripts/e2e-android.js so the exact string 'Cache hits must NOT increment the counter' appears on one line (e.g. '// Cache hits must NOT increment the counter — the dump cache returns the same result without touching dumpFailures...'), or relax the test assertion to a whitespace/line-break-tolerant regex (e.g. /Cache hits must NOT increment the\\s*\\n?\\s*\\/\\/\\s*counter/). Keep the guard, the fromCache plumbing, the recovery and the counter resets unchanged.",
+      "verification": "Full trusted verification exits 0: npm run typecheck PASS and npx jest all suites PASS (including the two new cache-miss guard tests); guard-revert experiment still fails the test; loop simulation still shows 0 force-stops on a 120s cold start and recovery on a genuinely stuck app."
+    },
+    {
+      "path": ".",
+      "problem": "Trusted product verification failed",
+      "evidence": "Authoritative verification log: reports/audits/TRUSTED_35540196125.md (exit 1)",
+      "mustFix": true,
+      "requiredFix": "Resolve the concrete failing trusted check without discarding already-correct candidate work, then rerun the full gate.",
+      "verification": "Full trusted V3 verification must return exit code 0."
+    }
+  ]
+}

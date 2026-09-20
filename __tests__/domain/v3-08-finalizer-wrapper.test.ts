@@ -258,6 +258,37 @@ describe('V3-08 finalizer wrapper contract', () => {
     expect(e2e).toMatch(/APP CRASHED[\s\S]*consecutiveEmptyMatchCount\s*=\s*0/);
   });
 
+  test('dumpUi() returns fromCache flag and findNodes() exposes it', () => {
+    // The stuck-app detector must increment consecutiveEmptyMatchCount only
+    // on REAL dumps (cache misses), not on cache hits.  This requires dumpUi()
+    // to expose whether the result came from the 30s dump cache, and
+    // findNodes() to propagate that flag so waitFor() can guard the increment.
+    const e2e = readRepo('scripts/e2e-android.js');
+    // dumpUi must return fromCache: true on cache hits
+    expect(e2e).toContain('fromCache: true');
+    // dumpUi must return fromCache: false on real dumps and failures
+    expect(e2e).toContain('fromCache: false');
+    // findNodes must call dumpUi() and read fromCache from the result
+    expect(e2e).toMatch(/function findNodes[\s\S]*dump\.fromCache/);
+    // findNodes must attach _fromCache to the returned nodes array
+    expect(e2e).toMatch(/function findNodes[\s\S]*nodes\._fromCache\s*=\s*dump\.fromCache/);
+  });
+
+  test('consecutiveEmptyMatchCount increment is guarded on real dump (cache miss)', () => {
+    // CRITICAL CONTRACT: the consecutiveEmptyMatchCount must only increment
+    // when a REAL dump ran (cache miss) and returned no matching node.
+    // Cache hits must neither increment nor reset the counter.  Without this
+    // guard, the dump cache returns the same result without touching
+    // dumpFailures, satisfying dumpFailures <= previousDumpFailures, which
+    // causes false-positive force-stops during normal cold starts.
+    const e2e = readRepo('scripts/e2e-android.js');
+    // The increment line must be guarded by !nodes._fromCache (cache miss)
+    // AND the existing dumpFailures check.
+    expect(e2e).toMatch(/!nodes\._fromCache\s*&&\s*dumpFailures\s*<=\s*previousDumpFailures/);
+    // The comment must explain why cache hits are excluded
+    expect(e2e).toContain('Cache hits must NOT increment the counter');
+  });
+
   test('screenshot reuses cached dump instead of triggering fresh uiautomator dump', () => {
     // Each fresh uiautomator dump takes 30-60s on slow emulators.
     // Screenshots are diagnostic-only and don't affect golden-path

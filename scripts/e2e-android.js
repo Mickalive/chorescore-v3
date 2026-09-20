@@ -171,7 +171,7 @@ function dumpUi() {
   // post-transition calls always get a fresh dump of the new screen.
   const now = Date.now();
   if (_dumpCache && (now - _dumpCacheTime) < DUMP_CACHE_TTL_MS) {
-    return _dumpCache;
+    return { xml: _dumpCache.xml, nodes: _dumpCache.nodes, fromCache: true };
   }
 
   // Delete any previous dump file so that a failed dump always yields
@@ -199,7 +199,7 @@ function dumpUi() {
         }
       } catch (_) {}
     }
-    return { xml: '', nodes: [] };
+    return { xml: '', nodes: [], fromCache: false };
   }
   let xml = '';
   try {
@@ -224,7 +224,7 @@ function dumpUi() {
         dumpFailures--; // successful retry — undo the increment
       }
     } catch (_) {
-      return { xml: '', nodes: [] };
+      return { xml: '', nodes: [], fromCache: false };
     }
   }
   if (!xml || !xml.includes('<node')) {
@@ -232,7 +232,7 @@ function dumpUi() {
     if (dumpFailures <= 3 || dumpFailures % 10 === 0) {
       console.log(`  dumpUi: dump returned empty/invalid XML (${dumpFailures} total), length=${xml?.length || 0}`);
     }
-    return { xml: xml || '', nodes: [] };
+    return { xml: xml || '', nodes: [], fromCache: false };
   }
   // Successful dump — reset consecutive failure counter
   dumpFailures = 0;
@@ -241,7 +241,7 @@ function dumpUi() {
   const result = { xml, nodes };
   _dumpCache = result;
   _dumpCacheTime = Date.now();
-  return result;
+  return { xml, nodes, fromCache: false };
 }
 
 /**
@@ -271,7 +271,10 @@ function nodeMatches(node, label, exact) {
 }
 
 function findNodes(label, exact = false) {
-  return dumpUi().nodes.filter((n) => nodeMatches(n, label, exact));
+  const dump = dumpUi();
+  const nodes = dump.nodes.filter((n) => nodeMatches(n, label, exact));
+  nodes._fromCache = dump.fromCache;
+  return nodes;
 }
 
 function bounds(node) {
@@ -412,11 +415,15 @@ function waitFor(label, timeoutMs = 10000) {
         // proceed with normal wait (dump failures will trigger reconnect).
       }
     }
-    if (findNodes(label).length) return;
-    // Track successful-but-empty dumps: the dump succeeded (no increment
-    // to dumpFailures) but no node matched the label.  After the threshold,
-    // the app is likely stuck on a different screen or React Native is hung.
-    if (dumpFailures <= previousDumpFailures) {
+    const nodes = findNodes(label);
+    if (nodes.length) return;
+    // Track successful-but-empty dumps: only count REAL dumps (cache miss)
+    // that returned no matching node.  Cache hits must NOT increment the
+    // counter — the dump cache returns the same result without touching
+    // dumpFailures, so the dumpFailures <= previousDumpFailures condition
+    // would be satisfied by cache hits, causing false-positive force-stops
+    // during normal cold starts or screen transitions.
+    if (!nodes._fromCache && dumpFailures <= previousDumpFailures) {
       // Dump succeeded (no failure increment) but the label wasn't found.
       consecutiveEmptyMatchCount += 1;
       if (consecutiveEmptyMatchCount >= STUCK_APP_THRESHOLD) {
