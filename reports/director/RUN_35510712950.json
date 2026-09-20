@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "cycle": "35510712950",
+  "decision": "stop",
+  "reason": "V3-08 audit decision is accept. The candidate is a non-empty delta (2 files, 43 insertions, hasDelta=true) that directly repairs the mustFix from the trusted finalizer failure (Actions run 35505122996, step 7 'Android API 35 install, launch and golden path'). The step-7 diagnostic artifacts require admin rights to download (GitHub API returns 403 for job logs); the failure was re-confirmed via the public GitHub API (steps 5-6 green, step 7 failure, ~23m15s duration consistent with golden-path timeout). The concrete blocker is identified as the uiautomator cold-start dump failure: on API 35 x86_64 under React Native cold-start load, the first uiautomator dump takes 30-60s and often fails, cascading into waitFor timeouts. Repair: scripts/e2e-android.js launch() now performs a best-effort uiautomator warm-up dump (rm + uiautomator dump 60s timeout 1 attempt + shell cat 30s timeout 1 attempt, try/catch with WARN-and-proceed on failure, bounded to ~91s worst case) so the first real dumpUi() in waitFor('Demarrer') succeeds immediately. A static contract test guards the warm-up mechanism. Trusted verification exit 0: typecheck PASS, 447 tests/22 suites PASS, privacy 71 PASS, cost 21 PASS (10 gates), expo export/prebuild PASS, assembleDebug BUILD SUCCESSFUL. Three informational findings only (no mustFix): (1) warm-up cache populated with empty nodes array causing bounded dead spin absorbed by 600s Demarrer window; (2) stale comment block above new warm-up code; (3) empirical step-7 confirmation pending subsequent finalizer run. All criteria V3-01 through V3-08 have been accepted by an independent Auditor with trusted verification exit 0. There is no next roadmap step. The trusted release finalizer must empirically confirm the repair by passing step 7 (Android install, launch, golden path); the trusted shell owns final state transitions and V3-08 release handoff.",
+  "progressEvidence": [
+    "audit-accepted-35510712950-V3-08",
+    "candidate-delta-non-empty-hasDelta-true-2-files-43-insertions",
+    "uiautomator-warm-up-dump-added-to-launch-best-effort-try-catch",
+    "warm-up-bounded-rm-plus-dump-60s-1-attempt-plus-cat-30s-1-attempt",
+    "timing-budget-worst-case-38-5-min-within-360-min-job-timeout",
+    "wrapper-contract-suite-pass-17-17-including-warm-up-test",
+    "trusted-verification-exit-0-447-tests-22-suites-privacy-71-cost-21",
+    "expo-export-android-prebuild-assembleDebug-BUILD-SUCCESSFUL",
+    "no-mustFix-remaining-three-informational-only",
+    "all-previous-criteria-V3-01-through-V3-07-preserved-with-zero-regression",
+    "v3-08-is-final-criterion-no-next-roadmap-step",
+    "trusted-release-finalizer-must-confirm-empirically-APK-install-golden-path"
+  ]
+}
