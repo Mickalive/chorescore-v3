@@ -418,11 +418,11 @@ function waitFor(label, timeoutMs = 10000) {
     const nodes = findNodes(label);
     if (nodes.length) return;
     // Track successful-but-empty dumps: only count REAL dumps (cache miss)
-    // that returned no matching node.  Cache hits must NOT increment the
-    // counter — the dump cache returns the same result without touching
-    // dumpFailures, so the dumpFailures <= previousDumpFailures condition
-    // would be satisfied by cache hits, causing false-positive force-stops
-    // during normal cold starts or screen transitions.
+    // that returned no matching node.  Cache hits must NOT increment the counter
+    // — the dump cache returns the same result without touching dumpFailures,
+    // so the dumpFailures <= previousDumpFailures condition would be satisfied
+    // by cache hits, causing false-positive force-stops during normal cold
+    // starts or screen transitions.
     if (!nodes._fromCache && dumpFailures <= previousDumpFailures) {
       // Dump succeeded (no failure increment) but the label wasn't found.
       consecutiveEmptyMatchCount += 1;
