@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "cycle": "35517442615",
+  "decision": "stop",
+  "reason": "V3-08 audit decision is accept. The candidate is a non-empty delta (2 files, 52 insertions / 19 deletions, hasDelta=true) that directly repairs the remaining golden-path timing blocker from the trusted finalizer failure (Actions run 35515804944, step 7 failure after ~31m47s). The concrete blocker was the empty-nodes warm-up cache: the previous repair cached the warm-up dump as { xml: warmupXml, nodes: [] }, so the first findNodes('Demarrer') in waitFor() spun on empty cache hits for up to 30s before triggering a real dump, wasting critical golden-path time on top of the 30-60s cold-start dump cost. Repair: scripts/e2e-android.js extracts parseNodesFromXml(xml) as a shared function used by both dumpUi() and the warm-up block; the cache is now populated with real parsed nodes ({ xml: warmupXml, nodes: warmupNodes }) so findNodes('Demarrer') matches immediately when the Demarrer screen is captured, eliminating the 30s dead spin and the first real dump from the critical path. No new adb calls added (warm-up remains 3 calls bounded ~91s). Static contract tests updated/added guard the parsed-nodes cache and shared parseNodesFromXml usage. Trusted verification exit 0: typecheck PASS, 448 tests/22 suites PASS, privacy 71 PASS, cost 21 PASS (10 gates), expo export/prebuild PASS, assembleDebug BUILD SUCCESSFUL. Two informational findings only (empirical step-7 confirmation pending, step-7 log access restricted). No mustFix remains within Builder scope. V3-08 is the final criterion. All criteria V3-01 through V3-08 have been accepted by an independent Auditor with trusted verification exit 0. The trusted release finalizer must empirically confirm by passing step 7 (Android install, launch, golden path). The trusted shell owns final state transitions and V3-08 release handoff.",
+  "progressEvidence": [
+    "audit-accepted-35517442615-V3-08",
+    "candidate-delta-non-empty-2-files-52-insertions-19-deletions-hasDelta-true",
+    "parseNodesFromXml-extracted-as-shared-function-behavior-preserving",
+    "warm-up-cache-now-populated-with-parsed-nodes-eliminating-30s-dead-spin",
+    "first-findNodes-Demarrer-matches-immediately-from-warm-up-cache",
+    "no-new-adb-calls-warm-up-remains-3-calls-bounded-91s",
+    "wrapper-contract-suite-pass-18-18-including-warm-up-and-parseNodesFromXml-tests",
+    "trusted-verification-exit-0-448-tests-22-suites-privacy-71-cost-21",
+    "expo-export-android-prebuild-assembleDebug-BUILD-SUCCESSFUL-19m50s",
+    "no-mustFix-remaining-two-informational-only",
+    "all-previous-criteria-V3-01-through-V3-07-preserved-with-zero-regression",
+    "V3-08-is-final-criterion-no-next-roadmap-step",
+    "trusted-release-finalizer-must-confirm-empirically-step-7-APK-install-golden-path",
+    "trusted-shell-owns-final-state-transitions-and-V3-08-release-handoff"
+  ]
+}
