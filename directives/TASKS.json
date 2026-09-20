@@ -4,7 +4,7 @@
   "builder": {
     "enabled": true,
     "criterionId": "V3-08",
-    "objective": "REPAIR V3-08: Increment consecutiveEmptyMatchCount only when a REAL dump ran (cache miss) and returned no matching node. Concretely: expose a fromCache flag from dumpUi() (or compare _dumpCacheTime before/after the findNodes call) and guard the increment on the dump actually having executed; cache hits must neither increment nor reset the counter. Keep the force-stop + relaunch recovery and the counter resets on crash/dump-failure/stuck recovery.; Strengthen the contract test to assert the cache-miss guard: e.g. assert dumpUi() returns a fromCache flag (or equivalent) and that the consecutiveEmptyMatchCount increment is conditioned on a real dump having run (cache miss). Reverting the guard must fail the test.",
+    "objective": "REPAIR V3-08: Make the asserted phrase contiguous: reword the comment in scripts/e2e-android.js so the exact string 'Cache hits must NOT increment the counter' appears on one line (e.g. '// Cache hits must NOT increment the counter — the dump cache returns the same result without touching dumpFailures...'), or relax the test assertion to a whitespace/line-break-tolerant regex (e.g. /Cache hits must NOT increment the\\s*\\n?\\s*\\/\\/\\s*counter/). Keep the guard, the fromCache plumbing, the recovery and the counter resets unchanged.; Resolve the concrete failing trusted check without discarding already-correct candidate work, then rerun the full gate.",
     "scope": "Repair only the audited must-fix findings on the preserved V3 baseline; do not rebuild accepted work.",
     "acceptance": [],
     "previousCriteriaPreserved": [

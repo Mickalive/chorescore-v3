@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "milestone": "v3-rc",
-  "lastCycle": "35533036264",
+  "lastCycle": "35540196125",
   "activeCriteria": [
     "V3-08"
   ],
@@ -116,26 +116,26 @@
   ],
   "openFindings": [
     {
-      "path": "scripts/e2e-android.js",
-      "problem": "Stuck-app detector false-positives on dump-cache hits: consecutiveEmptyMatchCount increments whenever dumpFailures <= previousDumpFailures, which is also true when findNodes() returns from the 30 s dump cache without running any dump. After any single non-matching dump, the 500 ms loop sleep reaches STUCK_APP_THRESHOLD=4 in ~1.5-2 s of cache hits and force-stops + relaunches a healthy app that is merely mid-cold-start or mid-screen-transition. This breaks the golden path E2E the trusted finalizer runs (step 7): waitFor('Demarrer', 600000) with a splash-screen warm-up cache force-stops the app ~2 s after the wait starts and repeats, so the app never finishes cold start; waitFor('Appartement', 120000) after tapping Demarrer force-stops the app ~2 s after the first pre-transition dump, killing it mid-sign-in. Simulation of the exact loop logic confirmed 3 false-positive force-stops during a normal 120 s cold start (t=1.5 s, 60 s, 118.5 s).",
-      "evidence": "waitFor() lines 415-437: `if (dumpFailures <= previousDumpFailures) { consecutiveEmptyMatchCount += 1; if (consecutiveEmptyMatchCount >= STUCK_APP_THRESHOLD) { ... force-stop ... } }` — dumpUi() returns the cached result without touching dumpFailures on cache hits (lines 172-175), so cache hits satisfy the condition. Simulation output: 'APP STUCK at t=1.5s (4 empty matches) — force-stop + relaunch' x3 during a 120 s splash.",
+      "path": "__tests__/domain/v3-08-finalizer-wrapper.test.ts",
+      "problem": "The new test 'consecutiveEmptyMatchCount increment is guarded on real dump (cache miss)' fails on its final assertion: expect(e2e).toContain('Cache hits must NOT increment the counter') at line 289. The script comment in scripts/e2e-android.js wraps the phrase across two lines ('// that returned no matching node.  Cache hits must NOT increment the' + newline + '// counter — the dump cache returns the same result without touching'), so the exact substring is not contiguous in the file and toContain fails. This is a brittle string-vs-comment line-wrap mismatch, not a defect in the guard logic: the guard itself is correct (verified by simulation and by the guard-revert experiment, which fails the test at line 287 as required). Trusted verification exit code is 1, which is a mandatory mustFix and forbids accept.",
+      "evidence": "Trusted log TRUSTED_35540196125.md: 'FAIL __tests__/domain/v3-08-finalizer-wrapper.test.ts ... Expected substring: \"Cache hits must NOT increment the counter\"' at line 289; scripts/e2e-android.js lines 419-421 contain 'Cache hits must NOT increment the' then '// counter — the dump cache...' on the next line; local npx jest reproduces the identical single failure (450 PASS / 1 FAIL); typecheck PASS.",
       "mustFix": true,
-      "requiredFix": "Increment consecutiveEmptyMatchCount only when a REAL dump ran (cache miss) and returned no matching node. Concretely: expose a fromCache flag from dumpUi() (or compare _dumpCacheTime before/after the findNodes call) and guard the increment on the dump actually having executed; cache hits must neither increment nor reset the counter. Keep the force-stop + relaunch recovery and the counter resets on crash/dump-failure/stuck recovery.",
-      "verification": "Re-run the loop simulation with the fix: a 120 s cold start must complete with 0 force-stops; a genuinely stuck app (alive process, valid dumps, no target node for >4 real dumps) must still trigger exactly one force-stop + relaunch. Full trusted verification must stay exit 0."
+      "requiredFix": "Make the asserted phrase contiguous: reword the comment in scripts/e2e-android.js so the exact string 'Cache hits must NOT increment the counter' appears on one line (e.g. '// Cache hits must NOT increment the counter — the dump cache returns the same result without touching dumpFailures...'), or relax the test assertion to a whitespace/line-break-tolerant regex (e.g. /Cache hits must NOT increment the\\s*\\n?\\s*\\/\\/\\s*counter/). Keep the guard, the fromCache plumbing, the recovery and the counter resets unchanged.",
+      "verification": "Full trusted verification exits 0: npm run typecheck PASS and npx jest all suites PASS (including the two new cache-miss guard tests); guard-revert experiment still fails the test; loop simulation still shows 0 force-stops on a 120s cold start and recovery on a genuinely stuck app."
     },
     {
-      "path": "__tests__/domain/v3-08-finalizer-wrapper.test.ts",
-      "problem": "The new test 'waitFor detects stuck app (alive but no matching nodes) and force-relaunches' is a weak static-contract test: it only asserts the presence of strings ('APP STUCK', 'consecutiveEmptyMatchCount', 'STUCK_APP_THRESHOLD', force-stop, monkey, counter reset). It passes (19/19) with the buggy implementation and therefore gives false confidence that the repair is correct; it does not guard the actual detector logic (increment only on real dumps, not cache hits).",
-      "evidence": "Test diff lines 240-257 assert only string containment/regex presence; npx jest __tests__/domain/v3-08-finalizer-wrapper.test.ts passes 19/19 while the loop simulation of the same script shows the false-positive force-stop behavior.",
+      "path": ".",
+      "problem": "Trusted product verification failed",
+      "evidence": "Authoritative verification log: reports/audits/TRUSTED_35540196125.md (exit 1)",
       "mustFix": true,
-      "requiredFix": "Strengthen the contract test to assert the cache-miss guard: e.g. assert dumpUi() returns a fromCache flag (or equivalent) and that the consecutiveEmptyMatchCount increment is conditioned on a real dump having run (cache miss). Reverting the guard must fail the test.",
-      "verification": "Test suite must fail when the increment guard is removed and pass when the guard is present; full trusted verification stays exit 0."
+      "requiredFix": "Resolve the concrete failing trusted check without discarding already-correct candidate work, then rerun the full gate.",
+      "verification": "Full trusted V3 verification must return exit code 0."
     }
   ],
   "factoryHealth": {
     "stalled": false,
     "consecutiveNoProgress": 0,
-    "lastProductSha": "3addd865d3ce60238a7f5d27a4b243a5f672e65f",
+    "lastProductSha": "a81c9c49ad15f8f2f6a947ed4425abbdbfc21551",
     "reason": null
   }
 }

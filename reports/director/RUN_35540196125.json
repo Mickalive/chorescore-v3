@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "cycle": "35540196125",
+  "decision": "continue",
+  "reason": "V3-08 audit decision is repair. The candidate correctly repairs the stuck-app detector's false-positive issue: fromCache flag plumbing is correct, guard logic `!nodes._fromCache && dumpFailures <= previousDumpFailures` is simulation-verified (0 force-stops on 120s cold start, recovery still triggers on genuinely stuck app), counter resets are preserved in all recovery paths, and the guard-revert experiment fails the test as required. However, trusted verification fails exit 1 due to a single test assertion: `expect(e2e).toContain('Cache hits must NOT increment the counter')` at line 289 of the contract test. The script comment wraps this phrase across two lines (line 421: '...increment the' + newline + line 422: 'counter — ...'), so the exact substring is not contiguous. This is a trivial comment-line-wrap mismatch, not a logic defect. The coherent delta (2 files: scripts/e2e-android.js, __tests__/domain/v3-08-finalizer-wrapper.test.ts) is retained as WIP baseline. Next cycle must make the asserted phrase contiguous on one line in the comment, or relax the assertion to a whitespace-tolerant regex, so trusted verification exits 0.",
+  "progressEvidence": [
+    "audit-repair-35540196125-V3-08",
+    "candidate-delta-non-empty-2-files-fromCache-guard-and-contract-tests",
+    "guard-logic-correct-simulation-verified-0-force-stops-120s-cold-start",
+    "guard-revert-experiment-fails-test-as-required",
+    "counter-reset-preserved-all-recovery-paths",
+    "all-previous-criteria-V3-01-through-V3-07-preserved-zero-regression",
+    "mustFix-1-comment-line-wrap-breaks-toContain-assertion-trivial-string-vs-newline",
+    "trusted-verification-fails-exit-1-single-test-string-mismatch",
+    "delta-retained-as-WIP-baseline-next-cycle-must-fix-comment-phrase-contiguity"
+  ]
+}
