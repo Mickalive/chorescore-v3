@@ -203,8 +203,12 @@ describe('V3-08 finalizer wrapper contract', () => {
     // The warm-up must be best-effort (wrapped in try/catch)
     expect(e2e).toMatch(/Warming up uiautomator server[\s\S]*try\s*\{/);
     expect(e2e).toMatch(/Warming up uiautomator server[\s\S]*WARN.*warm-up/);
-    // The warm-up must cache the result so the first findNodes() reuses it
-    expect(e2e).toMatch(/Warming up uiautomator server[\s\S]*_dumpCache\s*=\s*\{/);
+    // The warm-up must cache the result with PARSED nodes (not empty array).
+    // Previously the cache was { xml, nodes: [] } causing findNodes() to
+    // spin on empty cache hits for 30s before the TTL expired — a mustFix.
+    expect(e2e).toMatch(/warmupNodes[\s\S]*_dumpCache\s*=\s*\{.*xml.*warmupXml.*nodes.*warmupNodes/s);
+    // The warm-up must parse nodes from the XML before caching
+    expect(e2e).toMatch(/parseNodesFromXml\(warmupXml\)/);
   });
 
   test('uiautomator dump timeout is >= 60s for degraded API 35 emulators', () => {
@@ -217,6 +221,20 @@ describe('V3-08 finalizer wrapper contract', () => {
     expect(dumpMatch).not.toBeNull();
     const timeout = Number(dumpMatch![1].replace(/_/g, ''));
     expect(timeout).toBeGreaterThanOrEqual(60_000);
+  });
+
+  test('parseNodesFromXml is used by both dumpUi and the warm-up block', () => {
+    // Extracting node parsing into a shared function ensures the warm-up
+    // cache is populated with real nodes using the same logic as dumpUi(),
+    // preventing the mustFix where the warm-up cached an empty nodes
+    // array causing findNodes() to spin on empty cache hits for 30s.
+    const e2e = readRepo('scripts/e2e-android.js');
+    // parseNodesFromXml must exist as a function
+    expect(e2e).toContain('function parseNodesFromXml(');
+    // dumpUi must call parseNodesFromXml (not inline the parsing)
+    expect(e2e).toMatch(/function dumpUi[\s\S]*parseNodesFromXml\(xml\)/);
+    // The warm-up block must call parseNodesFromXml(warmupXml)
+    expect(e2e).toMatch(/parseNodesFromXml\(warmupXml\)/);
   });
 
   test('screenshot reuses cached dump instead of triggering fresh uiautomator dump', () => {

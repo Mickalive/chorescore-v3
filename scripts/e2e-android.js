@@ -236,6 +236,23 @@ function dumpUi() {
   }
   // Successful dump — reset consecutive failure counter
   dumpFailures = 0;
+  const nodes = parseNodesFromXml(xml);
+  // Successful dump — cache for rapid successive callers
+  const result = { xml, nodes };
+  _dumpCache = result;
+  _dumpCacheTime = Date.now();
+  return result;
+}
+
+/**
+ * Parse uiautomator XML into an array of attribute objects.
+ * Extracted from dumpUi() so the warm-up dump can populate the cache
+ * with real nodes (not an empty array) — without this, findNodes()
+ * gets 30s of empty-cache hits before the TTL expires and a real
+ * dump runs, wasting critical golden-path time.
+ */
+function parseNodesFromXml(xml) {
+  if (!xml || !xml.includes('<node')) return [];
   const nodes = [];
   for (const nodeMatch of xml.matchAll(/<node\b([^>]*)\/?>(?:<\/node>)?/g)) {
     const attrs = {};
@@ -244,11 +261,7 @@ function dumpUi() {
     }
     nodes.push(attrs);
   }
-  // Successful dump — cache for rapid successive callers
-  const result = { xml, nodes };
-  _dumpCache = result;
-  _dumpCacheTime = Date.now();
-  return result;
+  return nodes;
 }
 
 function nodeMatches(node, label, exact) {
@@ -521,15 +534,13 @@ function launch() {
   // handles transient transport issues within each call.
   try { adb(['wait-for-device'], { timeoutMs: 10_000, allowReconnect: false }); } catch (_) {}
 
-  // Fast app-readiness check via dumpsys activity (1-2s) instead of
-  // a uiautomator warm-up dump (30-45s).  On API 35 x86_64 under
-  // React Native cold-start load, uiautomator dump is the primary
-  // bottleneck.  The warm-up dump consumed 30-45s of dead time before
-  // the Demarrer window and often failed on the degraded transport,
-  // wasting the entire investment.  Instead, we:
+  // Fast app-readiness check via dumpsys activity (1-2s).  On API 35
+  // x86_64 under React Native cold-start load, uiautomator dump is the
+  // primary bottleneck.  We:
   // 1. Poll dumpsys activity to confirm the app activity is in foreground
-  // 2. Give uiautomator 5s to initialize (vs 45s warm-up dump)
-  // This saves 25-40s of dead time before the Demarrer window.
+  // 2. Give uiautomator 5s to initialize
+  // This is fast and reliable; the real uiautomator warm-up happens at
+  // the end of launch() after the app is in foreground.
   console.log('  Checking app readiness via dumpsys activity...');
   let appReady = false;
   for (let i = 0; i < 3; i++) {
@@ -586,6 +597,8 @@ function launch() {
   // A warm-up dump forces the server to initialize, so the first real
   // dumpUi() call in the golden path succeeds immediately instead of
   // burning 30-60s on a cold-start failure that cascades into timeouts.
+  // The warm-up result is cached with parsed nodes so the first findNodes()
+  // in waitFor() reuses it directly (no 30s dead-spin on empty-cache hits).
   // The warm-up is best-effort: if it fails, the golden path's long
   // waitFor windows (600s Demarrer, 120s others) provide headroom.
   console.log('  Warming up uiautomator server...');
@@ -594,10 +607,12 @@ function launch() {
     shell('uiautomator', 'dump', '/sdcard/chorescore-window.xml', { timeoutMs: 60_000, retries: 1 });
     const warmupXml = adb(['shell', 'cat', '/sdcard/chorescore-window.xml'], { timeoutMs: 30_000, retries: 1 });
     if (warmupXml && warmupXml.includes('<node')) {
-      console.log('  uiautomator server ready — warm-up dump successful');
-      // Cache the warm-up dump so the first findNodes() in waitFor() reuses
-      // it instead of triggering another 30-60s dump.
-      _dumpCache = { xml: warmupXml, nodes: [] };
+      const warmupNodes = parseNodesFromXml(warmupXml);
+      console.log(`  uiautomator server ready — warm-up dump successful (${warmupNodes.length} nodes)`);
+      // Cache the warm-up dump WITH parsed nodes so the first findNodes()
+      // in waitFor() can match elements immediately instead of spinning
+      // on an empty cache for 30s until the TTL expires.
+      _dumpCache = { xml: warmupXml, nodes: warmupNodes };
       _dumpCacheTime = Date.now();
     } else {
       console.log('  WARN: uiautomator warm-up returned empty XML — proceeding anyway');
