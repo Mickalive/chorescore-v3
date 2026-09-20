@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "cycle": "35533036264",
+  "decision": "continue",
+  "reason": "V3-08 audit decision is repair. The candidate adds a stuck-app detector to scripts/e2e-android.js (3 files changed: E2E script, contract test, package.json) to handle the case where the app process is alive but React Native is hung. Trusted verification passed exit 0 (449 tests/22 suites, privacy 71, cost 21, expo export/prebuild, BUILD SUCCESSFUL) and no product code was touched (V3-01..V3-07 preserved). However two must-fix findings remain: (1) the detector increments consecutiveEmptyMatchCount on dump-cache hits where no dump ran, so the threshold of 4 is reached in ~1.5-2s of cache hits and force-stops a healthy app during normal cold start — confirmed by loop simulation showing 3 false-positive force-stops during a 120s cold start; (2) the new contract test only asserts static strings and passes with the buggy implementation giving false confidence. The coherent delta is retained as WIP baseline. Next cycle must guard the counter increment on real dumps only (cache miss) and strengthen the test to assert that guard.",
+  "progressEvidence": [
+    "audit-repair-35533036264-V3-08",
+    "candidate-delta-non-empty-3-files-stuck-app-detector-in-e2e-script",
+    "trusted-verification-exit-0-449-tests-22-suites-privacy-71-cost-21",
+    "expo-export-prebuild-assembleDebug-BUILD-SUCCESSFUL",
+    "all-previous-criteria-V3-01-through-V3-07-preserved-zero-regression",
+    "mustFix-1-detector-false-positives-on-dump-cache-hits-loop-simulation-3-false-force-stops",
+    "mustFix-2-weak-contract-test-passes-with-buggy-implementation",
+    "informational-stale-package-lock-not-blocking-npm-ci",
+    "informational-finalizer-run-35530222887-logs-inaccessible-gh-not-authed",
+    "delta-retained-as-WIP-baseline-next-cycle-must-fix-cache-miss-guard"
+  ]
+}

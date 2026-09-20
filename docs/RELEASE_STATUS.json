@@ -1,12 +1,12 @@
 {
   "schemaVersion": 1,
   "milestone": "v3-rc",
-  "lastCycle": "35524260895",
+  "lastCycle": "35533036264",
   "activeCriteria": [
     "V3-08"
   ],
   "pendingArtifact": null,
-  "progressSummary": "V3-08 reopened after trusted finalizer failure in run 35530222887",
+  "progressSummary": "Audited V3-08 requires repair; WIP baseline preserved when a safe delta existed.",
   "criteria": [
     {
       "id": "V3-01",
@@ -116,18 +116,26 @@
   ],
   "openFindings": [
     {
-      "path": "release",
-      "problem": "Trusted V3 finalizer failed",
-      "evidence": "GitHub Actions finalizer run 35530222887",
+      "path": "scripts/e2e-android.js",
+      "problem": "Stuck-app detector false-positives on dump-cache hits: consecutiveEmptyMatchCount increments whenever dumpFailures <= previousDumpFailures, which is also true when findNodes() returns from the 30 s dump cache without running any dump. After any single non-matching dump, the 500 ms loop sleep reaches STUCK_APP_THRESHOLD=4 in ~1.5-2 s of cache hits and force-stops + relaunches a healthy app that is merely mid-cold-start or mid-screen-transition. This breaks the golden path E2E the trusted finalizer runs (step 7): waitFor('Demarrer', 600000) with a splash-screen warm-up cache force-stops the app ~2 s after the wait starts and repeats, so the app never finishes cold start; waitFor('Appartement', 120000) after tapping Demarrer force-stops the app ~2 s after the first pre-transition dump, killing it mid-sign-in. Simulation of the exact loop logic confirmed 3 false-positive force-stops during a normal 120 s cold start (t=1.5 s, 60 s, 118.5 s).",
+      "evidence": "waitFor() lines 415-437: `if (dumpFailures <= previousDumpFailures) { consecutiveEmptyMatchCount += 1; if (consecutiveEmptyMatchCount >= STUCK_APP_THRESHOLD) { ... force-stop ... } }` — dumpUi() returns the cached result without touching dumpFailures on cache hits (lines 172-175), so cache hits satisfy the condition. Simulation output: 'APP STUCK at t=1.5s (4 empty matches) — force-stop + relaunch' x3 during a 120 s splash.",
       "mustFix": true,
-      "requiredFix": "Inspect the exact trusted finalizer failure and repair only the concrete product/privacy/cost/APK/runtime/E2E blocker while preserving V3-01..V3-07.",
-      "verification": "Trusted V3 finalizer must pass product, privacy and cost gates, APK build, install/launch and golden path."
+      "requiredFix": "Increment consecutiveEmptyMatchCount only when a REAL dump ran (cache miss) and returned no matching node. Concretely: expose a fromCache flag from dumpUi() (or compare _dumpCacheTime before/after the findNodes call) and guard the increment on the dump actually having executed; cache hits must neither increment nor reset the counter. Keep the force-stop + relaunch recovery and the counter resets on crash/dump-failure/stuck recovery.",
+      "verification": "Re-run the loop simulation with the fix: a 120 s cold start must complete with 0 force-stops; a genuinely stuck app (alive process, valid dumps, no target node for >4 real dumps) must still trigger exactly one force-stop + relaunch. Full trusted verification must stay exit 0."
+    },
+    {
+      "path": "__tests__/domain/v3-08-finalizer-wrapper.test.ts",
+      "problem": "The new test 'waitFor detects stuck app (alive but no matching nodes) and force-relaunches' is a weak static-contract test: it only asserts the presence of strings ('APP STUCK', 'consecutiveEmptyMatchCount', 'STUCK_APP_THRESHOLD', force-stop, monkey, counter reset). It passes (19/19) with the buggy implementation and therefore gives false confidence that the repair is correct; it does not guard the actual detector logic (increment only on real dumps, not cache hits).",
+      "evidence": "Test diff lines 240-257 assert only string containment/regex presence; npx jest __tests__/domain/v3-08-finalizer-wrapper.test.ts passes 19/19 while the loop simulation of the same script shows the false-positive force-stop behavior.",
+      "mustFix": true,
+      "requiredFix": "Strengthen the contract test to assert the cache-miss guard: e.g. assert dumpUi() returns a fromCache flag (or equivalent) and that the consecutiveEmptyMatchCount increment is conditioned on a real dump having run (cache miss). Reverting the guard must fail the test.",
+      "verification": "Test suite must fail when the increment guard is removed and pass when the guard is present; full trusted verification stays exit 0."
     }
   ],
   "factoryHealth": {
     "stalled": false,
     "consecutiveNoProgress": 0,
-    "lastProductSha": "d2b9e5101b57b480d35c9f0075c7af98d973a103",
+    "lastProductSha": "3addd865d3ce60238a7f5d27a4b243a5f672e65f",
     "reason": null
   }
 }
