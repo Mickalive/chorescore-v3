@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "cycle": "35524260895",
+  "decision": "stop",
+  "reason": "V3-08 audit decision is accept. The candidate is a minimal non-empty delta (1 file, 6 insertions / 1 deletion, hasDelta=true) repairing the trusted finalizer step-7 timing blocker from Actions run 35521604346. The concrete blocker was the golden-path wait for 'Appartement' after tapping Demarrer: a 60s timeout could only fit one uiautomator dump attempt on a cold API 35 x86_64 emulator where sign-in + fixture seeding + first dump cost 60-120s. Repair: scripts/e2e-android.js changes waitFor('Appartement', 60000) to waitFor('Appartement', 120000) with a documented timing model comment, matching the 120s pattern already used for every other post-launch element (Ajouter, Balances, A faire). No product code, domain logic, analytics, persistence, sync or governance touched; no new adb calls; zero cost regression. Trusted verification exit 0: typecheck PASS, 448 tests/22 suites PASS, privacy 71 PASS, cost 21 PASS (10 gates), expo export/prebuild PASS, BUILD SUCCESSFUL. All criteria V3-01 through V3-08 have been accepted by an independent Auditor with trusted verification exit 0. V3-08 is the final criterion. No next roadmap step exists. The trusted release finalizer must empirically confirm step 7 (Android install, launch, golden path) and mark V3-08 complete. The trusted shell owns final state transitions and V3-08 release handoff.",
+  "progressEvidence": [
+    "audit-accepted-35524260895-V3-08",
+    "candidate-delta-non-empty-1-file-6-insertions-1-deletion-hasDelta-true",
+    "waitFor-Appartement-60000-to-120000-with-documented-timing-model-comment",
+    "120s-matches-script-established-pattern-for-all-other-post-launch-elements",
+    "no-product-code-domain-analytics-persistence-sync-or-governance-touched",
+    "no-new-adb-calls-no-network-no-history-proportional-work",
+    "trusted-verification-exit-0-448-tests-22-suites-privacy-71-cost-21",
+    "expo-export-prebuild-assembleDebug-BUILD-SUCCESSFUL",
+    "all-previous-criteria-V3-01-through-V3-07-preserved-with-zero-regression",
+    "no-mustFix-remaining-two-informational-only",
+    "V3-08-is-final-criterion-no-next-roadmap-step",
+    "trusted-release-finalizer-must-confirm-empirically-step-7-APK-install-golden-path",
+    "trusted-shell-owns-final-state-transitions-and-V3-08-release-handoff"
+  ]
+}
