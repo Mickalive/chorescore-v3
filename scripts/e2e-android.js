@@ -361,6 +361,15 @@ function waitFor(label, timeoutMs = 10000) {
   const until = Date.now() + timeoutMs;
   let previousDumpFailures = dumpFailures;
   let consecutiveDumpFails = 0;
+  // Track successful dumps that return nodes but none match the expected label.
+  // When the app process is alive but React Native is hung (e.g. Hermes bridge
+  // blocked, splash screen stuck, SystemUI ANR), every dump returns valid XML
+  // with nodes — just not the ones we need.  The crash detector (pidof) sees a
+  // live process and does nothing, so the script burns through the full
+  // timeout doing 30-60 s dumps that always miss.  After STUCK_APP_THRESHOLD
+  // consecutive empty-match dumps we force-stop + relaunch to recover.
+  let consecutiveEmptyMatchCount = 0;
+  const STUCK_APP_THRESHOLD = 4; // ~4 × 30-60 s = 2-4 min before recovery
   let lastAppCheck = 0;
   while (Date.now() < until) {
     // App-alive check every 30s: if the app crashed mid-golden-path,
@@ -379,6 +388,7 @@ function waitFor(label, timeoutMs = 10000) {
           sleep(1000);
           try { shell('monkey', '-p', packageName, '-c', 'android.intent.category.LAUNCHER', '1'); } catch (_) {}
           sleep(15000); // Give the relaunched app time to initialize
+          consecutiveEmptyMatchCount = 0; // Reset stuck counter after relaunch
           continue; // Re-enter the loop; the next dumpUi() will capture the new screen
         }
       } catch (err) {
@@ -395,6 +405,7 @@ function waitFor(label, timeoutMs = 10000) {
           sleep(1000);
           try { shell('monkey', '-p', packageName, '-c', 'android.intent.category.LAUNCHER', '1'); } catch (_) {}
           sleep(15000);
+          consecutiveEmptyMatchCount = 0;
           continue;
         }
         // Transport or other adb error — cannot determine process state;
@@ -402,9 +413,33 @@ function waitFor(label, timeoutMs = 10000) {
       }
     }
     if (findNodes(label).length) return;
-    // Detect if the dump that just ran inside findNodes failed
+    // Track successful-but-empty dumps: the dump succeeded (no increment
+    // to dumpFailures) but no node matched the label.  After the threshold,
+    // the app is likely stuck on a different screen or React Native is hung.
+    if (dumpFailures <= previousDumpFailures) {
+      // Dump succeeded (no failure increment) but the label wasn't found.
+      consecutiveEmptyMatchCount += 1;
+      if (consecutiveEmptyMatchCount >= STUCK_APP_THRESHOLD) {
+        console.log(`  APP STUCK: ${consecutiveEmptyMatchCount} consecutive dumps with no "${label}" match — force-stopping and relaunching...`);
+        _dumpCache = null;
+        try { shell('am', 'force-stop', packageName); } catch (_) {}
+        sleep(2000);
+        try { shell('monkey', '-p', packageName, '-c', 'android.intent.category.LAUNCHER', '1'); } catch (_) {}
+        sleep(15000); // Give the relaunched app time to initialize
+        consecutiveEmptyMatchCount = 0;
+        // Check if relaunch restored the app
+        try {
+          const pid = shell('pidof', packageName).trim();
+          console.log(`  Post-relaunch process state: pid=${pid || 'NOT FOUND'}`);
+        } catch (_) {}
+        continue;
+      }
+    }
+    // Detect if the dump that just ran inside findNodes failed (uiautomator
+    // command error, not just empty result)
     if (dumpFailures > previousDumpFailures) {
       consecutiveDumpFails += dumpFailures - previousDumpFailures;
+      consecutiveEmptyMatchCount = 0; // Reset stuck counter on dump failure
       if (consecutiveDumpFails >= 3 && consecutiveDumpFails % 3 === 0) {
         console.log(`  WARN: ${consecutiveDumpFails} consecutive UI dump failures while waiting for "${label}" — attempting adb reconnect`);
         try { adbReconnect(); } catch (_) {}

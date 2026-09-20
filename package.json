@@ -40,9 +40,7 @@
     "react-native": "0.86.3",
     "react-native-safe-area-context": "~5.7.0",
     "react-native-screens": "~4.26.0",
-    "react-native-view-shot": "5.1.0",
-    "react-native-web": "~0.21.2",
-    "react-native-worklets": "0.10.4"
+    "react-native-web": "~0.21.2"
   },
   "devDependencies": {
     "@babel/runtime": "^7.20.0",
@@ -53,9 +51,7 @@
     "jest-expo": "~57.0.2",
     "typescript": "~5.7.0"
   },
-  "overrides": {
-    "react-native-reanimated": "4.5.5"
-  },
+
   "jest": {
     "preset": "jest-expo",
     "globals": {
@@ -82,7 +78,6 @@
   "expo": {
     "install": {
       "exclude": [
-        "react-native-worklets",
         "typescript"
       ]
     }

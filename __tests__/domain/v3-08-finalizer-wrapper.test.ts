@@ -237,6 +237,27 @@ describe('V3-08 finalizer wrapper contract', () => {
     expect(e2e).toMatch(/parseNodesFromXml\(warmupXml\)/);
   });
 
+  test('waitFor detects stuck app (alive but no matching nodes) and force-relaunches', () => {
+    // On API 35 x86_64, the app process can remain alive while React Native
+    // is hung (Hermes bridge blocked, splash screen stuck, SystemUI ANR).
+    // The crash detector (pidof) sees a live process and does nothing, so
+    // the script burns through the full timeout doing 30-60 s dumps that
+    // always return valid XML but never contain the expected UI elements.
+    // The stuck-app detector counts consecutive successful dumps with no
+    // matching node and force-stops + relaunches after a threshold.
+    const e2e = readRepo('scripts/e2e-android.js');
+    expect(e2e).toContain('APP STUCK');
+    expect(e2e).toContain('consecutiveEmptyMatchCount');
+    expect(e2e).toContain('STUCK_APP_THRESHOLD');
+    // Must force-stop and relaunch (same recovery as crash)
+    expect(e2e).toMatch(/APP STUCK[\s\S]*force-stop/);
+    expect(e2e).toMatch(/APP STUCK[\s\S]*monkey/);
+    // Must reset the counter after recovery
+    expect(e2e).toMatch(/APP STUCK[\s\S]*consecutiveEmptyMatchCount\s*=\s*0/);
+    // Must also reset on crash recovery
+    expect(e2e).toMatch(/APP CRASHED[\s\S]*consecutiveEmptyMatchCount\s*=\s*0/);
+  });
+
   test('screenshot reuses cached dump instead of triggering fresh uiautomator dump', () => {
     // Each fresh uiautomator dump takes 30-60s on slow emulators.
     // Screenshots are diagnostic-only and don't affect golden-path
