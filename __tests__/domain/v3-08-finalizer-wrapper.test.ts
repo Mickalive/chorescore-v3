@@ -86,6 +86,55 @@ describe('V3-08 finalizer wrapper contract', () => {
     expect(e2e).toContain("'Balances'");
     expect(e2e).toContain("'A faire'");
   });
+
+  test('dump cache TTL is long enough to cover same-screen rapid calls on slow emulators', () => {
+    // On API 35 x86_64, each uiautomator dump takes 30-60s.  A short TTL
+    // (<15s) means every findNodes() call triggers a fresh dump, wasting
+    // 30-60s per call on rapid successive checks (assertAbsent, screenshot,
+    // sequential waitFor).  The TTL must be >= 15s so that same-screen
+    // calls share one dump, and invalidated on tap/swipe so post-transition
+    // calls always get fresh state.
+    const e2e = readRepo('scripts/e2e-android.js');
+    // Extract DUMP_CACHE_TTL_MS value, handling JS numeric underscores (e.g. 30_000)
+    const ttlMatch = e2e.match(/DUMP_CACHE_TTL_MS\s*=\s*([\d_]+)/);
+    expect(ttlMatch).not.toBeNull();
+    const ttl = Number(ttlMatch![1].replace(/_/g, ''));
+    expect(ttl).toBeGreaterThanOrEqual(15_000);
+    // Invalidate on tap (screen transition)
+    expect(e2e).toContain('_dumpCache = null');
+    // tapNode must invalidate
+    expect(e2e).toMatch(/function tapNode[\s\S]*_dumpCache\s*=\s*null/);
+    // swipeUp must invalidate
+    expect(e2e).toMatch(/function swipeUp[\s\S]*_dumpCache\s*=\s*null/);
+  });
+
+  test('all golden path waitFor timeouts are >= 60s (single dump takes 30-60s)', () => {
+    // A single uiautomator dump takes 30-60s on API 35 x86_64.
+    // waitFor loops by calling findNodes (which triggers a dump) then
+    // sleeping 500ms.  If the timeout is < 60s, only 0-1 dump attempts
+    // fit, so the element is never found even if visible.
+    const e2e = readRepo('scripts/e2e-android.js');
+    // Extract all waitFor('label', timeout) calls
+    const waitForCalls = [...e2e.matchAll(/waitFor\('[^']+',\s*(\d+)\)/g)];
+    expect(waitForCalls.length).toBeGreaterThan(0);
+    for (const [, ms] of waitForCalls) {
+      expect(Number(ms)).toBeGreaterThanOrEqual(60_000);
+    }
+  });
+
+  test('dumpsys activity pre-check in launch() is bounded to <= 20s', () => {
+    // The dumpsys activity pre-check polls every 5s.  On slow emulators
+    // each poll can take 3-5s.  A 12-iteration (60s) poll wastes dead time
+    // before the Demarrer window.  3 iterations (15s) is sufficient: the
+    // app is either in foreground within 15s or it will appear during the
+    // Demarrer waitFor.
+    const e2e = readRepo('scripts/e2e-android.js');
+    // Find the launch function's dumpsys loop: "for (let i = 0; i < N; i++)"
+    const loopMatch = e2e.match(/function launch\(\)[\s\S]*?for\s*\(\s*let\s+i\s*=\s*0\s*;\s*i\s*<\s*(\d+)/);
+    expect(loopMatch).not.toBeNull();
+    const iterations = Number(loopMatch![1]);
+    expect(iterations).toBeLessThanOrEqual(5);
+  });
 });
 
 describe('V3-08 finalize workflow YAML regression guard', () => {

@@ -1,0 +1,48 @@
+{
+  "schemaVersion": 1,
+  "cycle": "35487229476",
+  "role": "builder",
+  "decision": "accept",
+  "summary": "V3-08 repair candidate accepted. The candidate is a non-empty delta (changedFiles=2, hasDelta=true, verificationOnly=false, agentExitCode=0) repairing the trusted finalizer step-7 blocker of Actions run 35485115705 within Builder scope: scripts/e2e-android.js and __tests__/domain/v3-08-finalizer-wrapper.test.ts only. The failure chain is documented across the previous accepted cycles: the emulator step (Android API 35 install/launch/golden path) fails after ~22 min with boot and install succeeding, while uiautomator dumps take 30-60s each under React Native cold-start load and exhaust the waitFor windows. The previous cycle's 2s-TTL dump cache was explicitly identified as inert (TTL < dump duration, so every findNodes call triggered a fresh 30-60s dump). This candidate repairs exactly that mechanism: (1) DUMP_CACHE_TTL_MS 2000 -> 30000 so same-screen rapid calls (assertAbsent batches, screenshot + findVisible, sequential waitFor) share one dump; (2) the cache is invalidated on tapNode and swipeUp so post-transition calls always get a fresh dump of the new screen state (all golden-path screen transitions go through tapLabel/swipeUp, so no stale reads are possible in the exercised path); (3) the dumpsys activity pre-check in launch() is reduced from 12 iterations (60s) to 3 (15s), saving up to 45s of dead time before the Demarrer window; (4) all golden-path waitFor windows are widened to >= 60s (Demarrer 480s->600s; tabs, Vaisselle du soir, Alex, Sam, Contribution, Sortir les poubelles 10-30s -> 120s) so each window fits 1-2 full dump attempts. Failed dumps are never cached (cache set only on successful dumps), so waitFor retries with fresh dumps on failure. Three new static contract tests guard the repair: TTL >= 15s with tap/swipe invalidation, all golden-path waitFor timeouts >= 60s, and dumpsys pre-check bounded to <= 20s. Trusted verification passed exit 0: typecheck, 435 tests (22 suites), privacy 71 tests, cost 21 tests (10 gates), expo install --check up to date, expo export android, prebuild, :app:assembleDebug BUILD SUCCESSFUL in 18m59s. Independent re-run: 435/435 tests PASS, wrapper contract 9/9 PASS, privacy PASS, cost PASS, node --check PASS, bash -n PASS, candidate.patch byte-identical to staged diff, pristine diff limited to the 2 candidate files. No product code, governance, directives, docs or workflow files changed; no chrono/premium/paywall/warm-V2 reintroduction; no cost regression (CI-script-only delta). Empirical confirmation of the emulator fix remains with the next trusted finalizer run.",
+  "checks": [
+    "trusted verification: exit 0 (reports/audits/TRUSTED_35487229476.md) — typecheck PASS, 435 tests / 22 suites PASS, privacy 71 PASS, cost 21 PASS (10 gates), expo install --check up to date, expo export android OK, prebuild OK, :app:assembleDebug BUILD SUCCESSFUL in 18m59s",
+    "candidate patch matches git diff --cached byte-for-byte (diff candidate.patch vs staged diff: identical)",
+    "syntax checks: node --check scripts/e2e-android.js PASS; bash -n scripts/finalizer-e2e.sh PASS",
+    "pristine accepted tree (/home/runner/work/_temp/accepted-pristine) diff: only scripts/e2e-android.js and __tests__/domain/v3-08-finalizer-wrapper.test.ts differ; no product code, governance, directives, docs or workflow files changed",
+    "independent re-run: npm run typecheck PASS; npx jest 435/435 PASS (22 suites); npm run privacy:check PASS (71 tests); npm run cost:check PASS (21 tests, 10 gates)",
+    "repair targets the documented failure mechanism: previous 2s TTL was inert (TTL < 30-60s dump duration, so every findNodes call triggered a fresh dump); 30s TTL makes the cache effective for same-screen rapid calls; invalidation on tapNode/swipeUp prevents stale reads across transitions; all golden-path transitions go through tapLabel (-> tapNode) or swipeUp, so the exercised path never reads a stale dump",
+    "failed dumps are never cached (dumpUi returns { xml:'', nodes:[] } on failure paths without setting _dumpCache), so waitFor retries with fresh dumps on failure; only successful dumps populate the cache",
+    "all golden-path waitFor calls verified >= 60s: Demarrer 600000, Appartement 60000, Ajouter/Balances/A faire 120000 each, Vaisselle du soir 120000, Alex/Sam 120000, Contribution 120000, Sortir les poubelles 120000, back-to-Ajouter 120000; the only sub-60s waitFor is the function signature default (timeoutMs = 10000), never used by the golden path",
+    "timing budget: worst case before Demarrer window ~70s (30s sleep + 10s wait-for-device + 15s dumpsys poll + 5s settle + ~10s pidof); Demarrer window 600s; total golden-path worst case ~26 min, well within the 360-min job timeout; the failed run signature was ~22.3 min",
+    "dumpsys pre-check reduction (12 -> 3 iterations) is safe: the poll is a weak readiness signal (package name can appear in dumpsys output even when not foreground) and non-fatal (WARN + proceed); the real gate remains waitFor('Demarrer', 600000)",
+    "new wrapper tests are meaningful static contract guards, not weak tests: they extract and assert the actual TTL value (>= 15s), the tapNode/swipeUp invalidation, every golden-path waitFor timeout (>= 60s), and the launch() dumpsys loop bound (<= 5 iterations); all 9 wrapper tests pass",
+    "regression of accepted criteria: independent re-run 435 tests / 22 suites PASS, wrapper contract 9/9 PASS, privacy 71 PASS, cost 21 PASS; no chrono/premium/paywall/warm-V2 reintroduction; no cost regression (CI-script-only delta); V3-01..V3-07 preserved",
+    "prohibited-pattern scan of the changed files: only comments and the E2E assertAbsent negative checks (honest assertions that chrono/premium/warm-V2 elements are absent)"
+  ],
+  "findings": [
+    {
+      "path": "scripts/e2e-android.js",
+      "problem": "typeInto(), back() and swipeToTop() do not invalidate the dump cache, so with the 30s TTL they can read stale UI state after a screen change (e.g. typeInto's 3s verification loop would read the pre-typing text from the cache and fail). These functions are defined but not called anywhere in the current golden path, so the exercised E2E is unaffected.",
+      "evidence": "grep confirms typeInto/inputKeyText/back/swipeToTop are only defined (lines 277, 318, 329, 344) and never invoked in the golden path (lines 524-664); the golden path's only screen transitions are tapLabel (invalidates via tapNode) and swipeUp (invalidates).",
+      "mustFix": false,
+      "requiredFix": "None for this cycle: the current golden path cannot hit a stale cache. If a future golden-path step adds typing, back-navigation or swipeToTop, those functions must invalidate _dumpCache the same way tapNode/swipeUp do.",
+      "verification": "Current golden path passes with the cache in place (all 9 wrapper contract tests green, 435/435 suite green); the next trusted finalizer run is the empirical gate."
+    },
+    {
+      "path": "release",
+      "problem": "Exact step-7 logs of failed finalizer run 35485115705 are not directly accessible to the auditor (no GitHub token in this environment; log download requires admin rights).",
+      "evidence": "gh CLI is not authenticated (gh auth status: not logged in); the failure evidence available is the documented chain in RELEASE_STATUS.json, NEXT_CYCLE.md and the previous director/audit reports: step-7 root cause identified as exec-out ETIMEDOUT adb transport flakiness, uiautomator dump 30-60s per call on API 35 x86_64, Demarrer-window exhaustion, and the previous cycle's 2s-TTL cache being inert.",
+      "mustFix": false,
+      "requiredFix": "None for this cycle. The Builder's diagnosis (inert 2s TTL + windows too short for 30-60s dumps + 60s dumpsys dead time) is documented in the candidate code comments and is technically coherent with the failure signature; the next trusted finalizer run is the empirical confirmation gate.",
+      "verification": "Next trusted finalizer run must pass step 7 (Android API 35 install, launch and golden path) to close the open finding."
+    },
+    {
+      "path": "scripts/e2e-android.js",
+      "problem": "Empirical confirmation of the emulator-step repair is pending: the candidate makes the dump cache effective, widens all waitFor windows and reduces pre-window dead time, but the repo alone cannot prove the next finalizer run will pass.",
+      "evidence": "Failure history: multiple consecutive emulator-step failures (runs 35476794686, 35470723768, 35464672760, 35457974999, 35451816114 and earlier) despite successive accepted CI-script repairs; each repair was accepted and the trusted finalizer is the empirical gate.",
+      "mustFix": false,
+      "requiredFix": "None within Builder scope. The change is low-risk (CI scripts + contract tests only, no assertion weakened, all waits bounded, diagnostic evidence-survival preserved) and directly targets the documented Demarrer-window/dump-budget mechanism.",
+      "verification": "Trusted finalizer step 7 green on the next run; if it fails again, the surviving diagnostic evidence (logcat-wait-*, dumpsys-wait-*, pidof, result.json echoed to step logs) must identify the next concrete cause."
+    }
+  ]
+}

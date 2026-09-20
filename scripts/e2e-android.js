@@ -67,14 +67,18 @@ let adbReconnectCount = 0;
 // ── Dump cache ──────────────────────────────────────────────────
 // Each uiautomator dump takes 30-60s on API 35 x86_64 under React
 // Native cold-start load.  Multiple rapid calls (e.g. findVisible
-// scroll loop, sequential waitFor calls) would each trigger a fresh
-// dump, easily exceeding the step timeout.  Cache the last successful
-// dump result for a short window so rapid successive calls share one
-// dump.  The TTL is shorter than any single dump duration, so stale
-// data is never returned when the caller needs fresh state.
+// scroll loop, sequential waitFor calls, assertAbsent batches) each
+// trigger a fresh dump without caching, easily exceeding the step
+// timeout.  Cache the last successful dump result for 30s so rapid
+// successive calls on the same screen share one dump.
+//
+// The cache is invalidated on screen-transition triggers (tap, swipe)
+// so that post-transition calls always get a fresh dump of the new
+// screen state.  This avoids both redundant 30-60s dumps AND stale
+// cache hits across screen transitions.
 let _dumpCache = null;
 let _dumpCacheTime = 0;
-const DUMP_CACHE_TTL_MS = 2000;
+const DUMP_CACHE_TTL_MS = 30_000;
 
 function adbReconnect() {
   // Kill and restart the adb SERVER PROCESS to recover from degraded state.
@@ -159,10 +163,12 @@ let dumpFailures = 0;
 function dumpUi() {
   // ── Cache hit ──────────────────────────────────────────────────
   // Reuse a recent dump when rapid successive calls occur (e.g.
-  // findVisible scroll loop, sequential waitFor calls).  The 2s TTL
-  // is shorter than any single dump duration (30-60s on slow
-  // emulators), so stale data is never returned when callers need
-  // fresh state — the cache simply avoids redundant 30-60s dumps.
+  // assertAbsent batches, screenshot + findVisible on same screen,
+  // sequential waitFor calls after a screen has settled).  The 30s
+  // TTL covers same-screen rapid calls (each dump takes 30-60s on
+  // slow emulators, so the cache is always fresh for the next call).
+  // The cache is invalidated on tap/swipe (screen transitions) so
+  // post-transition calls always get a fresh dump of the new screen.
   const now = Date.now();
   if (_dumpCache && (now - _dumpCacheTime) < DUMP_CACHE_TTL_MS) {
     return _dumpCache;
@@ -261,7 +267,12 @@ function bounds(node) {
   return { x1, y1, x2, y2, x: Math.round((x1 + x2) / 2), y: Math.round((y1 + y2) / 2) };
 }
 
-function swipeUp() { shell('input', 'swipe', '540', '1850', '540', '650', '350'); sleep(400); }
+function swipeUp() {
+  // Invalidate dump cache so the next findNodes captures post-swipe state.
+  _dumpCache = null;
+  shell('input', 'swipe', '540', '1850', '540', '650', '350');
+  sleep(400);
+}
 
 function swipeToTop() {
   for (let i = 0; i < 5; i += 1) {
@@ -292,6 +303,9 @@ function findVisible(label, { exact = false, scroll = true, last = false } = {})
 function tapNode(node, waitMs = 550) {
   const b = bounds(node);
   shell('input', 'tap', String(b.x), String(b.y));
+  // Invalidate dump cache after screen transition so the next dump
+  // captures the new screen state rather than reusing stale XML.
+  _dumpCache = null;
   sleep(waitMs);
 }
 
@@ -454,7 +468,7 @@ function launch() {
   // This saves 25-40s of dead time before the Demarrer window.
   console.log('  Checking app readiness via dumpsys activity...');
   let appReady = false;
-  for (let i = 0; i < 12; i++) {
+  for (let i = 0; i < 3; i++) {
     try {
       const topActivity = adb(['shell', 'dumpsys', 'activity', 'activities'], { timeoutMs: 10_000, retries: 1 });
       if (topActivity.includes(packageName)) {
@@ -466,7 +480,7 @@ function launch() {
     sleep(5000);
   }
   if (!appReady) {
-    console.log('  WARN: App activity not detected in dumpsys after 60s — proceeding anyway');
+    console.log('  WARN: App activity not detected in dumpsys after 15s — proceeding anyway');
   }
 
   // Brief settle for uiautomator server initialization (5s vs 45s warm-up).
@@ -537,14 +551,13 @@ try {
   // Diagnostic screenshot to capture the screen state after launch
   screenshot('diagnostic-post-launch');
   console.log('Waiting for Demarrer button...');
-  // API 35 x86_64 cold start can be very slow — 480s (8 min) timeout.
-  // The warm-up dump was removed (25-40s saved) and replaced with a
-  // fast dumpsys activity pre-check.  The dump cache prevents redundant
-  // dumps within rapid successive calls.  3 scroll attempts per
-  // findVisible (down from 7) reduces the per-call dump budget from
-  // 210s to 90s max.  Combined, these changes fit the golden path
+  // API 35 x86_64 cold start can be very slow — 600s (10 min) timeout.
+  // The dump cache (30s TTL, invalidated on tap/swipe) ensures rapid
+  // same-screen checks share one dump (~30-60s each on slow emulators),
+  // while screen transitions always trigger fresh dumps.  Combined with
+  // the reduced dumpsys pre-check (15s vs 60s), the golden path fits
   // within the step timeout even on the slowest API 35 x86_64 runs.
-  waitFor('Demarrer', 480000);
+  waitFor('Demarrer', 600000);
   screenshot('01-login');
   tapLabel('Demarrer', { exact: false });
   console.log('Waiting for Appartement group...');
@@ -562,9 +575,11 @@ try {
   console.log('Opening Appartement group...');
   tapLabel('Appartement', { exact: true });
   console.log('Waiting for tabs (Ajouter, Balances, A faire)...');
-  waitFor('Ajouter', 30000);
-  waitFor('Balances', 30000);
-  waitFor('A faire', 30000);
+  // 120s timeout: a single uiautomator dump takes 30-60s on slow
+  // emulators, so 120s gives 2-3 dump attempts per element.
+  waitFor('Ajouter', 120000);
+  waitFor('Balances', 120000);
+  waitFor('A faire', 120000);
   screenshot('03-tabs');
 
   // Verify three tabs are present
@@ -574,7 +589,8 @@ try {
 
   // 3. Verify existing demo contribution is visible
   console.log('Waiting for demo contribution "Vaisselle du soir"...');
-  waitFor('Vaisselle du soir', 15000);
+  // 120s: single dump takes 30-60s on slow emulators
+  waitFor('Vaisselle du soir', 120000);
   screenshot('04-add-tab');
 
   // 4. Verify contribution form fields exist (V3: no chrono!)
@@ -585,25 +601,28 @@ try {
   // 5. Switch to Balances tab
   console.log('Switching to Balances tab...');
   tapLabel('Balances', { exact: true });
-  waitFor('Alex', 15000);
-  waitFor('Sam', 15000);
+  // 120s: single dump takes 30-60s on slow emulators
+  waitFor('Alex', 120000);
+  waitFor('Sam', 120000);
   screenshot('05-balances');
 
   // 6. Verify dual ledger sections
   console.log('Verifying Contribution section...');
-  waitFor('Contribution', 15000);
+  waitFor('Contribution', 120000);
   screenshot('06-balances-detail');
 
   // 7. Switch to A faire tab
   console.log('Switching to A faire tab...');
   tapLabel('A faire', { exact: true });
   console.log('Waiting for demo todo "Sortir les poubelles"...');
-  waitFor('Sortir les poubelles', 15000);
+  // 120s: single dump takes 30-60s on slow emulators
+  waitFor('Sortir les poubelles', 120000);
   screenshot('07-todos');
 
   // 8. Switch back to Ajouter to verify tab switching doesn't reload
   tapLabel('Ajouter', { exact: true });
-  waitFor('Vaisselle du soir', 10000);
+  // 120s: single dump takes 30-60s on slow emulators
+  waitFor('Vaisselle du soir', 120000);
   screenshot('08-back-to-add');
 
   // 9. Verify no warm V2 aesthetic
