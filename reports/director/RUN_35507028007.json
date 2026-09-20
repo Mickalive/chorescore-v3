@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "cycle": "35507028007",
+  "decision": "continue",
+  "reason": "V3-08 audit decision is repair. The candidate is an EMPTY delta (0 files changed, hasDelta=false): no product, config, test, or script changes were produced. The builder did not inspect the diagnostic evidence from the failed Actions finalizer run 35505122996 nor repair the concrete step-7 blocker. The open mustFix ('Trusted V3 finalizer failed' at step 7 Android API 35 emulator install/launch/golden path) remains completely unchanged. Trusted verification exit 0 (typecheck, 446 tests, privacy 71, cost 21, expo export, prebuild, assembleDebug) re-confirms baseline health but does not exercise the failing emulator step and cannot evidence resolution. The next cycle must retrieve the diagnostic evidence echoed to the failed run's step logs by scripts/finalizer-e2e.sh (audit/android-e2e/result.json, logcat-*.txt, dumpsys-*.txt, UI dump XMLs), identify the concrete step-7 cause, and repair it in product/config/test/scripts while preserving V3-01..V3-07.",
+  "progressEvidence": [
+    "audit-repair-35507028007-V3-08-empty-delta-no-repair-produced",
+    "candidate-delta-empty-0-files-hasDelta-false-verificationOnly-true",
+    "baseline-identical-to-pristine-except-expo-opencode-tooling-artifacts",
+    "trusted-verification-exit-0-typecheck-pass-446-tests-22-suites-pass",
+    "privacy-check-pass-71-tests-cost-check-pass-21-tests-10-gates",
+    "expo-export-prebuild-assembleDebug-BUILD-SUCCESSFUL",
+    "mustFix-unchanged-trusted-finalizer-failure-step7-emulator-e2e",
+    "github-api-run-35505122996-step5-gates-success-step6-apk-success-step7-emulator-failure",
+    "next-cycle-must-retrieve-step7-diagnostic-evidence-and-repair-concrete-blocker",
+    "V3-01-through-V3-07-preserved-no-regression"
+  ]
+}

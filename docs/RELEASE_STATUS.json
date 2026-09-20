@@ -1,12 +1,12 @@
 {
   "schemaVersion": 1,
   "milestone": "v3-rc",
-  "lastCycle": "35501669470",
+  "lastCycle": "35507028007",
   "activeCriteria": [
     "V3-08"
   ],
   "pendingArtifact": null,
-  "progressSummary": "V3-08 reopened after trusted finalizer failure in run 35505122996",
+  "progressSummary": "Audited V3-08 requires repair; WIP baseline preserved when a safe delta existed.",
   "criteria": [
     {
       "id": "V3-01",
@@ -114,17 +114,17 @@
   "openFindings": [
     {
       "path": "release",
-      "problem": "Trusted V3 finalizer failed",
-      "evidence": "GitHub Actions finalizer run 35505122996",
+      "problem": "Trusted V3 finalizer failure from Actions run 35505122996 remains unaddressed: the candidate is an empty verification-only delta (0 files, hasDelta=false) and no inspection of the failed run's diagnostic evidence or repair of the concrete blocker was produced.",
+      "evidence": "GitHub API run 35505122996 (ChoreScore V3 Finalizer, conclusion=failure): release job step 5 'Trusted product, privacy and cost gates' success (10:27:53-10:45:38), step 6 'Locate and hash APK' success, step 7 'Android API 35 install, launch and golden path' failure (10:45:38-11:08:53, ~23m15s). /home/runner/work/_temp/candidate-builder/candidate.patch is 0 bytes; metadata.json reports changedFiles=0, hasDelta=false, verificationOnly=true. diff -rq pristine vs current: identical except .expo/.opencode. docs/RELEASE_STATUS.json openFindings still contains mustFix=true 'Trusted V3 finalizer failed' with requiredFix 'Inspect the exact trusted finalizer failure and repair only the concrete product/privacy/cost/APK/runtime/E2E blocker while preserving V3-01..V3-07.'",
       "mustFix": true,
-      "requiredFix": "Inspect the exact trusted finalizer failure and repair only the concrete product/privacy/cost/APK/runtime/E2E blocker while preserving V3-01..V3-07.",
-      "verification": "Trusted V3 finalizer must pass product, privacy and cost gates, APK build, install/launch and golden path."
+      "requiredFix": "Retrieve the diagnostic evidence that scripts/finalizer-e2e.sh echoes to the failed run's step logs on E2E failure (audit/android-e2e/result.json, logcat-finalizer.txt, logcat-failure.txt, dumpsys-activities-failure.txt, logcat-wait-* dumps, UI dump XMLs), identify the concrete step-7 blocker (emulator boot, adb install, app launch, or golden-path assertion), and repair only that cause in product/config/test/scripts while preserving V3-01..V3-07. Protected control-plane files remain trusted-shell owned.",
+      "verification": "Trusted V3 finalizer must pass product, privacy and cost gates, APK build, install/launch and golden path (step 7 green) in a subsequent finalizer run."
     }
   ],
   "factoryHealth": {
     "stalled": false,
-    "consecutiveNoProgress": 0,
-    "lastProductSha": "0bff882e1d691d242d9d1baac5a1f30288c58eea",
+    "consecutiveNoProgress": 1,
+    "lastProductSha": "c8df33beb0cfe06d4cab3d435643e59fac7d4d5b",
     "reason": null
   }
 }
