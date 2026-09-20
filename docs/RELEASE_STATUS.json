@@ -1,12 +1,12 @@
 {
   "schemaVersion": 1,
   "milestone": "v3-rc",
-  "lastCycle": "35492810195",
+  "lastCycle": "35498415263",
   "activeCriteria": [
     "V3-08"
   ],
   "pendingArtifact": null,
-  "progressSummary": "V3-08 reopened after trusted finalizer failure in run 35496233889",
+  "progressSummary": "Audited V3-08 requires repair; WIP baseline preserved when a safe delta existed.",
   "criteria": [
     {
       "id": "V3-01",
@@ -104,24 +104,26 @@
         "audit-accepted-35473025592",
         "audit-accepted-35480197755",
         "audit-accepted-35487229476",
-        "audit-accepted-35492810195"
+        "audit-accepted-35492810195",
+        "audit-repair-35498415263-crash-detection-non-functional-mustFix",
+        "candidate-retained-as-WIP-baseline"
       ]
     }
   ],
   "openFindings": [
     {
-      "path": "release",
-      "problem": "Trusted V3 finalizer failed",
-      "evidence": "GitHub Actions finalizer run 35496233889",
+      "path": "scripts/e2e-android.js (waitFor app-crash detection, lines ~352-372) and __tests__/domain/v3-08-finalizer-wrapper.test.ts (test 'waitFor detects app crash and relaunches instead of waiting full timeout', lines 160-170)",
+      "problem": "The new crash-detection feature cannot detect a crashed app: `adb shell pidof <package>` exits 1 with empty stdout when the app process is dead, execFileSync throws, the surrounding try/catch swallows the error, and the `if (!pid)` relaunch branch is unreachable. The feature claims to save up to 10 minutes of wasted wait time on app crash/ANR, but in the exact crash scenario it burns the full timeout with empty dumps — the failure mode it was written to fix. The guarding test is a weak static-string check (APP CRASHED/pidof/force-stop/monkey substrings) that passes even though the feature is non-functional.",
+      "evidence": "Simulation with a command exiting 1 with empty output (exact adb shell pidof semantics for a dead app) through the same execFileSync/retry/catch structure: 'relaunch triggered: false'. Android toybox pidof exits 1 when no process matches, so pidof never returns empty with exit 0; the catch comment 'pidof failed — proceed with normal wait' swallows the very signal that indicates a dead app. The same latent pattern exists in the pre-existing timeout diagnostic (lines 408-413), but there it only degrades a diagnostic, whereas here it disables the claimed repair.",
       "mustFix": true,
-      "requiredFix": "Inspect the exact trusted finalizer failure and repair only the concrete product/privacy/cost/APK/runtime/E2E blocker while preserving V3-01..V3-07.",
-      "verification": "Trusted V3 finalizer must pass product, privacy and cost gates, APK build, install/launch and golden path."
+      "requiredFix": "Distinguish pidof's 'no process' exit (err.status === 1) from adb transport failures and trigger the relaunch on status 1: e.g. capture the error, treat err.status === 1 as app-dead → invalidate dump cache, force-stop, monkey relaunch, sleep 15s, continue; treat other errors (transport) as 'proceed with normal wait'. Strengthen the wrapper test to verify the error-status handling (e.g. assert the code checks err.status or equivalent) instead of only static strings, so the feature cannot silently regress to dead code.",
+      "verification": "Re-run node --check scripts/e2e-android.js, npx jest __tests__/domain/v3-08-finalizer-wrapper.test.ts, and a behavior simulation where the pidof command exits 1 → the relaunch branch executes (APP CRASHED logged, monkey invoked)."
     }
   ],
   "factoryHealth": {
     "stalled": false,
     "consecutiveNoProgress": 0,
-    "lastProductSha": "da536e6280857c03990334a7bda2e5b6a0c308cc",
+    "lastProductSha": "448088b3c56878ab280c0ae990af2866be0200b5",
     "reason": null
   }
 }

@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "cycle": "35498415263",
+  "decision": "continue",
+  "reason": "V3-08 audit decision is repair. The candidate is a non-empty delta (3 files, 110 insertions, hasDelta=true) repairing the trusted finalizer blocker from Actions run 35496233889. The core repairs are sound: (1) removing the unconditional adb kill-server/start-server restart before the golden path that destabilised uiautomator server registration causing empty dumps and Demarrer timeouts; (2) raising the uiautomator dump timeout from 45s to 60s to accommodate degraded API 35 x86_64 cold starts; (3) screenshot reusing the fresh dump cache to avoid redundant 30-60s dumps. However, the candidate introduces a new crash-detection feature in waitFor() that is non-functional: adb shell pidof exits 1 when the app is dead, execFileSync throws, the catch swallows the error, and the if (!pid) relaunch branch is unreachable. The guarding test is a weak static-string check that passes regardless of behavior. The candidate is retained as WIP baseline. The next Builder cycle must fix the crash-detection error-status handling and strengthen its test before the next finalizer attempt. All V3-01 through V3-07 remain accepted with zero regression.",
+  "progressEvidence": [
+    "audit-repair-35498415263-V3-08",
+    "candidate-delta-non-empty-hasDelta-true-3-files-110-insertions",
+    "core-repair-sound-adb-restart-removal-fixes-uiautomator-empty-dump-chain",
+    "dump-timeout-raised-45s-to-60s-for-degraded-api-35-x86-64",
+    "screenshot-reuses-fresh-dump-cache-avoids-redundant-30-60s-dumps",
+    "trusted-verification-exit-0-445-tests-22-suites-privacy-71-cost-21",
+    "expo-export-android-prebuild-assembleDebug-BUILD-SUCCESSFUL-20m22s",
+    "mustFix-crash-detection-non-functional-pidof-exit-1-throws-catch-swallows",
+    "mustFix-guarding-test-is-static-string-check-passes-regardless-of-behavior",
+    "candidate-retained-as-WIP-baseline-for-next-repair-cycle",
+    "all-previous-criteria-V3-01-through-V3-07-preserved-with-zero-regression",
+    "V3-08-is-final-criterion-no-next-roadmap-step"
+  ]
+}

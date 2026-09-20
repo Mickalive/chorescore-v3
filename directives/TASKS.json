@@ -4,9 +4,16 @@
   "builder": {
     "enabled": true,
     "criterionId": "V3-08",
-    "objective": "REPAIR V3-08 trusted finalizer failure from Actions run 35496233889. Inspect the exact failed release logs, fix only the concrete product/privacy/cost/APK/runtime/E2E/readiness blocker, and preserve all accepted criteria.",
-    "scope": "Target the trusted release failure and directly necessary product/config/test/scripts repairs. Protected control-plane files remain trusted-shell owned.",
-    "acceptance": [],
+    "objective": "REPAIR V3-08: Distinguish pidof's 'no process' exit (err.status === 1) from adb transport failures and trigger the relaunch on status 1: e.g. capture the error, treat err.status === 1 as app-dead → invalidate dump cache, force-stop, monkey relaunch, sleep 15s, continue; treat other errors (transport) as 'proceed with normal wait'. Strengthen the wrapper test to verify the error-status handling (e.g. assert the code checks err.status or equivalent) instead of only static strings, so the feature cannot silently regress to dead code.",
+    "scope": "Repair only the audited must-fix findings on the preserved V3 baseline; do not rebuild accepted work.",
+    "acceptance": [
+      "pidof exit-1 (err.status === 1) triggers the relaunch branch (force-stop, monkey, sleep, continue)",
+      "Other pidof errors (transport) are logged and the normal wait continues",
+      "Guarding test asserts error-status handling, not only static substrings",
+      "node --check scripts/e2e-android.js PASS",
+      "npx jest __tests__/domain/v3-08-finalizer-wrapper.test.ts PASS",
+      "Full trusted verification exit 0: typecheck, tests, privacy, cost, build"
+    ],
     "previousCriteriaPreserved": [
       "V3-01: accepted and must not regress",
       "V3-02: accepted and must not regress",
@@ -15,7 +22,7 @@
       "V3-05: accepted and must not regress",
       "V3-06: accepted and must not regress",
       "V3-07: accepted and must not regress",
-      "V3-08: audit accepted, trusted finalizer empirical confirmation pending"
+      "V3-08: audit repair, crash-detection mustFix pending fix"
     ]
   }
 }
