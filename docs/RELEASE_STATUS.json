@@ -1,12 +1,10 @@
 {
   "schemaVersion": 1,
   "milestone": "v3-rc",
-  "lastCycle": "35540196125",
-  "activeCriteria": [
-    "V3-08"
-  ],
-  "pendingArtifact": null,
-  "progressSummary": "Audited V3-08 requires repair; WIP baseline preserved when a safe delta existed.",
+  "lastCycle": "35540683935",
+  "activeCriteria": [],
+  "pendingArtifact": "V3-08-RELEASE",
+  "progressSummary": "V3-08 independently accepted; trusted mobile finalizer owns APK/install/runtime/E2E completion.",
   "criteria": [
     {
       "id": "V3-01",
@@ -110,32 +108,16 @@
         "audit-accepted-35501669470",
         "audit-accepted-35510712950",
         "audit-accepted-35517442615",
-        "audit-accepted-35524260895"
+        "audit-accepted-35524260895",
+        "audit-accepted-35540683935"
       ]
     }
   ],
-  "openFindings": [
-    {
-      "path": "__tests__/domain/v3-08-finalizer-wrapper.test.ts",
-      "problem": "The new test 'consecutiveEmptyMatchCount increment is guarded on real dump (cache miss)' fails on its final assertion: expect(e2e).toContain('Cache hits must NOT increment the counter') at line 289. The script comment in scripts/e2e-android.js wraps the phrase across two lines ('// that returned no matching node.  Cache hits must NOT increment the' + newline + '// counter — the dump cache returns the same result without touching'), so the exact substring is not contiguous in the file and toContain fails. This is a brittle string-vs-comment line-wrap mismatch, not a defect in the guard logic: the guard itself is correct (verified by simulation and by the guard-revert experiment, which fails the test at line 287 as required). Trusted verification exit code is 1, which is a mandatory mustFix and forbids accept.",
-      "evidence": "Trusted log TRUSTED_35540196125.md: 'FAIL __tests__/domain/v3-08-finalizer-wrapper.test.ts ... Expected substring: \"Cache hits must NOT increment the counter\"' at line 289; scripts/e2e-android.js lines 419-421 contain 'Cache hits must NOT increment the' then '// counter — the dump cache...' on the next line; local npx jest reproduces the identical single failure (450 PASS / 1 FAIL); typecheck PASS.",
-      "mustFix": true,
-      "requiredFix": "Make the asserted phrase contiguous: reword the comment in scripts/e2e-android.js so the exact string 'Cache hits must NOT increment the counter' appears on one line (e.g. '// Cache hits must NOT increment the counter — the dump cache returns the same result without touching dumpFailures...'), or relax the test assertion to a whitespace/line-break-tolerant regex (e.g. /Cache hits must NOT increment the\\s*\\n?\\s*\\/\\/\\s*counter/). Keep the guard, the fromCache plumbing, the recovery and the counter resets unchanged.",
-      "verification": "Full trusted verification exits 0: npm run typecheck PASS and npx jest all suites PASS (including the two new cache-miss guard tests); guard-revert experiment still fails the test; loop simulation still shows 0 force-stops on a 120s cold start and recovery on a genuinely stuck app."
-    },
-    {
-      "path": ".",
-      "problem": "Trusted product verification failed",
-      "evidence": "Authoritative verification log: reports/audits/TRUSTED_35540196125.md (exit 1)",
-      "mustFix": true,
-      "requiredFix": "Resolve the concrete failing trusted check without discarding already-correct candidate work, then rerun the full gate.",
-      "verification": "Full trusted V3 verification must return exit code 0."
-    }
-  ],
+  "openFindings": [],
   "factoryHealth": {
     "stalled": false,
     "consecutiveNoProgress": 0,
-    "lastProductSha": "a81c9c49ad15f8f2f6a947ed4425abbdbfc21551",
+    "lastProductSha": "dcc435545d9cd7a5dc3467ba6d3b8248597caaf5",
     "reason": null
   }
 }

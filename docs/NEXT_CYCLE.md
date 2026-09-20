@@ -1,54 +1,22 @@
-# Next cycle
+# Next Cycle — 35540683935
 
-Active criterion: **V3-08 — Finition, accessibilité, coût et release mobile** (repair).
+## Decision: stop
 
-## Objective
+All eight roadmap criteria V3-01 through V3-08 have been accepted by an independent Auditor with trusted verification exit 0. V3-08 is the final criterion. No next roadmap step exists for the Builder/Auditor factory.
 
-Repair the trusted finalizer step-7 failure from Actions run 35505122996. Cycle 35507028007 produced an empty delta (0 files, hasDelta=false) and did not inspect the diagnostic evidence. The next cycle must retrieve and analyze the concrete failure evidence, then repair only the identified blocker.
+## What was accepted
 
-## Must-fix findings
+Cycle 35540683935 accepted the V3-08 repair: a comment-only reword in `scripts/e2e-android.js` making the contract-asserted phrase "Cache hits must NOT increment the counter" contiguous on one line, resolving the sole mustFix from cycle 35540196125. Guard logic, `fromCache` plumbing, recovery paths, and counter resets are unchanged. Trusted verification exits 0: typecheck PASS, 451/451 tests PASS, privacy PASS, cost gates PASS, Android build BUILD SUCCESSFUL.
 
-### F1 (trusted-shell only) — trusted finalizer emulator step failure
+## Remaining work
 
-**Path:** `.github/workflows/chorescore-v3-finalize.yml` → `scripts/finalizer-e2e.sh` → `scripts/e2e-android.js` (step 7: Android API 35 install, launch and golden path)
+The trusted release finalizer must empirically confirm:
+1. Android APK installs, launches, and the golden path completes on a real emulator.
+2. iOS readiness is verified.
+3. Privacy, cost, and product gates hold on the final artifact.
 
-**Failed run:** GitHub Actions run 35505122996 (conclusion=failure)
-- Step 5 "Trusted product, privacy and cost gates": SUCCESS
-- Step 6 "Locate and hash APK": SUCCESS  
-- Step 7 "Android API 35 install, launch and golden path": FAILURE (~23m15s)
+After confirmation, the trusted shell marks V3-08 `complete` and promotes the release.
 
-The step-7 failure is the same emulator E2E step that has failed in all 6 actual emulator runs. The diagnostic instrumentation now captures the exact failure cause via artifacts echoed by `scripts/finalizer-e2e.sh`.
+## Factory status
 
-**Required actions for the next cycle:**
-
-1. **Retrieve diagnostic evidence** from run 35505122996 step 7 logs — look for artifacts echoed by `scripts/finalizer-e2e.sh`:
-   - `audit/android-e2e/result.json`
-   - `logcat-finalizer.txt`
-   - `logcat-failure.txt`
-   - `dumpsys-activities-failure.txt`
-   - `logcat-wait-*` dumps
-   - UI dump XML files
-
-2. **Identify the concrete cause** — determine which of these it is:
-   - Emulator boot timeout/failure
-   - `adb install` failure (APK signing, storage, ABI mismatch)
-   - App launch crash (native crash, JS bundle error)
-   - Golden-path assertion timeout (UI element not found)
-   - ADB transport disconnect/timeout
-
-3. **Repair only the concrete blocker** in product/config/test/scripts while preserving V3-01..V3-07. Protected control-plane files remain trusted-shell owned.
-
-## Verification
-
-- `npx expo install --check` exits 0 (no outdated dependencies)
-- `npm run check` (typecheck + 446 tests) PASS
-- `privacy:check` PASS (71 tests)
-- `cost:check` PASS (21 tests, 10 gates)
-- `expo export --platform android` and `--platform ios` PASS
-- `expo prebuild --platform android --no-install` PASS
-- `assembleDebug` builds successfully
-- WIP delta preserved (e2e scripts, finalizer scripts, regression guard test)
-- V3-01 through V3-07 regression suites pass
-- No prohibited patterns introduced
-
-V3-08 final completion belongs to the trusted release finalizer after privacy/cost/APK/install/golden-path/iOS-readiness evidence. The trusted shell owns final state transitions and V3-08 release handoff.
+Builder is disabled. No further Builder/Auditor cycles are expected unless the finalizer identifies a regression requiring repair.

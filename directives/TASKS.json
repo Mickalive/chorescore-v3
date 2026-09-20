@@ -2,10 +2,10 @@
   "schemaVersion": 1,
   "milestone": "v3-rc",
   "builder": {
-    "enabled": true,
-    "criterionId": "V3-08",
-    "objective": "REPAIR V3-08: Make the asserted phrase contiguous: reword the comment in scripts/e2e-android.js so the exact string 'Cache hits must NOT increment the counter' appears on one line (e.g. '// Cache hits must NOT increment the counter — the dump cache returns the same result without touching dumpFailures...'), or relax the test assertion to a whitespace/line-break-tolerant regex (e.g. /Cache hits must NOT increment the\\s*\\n?\\s*\\/\\/\\s*counter/). Keep the guard, the fromCache plumbing, the recovery and the counter resets unchanged.; Resolve the concrete failing trusted check without discarding already-correct candidate work, then rerun the full gate.",
-    "scope": "Repair only the audited must-fix findings on the preserved V3 baseline; do not rebuild accepted work.",
+    "enabled": false,
+    "criterionId": null,
+    "objective": "V3-08 handed to trusted release finalizer.",
+    "scope": "Trusted finalizer only.",
     "acceptance": [],
     "previousCriteriaPreserved": [
       "V3-01: accepted and must not regress",
@@ -15,7 +15,7 @@
       "V3-05: accepted and must not regress",
       "V3-06: accepted and must not regress",
       "V3-07: accepted and must not regress",
-      "V3-08: audit repair, crash-detection mustFix pending fix"
+      "V3-08: audit accepted, pending finalizer handoff"
     ]
   }
 }
