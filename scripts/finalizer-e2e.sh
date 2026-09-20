@@ -48,10 +48,10 @@ if [ "$ELAPSED" -ge "$TIMEOUT" ]; then
 fi
 
 # Additional wait for package manager and runtime to settle (API 35 x86_64 can be slow)
-# 30s is sufficient — the E2E script's launch() and Demarrer waitFor() window
-# provide additional headroom for any remaining initialization.
-echo "Waiting for package manager to settle (30s)..."
-sleep 30
+# 15s is sufficient — the E2E script's launch() polls dumpsys activity for up
+# to 60s and provides additional headroom for any remaining initialization.
+echo "Waiting for package manager to settle (15s)..."
+sleep 15
 
 # Verify adb is connected and log device state
 adb get-state 2>/dev/null || {

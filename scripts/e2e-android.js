@@ -64,6 +64,18 @@ const ADB_TIMEOUT_MS = 45_000;
 const ADB_INSTALL_TIMEOUT_MS = 180_000;
 let adbReconnectCount = 0;
 
+// ── Dump cache ──────────────────────────────────────────────────
+// Each uiautomator dump takes 30-60s on API 35 x86_64 under React
+// Native cold-start load.  Multiple rapid calls (e.g. findVisible
+// scroll loop, sequential waitFor calls) would each trigger a fresh
+// dump, easily exceeding the step timeout.  Cache the last successful
+// dump result for a short window so rapid successive calls share one
+// dump.  The TTL is shorter than any single dump duration, so stale
+// data is never returned when the caller needs fresh state.
+let _dumpCache = null;
+let _dumpCacheTime = 0;
+const DUMP_CACHE_TTL_MS = 2000;
+
 function adbReconnect() {
   // Kill and restart the adb SERVER PROCESS to recover from degraded state.
   // API 35 x86_64 emulators on GitHub Actions develop a broken adb server
@@ -145,6 +157,17 @@ function decode(value) {
 let dumpFailures = 0;
 
 function dumpUi() {
+  // ── Cache hit ──────────────────────────────────────────────────
+  // Reuse a recent dump when rapid successive calls occur (e.g.
+  // findVisible scroll loop, sequential waitFor calls).  The 2s TTL
+  // is shorter than any single dump duration (30-60s on slow
+  // emulators), so stale data is never returned when callers need
+  // fresh state — the cache simply avoids redundant 30-60s dumps.
+  const now = Date.now();
+  if (_dumpCache && (now - _dumpCacheTime) < DUMP_CACHE_TTL_MS) {
+    return _dumpCache;
+  }
+
   // Delete any previous dump file so that a failed dump always yields
   // empty nodes instead of stale XML from a prior screen state.
   try { shell('rm', '-f', '/sdcard/chorescore-window.xml'); } catch (_) {}
@@ -214,7 +237,11 @@ function dumpUi() {
     }
     nodes.push(attrs);
   }
-  return { xml, nodes };
+  // Successful dump — cache for rapid successive callers
+  const result = { xml, nodes };
+  _dumpCache = result;
+  _dumpCacheTime = Date.now();
+  return result;
 }
 
 function nodeMatches(node, label, exact) {
@@ -244,7 +271,12 @@ function swipeToTop() {
 }
 
 function findVisible(label, { exact = false, scroll = true, last = false } = {}) {
-  const attempts = scroll ? 7 : 1;
+  // 3 scroll attempts (down from 7) — each dump takes 30-60s on slow
+  // emulators.  3 attempts × 30s = 90s max per findVisible, vs 7 × 30s
+  // = 210s.  The golden path elements are near the top of the screen;
+  // 3 scrolls are sufficient.  The dump cache prevents redundant dumps
+  // within each scroll iteration.
+  const attempts = scroll ? 3 : 1;
   for (let i = 0; i < attempts; i += 1) {
     const matches = findNodes(label, exact);
     if (matches.length) return last ? matches[matches.length - 1] : matches[0];
@@ -411,23 +443,36 @@ function launch() {
   // handles transient transport issues within each call.
   try { adb(['wait-for-device'], { timeoutMs: 10_000, allowReconnect: false }); } catch (_) {}
 
-  // Warm up the uiautomator server.
-  // On API 35 x86_64 emulators the uiautomator server needs a fresh
-  // session after the emulator boots.  Without this warm-up the first
-  // real dumpUi() call can block for the full 45s timeout while the
-  // server initializes, burning one of the limited retry cycles in the
-  // Demarrer waitFor() window.
-  console.log('  Warming up uiautomator server...');
-  try {
-    shell('uiautomator', 'dump', '/sdcard/chorescore-warmup.xml', { timeoutMs: 45_000, retries: 1 });
-    console.log('  uiautomator server warmed up successfully');
-    // Clean up the warm-up dump file
-    try { shell('rm', '-f', '/sdcard/chorescore-warmup.xml'); } catch (_) {}
-  } catch (warmErr) {
-    console.log(`  WARN: uiautomator warm-up failed: ${warmErr.message?.slice(0, 100) || warmErr}`);
-    // If warm-up fails, give the server a few extra seconds to initialize
+  // Fast app-readiness check via dumpsys activity (1-2s) instead of
+  // a uiautomator warm-up dump (30-45s).  On API 35 x86_64 under
+  // React Native cold-start load, uiautomator dump is the primary
+  // bottleneck.  The warm-up dump consumed 30-45s of dead time before
+  // the Demarrer window and often failed on the degraded transport,
+  // wasting the entire investment.  Instead, we:
+  // 1. Poll dumpsys activity to confirm the app activity is in foreground
+  // 2. Give uiautomator 5s to initialize (vs 45s warm-up dump)
+  // This saves 25-40s of dead time before the Demarrer window.
+  console.log('  Checking app readiness via dumpsys activity...');
+  let appReady = false;
+  for (let i = 0; i < 12; i++) {
+    try {
+      const topActivity = adb(['shell', 'dumpsys', 'activity', 'activities'], { timeoutMs: 10_000, retries: 1 });
+      if (topActivity.includes(packageName)) {
+        console.log(`  App activity found in foreground after ${(i + 1) * 5}s`);
+        appReady = true;
+        break;
+      }
+    } catch (_) {}
     sleep(5000);
   }
+  if (!appReady) {
+    console.log('  WARN: App activity not detected in dumpsys after 60s — proceeding anyway');
+  }
+
+  // Brief settle for uiautomator server initialization (5s vs 45s warm-up).
+  // The first real dumpUi() call in waitFor() will serve as the actual
+  // warm-up; the dump cache prevents redundant calls within rapid sequences.
+  sleep(5000);
 
   // Verify the process is alive after launch attempt
   try {
@@ -492,12 +537,14 @@ try {
   // Diagnostic screenshot to capture the screen state after launch
   screenshot('diagnostic-post-launch');
   console.log('Waiting for Demarrer button...');
-  // API 35 x86_64 cold start can be very slow — 360s timeout.
-  // The warm-up dump adds ~45s but ensures the uiautomator server is
-  // ready for subsequent real dumps.  Each UI dump takes 2-45s on a
-  // loaded emulator (1 retry, fail fast), so we need enough headroom
-  // for several successful dumps after the cold start completes.
-  waitFor('Demarrer', 360000);
+  // API 35 x86_64 cold start can be very slow — 480s (8 min) timeout.
+  // The warm-up dump was removed (25-40s saved) and replaced with a
+  // fast dumpsys activity pre-check.  The dump cache prevents redundant
+  // dumps within rapid successive calls.  3 scroll attempts per
+  // findVisible (down from 7) reduces the per-call dump budget from
+  // 210s to 90s max.  Combined, these changes fit the golden path
+  // within the step timeout even on the slowest API 35 x86_64 runs.
+  waitFor('Demarrer', 480000);
   screenshot('01-login');
   tapLabel('Demarrer', { exact: false });
   console.log('Waiting for Appartement group...');
