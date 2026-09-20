@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "cycle": "35501669470",
+  "decision": "stop",
+  "reason": "V3-08 audit decision is accept. The candidate is a non-empty delta (2 files, 40 insertions, 1 deletion, hasDelta=true) that directly repairs the mustFix from cycle 35498415263: the waitFor() crash-detection feature was non-functional because adb shell pidof exits 1 (throws via execFileSync) when the app process is dead, and the old catch (_) swallowed that signal. The repair captures err and checks err.status === 1 to trigger the relaunch branch (invalidate dump cache, force-stop, monkey, sleep 15s, continue); other errors (transport) fall through to the normal wait. The guarding test now asserts the error-status handling itself so the feature cannot silently regress to dead code. Trusted verification exit 0: typecheck PASS, 446 tests/22 suites PASS, privacy 71 PASS, cost 21 PASS (10 gates), expo export/prebuild PASS, assembleDebug BUILD SUCCESSFUL. Two informational findings only (no mustFix): (1) transport fall-through relies on adb wrapper logging rather than its own console.log; (2) a client transport exit-1 could misclassify as app-dead but impact is bounded (~16s). V3-08 is the final criterion on the roadmap. All criteria V3-01 through V3-08 have been accepted by an independent Auditor with trusted verification exit 0. There is no next roadmap step. The trusted release finalizer must empirically confirm the repair by passing step 7 (Android install, launch, golden path); the trusted shell owns final state transitions and V3-08 release handoff.",
+  "progressEvidence": [
+    "audit-accepted-35501669470-V3-08",
+    "candidate-delta-non-empty-hasDelta-true-2-files-40-insertions",
+    "crash-detection-mustFix-repaired-pidof-exit-1-triggers-relaunch",
+    "waitFor-catch-block-captures-err-status-1-distinguishes-from-transport",
+    "guarding-test-strengthens-error-status-assertion-not-static-strings",
+    "trusted-verification-exit-0-446-tests-22-suites-privacy-71-cost-21",
+    "expo-export-android-prebuild-assembleDebug-BUILD-SUCCESSFUL-19m50s",
+    "no-mustFix-remaining-two-informational-only",
+    "all-previous-criteria-V3-01-through-V3-07-preserved-with-zero-regression",
+    "V3-08-is-final-criterion-no-next-roadmap-step",
+    "trusted-release-finalizer-must-confirm-empirically-APK-install-golden-path"
+  ]
+}
