@@ -666,7 +666,12 @@ try {
   screenshot('01-login');
   tapLabel('Demarrer', { exact: false });
   console.log('Waiting for Appartement group...');
-  waitFor('Appartement', 60000);
+  // 120s timeout: after tapping Demarrer, the app completes demo sign-in
+  // (which seeds the fixture via SQLite) and renders the groups list.  On
+  // a cold API 35 x86_64 emulator, sign-in + fixture seeding can take
+  // 30-60s, and the first uiautomator dump adds another 30-60s.  A 60s
+  // timeout only fits one dump attempt; 120s gives 2-3 attempts.
+  waitFor('Appartement', 120000);
   screenshot('02-groups');
 
   // Verify no premium/plan badges

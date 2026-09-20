@@ -1,0 +1,43 @@
+{
+  "schemaVersion": 1,
+  "cycle": "35524260895",
+  "role": "builder",
+  "decision": "accept",
+  "summary": "Candidate is a non-empty delta (1 file, 6 insertions / 1 deletion, hasDelta=true, verificationOnly=false) repairing the audited blocker of the trusted finalizer failure (Actions run 35521604346, step 7 'Android API 35 install, launch and golden path'). The concrete blocker is the golden-path wait window after tapping Demarrer: the previous baseline waited for the 'Appartement' group with a 60s timeout, but on a cold API 35 x86_64 emulator the demo sign-in plus SQLite fixture seeding takes 30-60s and the first uiautomator dump adds another 30-60s, so a 60s window only fits one dump attempt and can expire before the groups list renders. Repair: scripts/e2e-android.js changes waitFor('Appartement', 60000) to waitFor('Appartement', 120000) with a 5-line comment documenting the timing model; 120s gives 2-3 dump attempts and matches the script's established 120s pattern used for every other post-launch element (Ajouter, Balances, A faire, etc.). No product code, domain logic, analytics, persistence, sync or governance touched; no new adb calls; no network or history-proportional work. Trusted verification exit 0: typecheck PASS, 448 tests/22 suites PASS, privacy 71 PASS, cost 21 PASS (10 gates incl. V3-08 Gate 9 golden path at domain level), expo export/prebuild PASS, :app:assembleDebug BUILD SUCCESSFUL (20m7s). Independent re-verification: npx tsc --noEmit exit 0; npx jest 22 suites/448 tests PASS; node --check scripts/e2e-android.js SYNTAX OK; diff vs accepted-pristine shows exactly the one candidate file (plus .expo/android build dirs and the untracked TRUSTED report, all non-candidate); staged diff byte-identical to the candidate patch. The only openFindings entry in docs/RELEASE_STATUS.json is the active reopen finding for run 35521604346 (mustFix: true) that this cycle repairs; no separate unresolved mustFix remains. Informational: the trusted verification does not run the emulator E2E (finalizer's job); empirical step-7 confirmation is pending the next trusted finalizer run.",
+  "checks": [
+    "candidate-delta-non-empty-1-file-6-insertions-1-deletion-hasDelta-true",
+    "candidate-patch-byte-identical-to-staged-diff",
+    "pristine-vs-current-diff-only-1-candidate-file-no-control-plane-change",
+    "trusted-verification-exit-0-typecheck-pass-448-tests-22-suites-pass",
+    "privacy-check-pass-71-tests",
+    "cost-check-pass-21-tests-10-gates-including-v3-08-gate-9-golden-path",
+    "expo-export-prebuild-assembleDebug-BUILD-SUCCESSFUL-20m7s",
+    "independent-typecheck-and-full-suite-rerun-pass-448-448",
+    "node-check-e2e-android-js-pass",
+    "waitFor-Appartement-60000-to-120000-with-documented-timing-model-comment",
+    "120s-matches-script-established-pattern-for-all-other-post-launch-elements",
+    "no-new-adb-calls-no-network-no-history-proportional-work",
+    "no-product-code-domain-analytics-persistence-sync-or-governance-touched",
+    "openFindings-contains-only-the-active-reopen-finding-for-run-35521604346-being-repaired",
+    "prohibited-pattern-scan-clean-only-assertAbsent-negative-checks",
+    "informational-empirical-step7-confirmation-pending-subsequent-finalizer-run"
+  ],
+  "findings": [
+    {
+      "path": "scripts/e2e-android.js",
+      "problem": "The golden-path wait for the 'Appartement' group after tapping Demarrer used a 60s timeout. On a cold API 35 x86_64 emulator, demo sign-in plus SQLite fixture seeding takes 30-60s and the first uiautomator dump adds another 30-60s, so a 60s window only fits one dump attempt and can expire before the groups list renders — the concrete step-7 timing blocker of run 35521604346.",
+      "evidence": "Baseline line: 'waitFor(\"Appartement\", 60000);'. Candidate now: 'waitFor(\"Appartement\", 120000);' preceded by a 5-line comment documenting the timing model (sign-in + fixture seeding 30-60s, first dump 30-60s, 60s fits one dump attempt, 120s gives 2-3). The 120s value matches the script's established pattern for every other post-launch element (waitFor('Ajouter', 120000), waitFor('Balances', 120000), waitFor('A faire', 120000)) and the documented '120s: single dump takes 30-60s on slow emulators' comment.",
+      "mustFix": false,
+      "requiredFix": "None — the fix is applied in this candidate. The Appartement wait window is aligned with the script's documented cold-emulator timing model (2-3 dump attempts instead of 1).",
+      "verification": "node --check PASS; trusted verification exit 0 (typecheck, 448 tests, privacy 71, cost 21, expo export/prebuild, assembleDebug BUILD SUCCESSFUL); diff vs accepted-pristine confirms exactly this one-file change."
+    },
+    {
+      "path": "release",
+      "problem": "The concrete step-7 failure evidence of run 35521604346 (result.json, logcat-failure.txt, dumpsys-activities-failure.txt, UI dump XMLs) is echoed to the step logs, which require admin rights to download; the GitHub API returns 403 for job logs on this repository and the artifact upload step was skipped on failure. The repair therefore relies on the documented failure chain (uiautomator dump 30-60s cold-start costs exhausting the 60s Appartement wait window) and the script's own timing model rather than the exact log lines. Empirical confirmation that the repair resolves the blocker requires a subsequent trusted finalizer run passing step 7.",
+      "evidence": "docs/NEXT_CYCLE.md and docs/RELEASE_STATUS.json document the step-7 failure of run 35521604346 and the reopen finding (mustFix: true, path release, requiredFix 'repair only the concrete product/privacy/cost/APK/runtime/E2E blocker'). Prior audits (RUN_35517442615, RUN_35510712950, RUN_35498415263, RUN_35492810195, RUN_35487229476) document the same uiautomator-dump failure chain across 7+ emulator runs. The trusted verification for this cycle does not run the emulator E2E (finalizer's job).",
+      "mustFix": false,
+      "requiredFix": "None in Builder scope. The next trusted finalizer run is the empirical gate: step 7 (install/launch/golden path) must pass to close the release-level mustFix.",
+      "verification": "Trusted V3 finalizer must pass product, privacy and cost gates, APK build, install/launch and golden path (step 7 green) in a subsequent finalizer run."
+    }
+  ]
+}
