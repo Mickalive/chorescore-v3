@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "cycle": "35492810195",
+  "decision": "stop",
+  "reason": "V3-08 audit decision is accept. The candidate is a non-empty delta (5 files, 137 insertions, hasDelta=true) repairing the trusted finalizer blocker from Actions run 35490543018 within Builder scope: bounded SQLite initialization (SQLITE_INIT_TIMEOUT_MS=45s via exported withTimeout, fallback to the existing in-memory repository set) so a hung native open on a degraded API 35 x86_64 emulator degrades to the sign-in screen instead of leaving the app on 'Chargement...' forever; plus diagnostic echo of UI dump text/content-desc nodes at waitFor timeout in scripts/e2e-android.js and XML echo in scripts/finalizer-e2e.sh so screen evidence survives in step logs when artifact upload is skipped. Trusted verification exit 0: typecheck PASS, 441 tests/22 suites PASS, privacy 71 PASS, cost 21 PASS (10 gates), expo export/prebuild PASS, assembleDebug BUILD SUCCESSFUL in 20m15s. Three informational findings, all mustFix=false (late SQLite handle not closed after timeout; typeInto/back/swipeToTop still not invalidating dump cache but unused in golden path; empirical emulator confirmation pending). V3-08 is the final criterion on the roadmap; there is no next roadmap step. The trusted release finalizer must empirically confirm the repair by passing step 7 (Android install, launch, golden path); the trusted shell owns final state transitions and V3-08 release handoff. All V3-01 through V3-07 remain accepted with zero regression.",
+  "progressEvidence": [
+    "audit-accepted-35492810195-V3-08",
+    "candidate-delta-non-empty-hasDelta-true-5-files-137-insertions",
+    "bounded-sqlite-init-45s-withTimeout-fallback-to-in-memory-prevents-indefinite-Chargement-hang",
+    "diagnostic-echo-UI-dump-text-content-desc-nodes-at-waitFor-timeout-evidence-survives-step-logs",
+    "finalizer-e2e-sh-echoes-audit-android-e2e-XML-checkpoints-on-failure",
+    "withTimeout-contract-tests-4-4-pass-all-branches-including-late-settlement",
+    "wrapper-contract-tests-11-11-pass",
+    "trusted-verification-exit-0-441-tests-22-suites-privacy-71-cost-21",
+    "expo-export-android-prebuild-assembleDebug-BUILD-SUCCESSFUL-20m15s",
+    "no-mustFix-findings-three-informational-only",
+    "V3-08-is-final-criterion-no-next-roadmap-step",
+    "all-previous-criteria-V3-01-through-V3-07-preserved",
+    "trusted-finalizer-step-7-empirical-confirmation-pending-next-run"
+  ]
+}
