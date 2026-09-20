@@ -62,19 +62,26 @@ echo "adb device state: $(adb get-state)"
 echo "adb devices:"
 adb devices -l 2>/dev/null || true
 
-# Restart the adb server process to ensure a clean connection after the heavy
-# boot phase.  'adb reconnect' only resets the transport layer, but the server
-# process itself can be in a degraded state after the emulator cold-start
-# (API 35 x86_64 on GitHub Actions).  kill-server + start-server fully
-# restarts the process and automatically rediscovers the running emulator.
-echo "Restarting adb server process..."
-adb kill-server 2>/dev/null || true
-sleep 3
-adb start-server 2>/dev/null || true
-sleep 2
-adb wait-for-device 2>/dev/null || true
-sleep 1
-echo "adb device state after reconnect: $(adb get-state)"
+# Verify adb connection health WITHOUT restarting the server.
+# Previous cycles restarted the adb server here to "ensure a clean connection
+# after the heavy boot phase", but this actually destabilised a healthy
+# connection: kill-server + start-server takes 6+s and the subsequent
+# uiautomator server initialization on the device can stall, causing the
+# golden-path waitFor('Demarrer') to time out because every dumpUi() call
+# in the E2E script returns empty XML (the uiautomator server hasn't
+# re-registered with the new adb server yet).  The E2E script's own
+# adbReconnect() already handles truly degraded transport, so an
+# unconditional restart here is counter-productive.
+echo "Verifying adb connection health..."
+for i in 1 2 3; do
+  if adb get-state 2>/dev/null | grep -q device; then
+    echo "adb connection healthy on attempt ${i}"
+    break
+  fi
+  echo "  adb state check attempt ${i} failed, waiting 3s..."
+  sleep 3
+done
+echo "adb device state: $(adb get-state 2>/dev/null || echo 'unknown')"
 echo "sys.boot_completed: $(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r' || echo 'unknown')"
 echo "ro.build.version.sdk: $(adb shell getprop ro.build.version.sdk 2>/dev/null | tr -d '\r' || echo 'unknown')"
 

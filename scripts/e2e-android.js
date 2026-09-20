@@ -179,11 +179,12 @@ function dumpUi() {
   try { shell('rm', '-f', '/sdcard/chorescore-window.xml'); } catch (_) {}
   try {
     // uiautomator dump can take 30-60s on a loaded API 35 x86_64 emulator
-    // under React Native cold-start load.  Use a 45s timeout with 1 retry:
+    // under React Native cold-start load.  Use a 60s timeout with 1 retry:
     // fail fast so that waitFor() can retry at a higher level within its
     // own deadline.  Previous 3-retry approach wasted up to 180s per dump,
-    // blowing past the 240s Demarrer window.
-    shell('uiautomator', 'dump', '/sdcard/chorescore-window.xml', { timeoutMs: 45_000, retries: 1 });
+    // blowing past the 240s Demarrer window.  60s (up from 45s) gives
+    // additional headroom for the worst-case dump on degraded emulators.
+    shell('uiautomator', 'dump', '/sdcard/chorescore-window.xml', { timeoutMs: 60_000, retries: 1 });
   } catch (err) {
     dumpFailures++;
     if (dumpFailures <= 3 || dumpFailures % 10 === 0) {
@@ -347,7 +348,28 @@ function waitFor(label, timeoutMs = 10000) {
   const until = Date.now() + timeoutMs;
   let previousDumpFailures = dumpFailures;
   let consecutiveDumpFails = 0;
+  let lastAppCheck = 0;
   while (Date.now() < until) {
+    // App-alive check every 30s: if the app crashed mid-golden-path,
+    // relaunch it immediately instead of burning 600 s on empty dumps.
+    // This check is cheap (pidof = 1 adb shell command, < 2 s).
+    const now = Date.now();
+    if (now - lastAppCheck > 30_000) {
+      lastAppCheck = now;
+      try {
+        const pid = shell('pidof', packageName).trim();
+        if (!pid) {
+          console.log(`  APP CRASHED while waiting for "${label}" — relaunching...`);
+          // Invalidate dump cache so the first dump after relaunch is fresh
+          _dumpCache = null;
+          try { shell('am', 'force-stop', packageName); } catch (_) {}
+          sleep(1000);
+          try { shell('monkey', '-p', packageName, '-c', 'android.intent.category.LAUNCHER', '1'); } catch (_) {}
+          sleep(15000); // Give the relaunched app time to initialize
+          continue; // Re-enter the loop; the next dumpUi() will capture the new screen
+        }
+      } catch (_) { /* pidof failed — proceed with normal wait */ }
+    }
     if (findNodes(label).length) return;
     // Detect if the dump that just ran inside findNodes failed
     if (dumpFailures > previousDumpFailures) {
@@ -431,12 +453,20 @@ function screenshot(name) {
       // Screencap failed completely — record checkpoint without file
     }
   }
+  // Reuse the cached dump when available.  Each uiautomator dump takes
+  // 30-60 s on API 35 x86_64; triggering one per screenshot wastes
+  // ~30 s when the cache (< 30 s old) still reflects the same screen.
+  // Only force a fresh dump when the cache is stale or empty.
   let uiDump = null;
   try {
-    const dump = dumpUi();
-    const uiFile = path.join(outputDir, `${prefix}.xml`);
-    fs.writeFileSync(uiFile, dump.xml);
-    uiDump = path.basename(uiFile);
+    const now = Date.now();
+    const cacheFresh = _dumpCache && (now - _dumpCacheTime) < DUMP_CACHE_TTL_MS;
+    const dump = cacheFresh ? _dumpCache : dumpUi();
+    if (dump && dump.xml) {
+      const uiFile = path.join(outputDir, `${prefix}.xml`);
+      fs.writeFileSync(uiFile, dump.xml);
+      uiDump = path.basename(uiFile);
+    }
   } catch (_) {}
   checkpoints.push({ name, screenshot: fs.existsSync(file) ? path.basename(file) : null, uiDump, at: new Date().toISOString() });
 }

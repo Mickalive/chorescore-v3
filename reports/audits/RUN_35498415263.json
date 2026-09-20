@@ -1,0 +1,56 @@
+{
+  "schemaVersion": 1,
+  "cycle": "35498415263",
+  "role": "builder",
+  "decision": "repair",
+  "summary": "V3-08 repair candidate for trusted finalizer failure run 35496233889 (confirmed via GitHub API: release job failed at step 7 'Android API 35 install, launch and golden path'; steps 5 trusted gates and 6 APK locate/hash passed). Candidate delta (3 files, 110 insertions, 20 deletions) is Builder-scope only: (1) finalizer-e2e.sh removes the unconditional adb kill-server/start-server restart before the golden path, replacing it with a bounded health-verification loop — sound, directly targets the documented empty-dump/Demarrer-timeout failure chain; (2) e2e-android.js raises the uiautomator dump timeout 45s→60s — sound; (3) e2e-android.js screenshot() reuses the fresh dump cache — works; (4) e2e-android.js waitFor() adds an app-crash detection/relaunch — NON-FUNCTIONAL: `adb shell pidof <package>` exits 1 with empty stdout when the app process is dead, execFileSync throws, the catch swallows it, and the `if (!pid)` relaunch branch is unreachable; the guarding test is a static-string check that passes regardless of behavior (weak test). Trusted verification exit 0: typecheck PASS, 445 tests/22 suites PASS, privacy 71 PASS, cost 21 PASS (10 gates), expo export/prebuild PASS, :app:assembleDebug BUILD SUCCESSFUL in 20m22s. No product/domain/ledger/analytics regression, no chrono/premium/warm-V2 reintroduction, no cost regression, no protected control-plane file modified. Decision repair: one mustFix remains (crash-detection feature + its weak test); candidate retained as WIP baseline.",
+  "checks": [
+    "trusted verification exit 0 (reports/audits/TRUSTED_35498415263.md): typecheck PASS, 445 tests/22 suites PASS, privacy 71 PASS, cost 21 PASS (10 gates), expo install --check up to date, expo export android OK, prebuild OK, :app:assembleDebug BUILD SUCCESSFUL in 20m22s",
+    "failed run 35496233889 confirmed via GitHub REST API: release job conclusion=failure, step 7 'Android API 35 install, launch and golden path' conclusion=failure; steps 5 'Trusted product, privacy and cost gates' and 6 'Locate and hash APK' conclusion=success; reopen-on-failure job ran and created commit 21f4718",
+    "candidate patch byte-for-byte identical to staged diff (git diff --cached vs /home/runner/work/_temp/candidate-builder/candidate.patch: PATCH IDENTICAL)",
+    "pristine accepted tree diff: only the 3 candidate files differ (scripts/e2e-android.js, scripts/finalizer-e2e.sh, __tests__/domain/v3-08-finalizer-wrapper.test.ts); no governance/directives/docs/workflow/control-plane file changed; .github/workflows/chorescore-v3-finalize.yml unchanged",
+    "syntax checks: node --check scripts/e2e-android.js PASS; bash -n scripts/finalizer-e2e.sh PASS; tsc --noEmit PASS",
+    "independent re-run: npx jest 445/445 PASS (22 suites); wrapper contract suite 15/15 PASS; cost-gates-v3-08 + v3-07-analytics-privacy 92/92 PASS",
+    "pristine wrapper (state that ran in 35496233889) contained unconditional 'adb kill-server' + 'adb start-server' at lines 71-73 before the golden path; candidate removed both commands (only the explanatory comment mentions kill-server) and replaced with a 3-attempt adb get-state health loop — bounded (~12s max), set -e safe inside if-condition",
+    "dump timeout change verified: pristine line 186 timeoutMs: 45_000 → candidate line 187 timeoutMs: 60_000; waitFor('Demarrer', 600000) budget still fits worst-case 60s dump + 1 retry (120s per dumpUi cycle)",
+    "screenshot cache reuse verified by reading: cacheFresh check mirrors dumpUi's own TTL logic (redundant but harmless) and adds an empty-xml guard so failed dumps no longer write empty XML files",
+    "crash-detection behavior simulation: command exiting 1 with empty stdout (exact adb shell pidof semantics for a dead app) → execFileSync throws → catch swallows → relaunch NOT triggered; Android toybox pidof exits 1 when no process matches, so the 'if (!pid)' branch is unreachable in the crash scenario",
+    "V3-01..V3-07 regression green: ledgers zero-sum per currency, integer minor units, cross-ledger rate snapshot immutable, Minutes/Points never silently converted, materialized balances == reconstructed, tenant isolation, delta-only sync, privacy plane separation, classification cache, no-op analytics without new data",
+    "cost regression gates green: Gate1 50k entries ≤5 reads, Gate2 tab switching 0 additional reads, Gate3 3 deltas incremental, Gate4 contribution/expense exactly 1 write, Gate5 10k identical labels 1 classification, Gate6 privacy gate, Gate7 budgets, Gate8 offline fallback, Gate9 golden path, Gate10 WCAG AA + no chrono/premium",
+    "prohibited-pattern scan: no chrono, Premium/paywall/subscription, warm V2 copy, cross-currency netting, silent unit conversion, or fake integration introduced; changes are confined to E2E diagnostics/resilience scripts and their contract tests"
+  ],
+  "findings": [
+    {
+      "path": "scripts/e2e-android.js (waitFor app-crash detection, lines ~352-372) and __tests__/domain/v3-08-finalizer-wrapper.test.ts (test 'waitFor detects app crash and relaunches instead of waiting full timeout', lines 160-170)",
+      "problem": "The new crash-detection feature cannot detect a crashed app: `adb shell pidof <package>` exits 1 with empty stdout when the app process is dead, execFileSync throws, the surrounding try/catch swallows the error, and the `if (!pid)` relaunch branch is unreachable. The feature claims to save up to 10 minutes of wasted wait time on app crash/ANR, but in the exact crash scenario it burns the full timeout with empty dumps — the failure mode it was written to fix. The guarding test is a weak static-string check (APP CRASHED/pidof/force-stop/monkey substrings) that passes even though the feature is non-functional.",
+      "evidence": "Simulation with a command exiting 1 with empty output (exact adb shell pidof semantics for a dead app) through the same execFileSync/retry/catch structure: 'relaunch triggered: false'. Android toybox pidof exits 1 when no process matches, so pidof never returns empty with exit 0; the catch comment 'pidof failed — proceed with normal wait' swallows the very signal that indicates a dead app. The same latent pattern exists in the pre-existing timeout diagnostic (lines 408-413), but there it only degrades a diagnostic, whereas here it disables the claimed repair.",
+      "mustFix": true,
+      "requiredFix": "Distinguish pidof's 'no process' exit (err.status === 1) from adb transport failures and trigger the relaunch on status 1: e.g. capture the error, treat err.status === 1 as app-dead → invalidate dump cache, force-stop, monkey relaunch, sleep 15s, continue; treat other errors (transport) as 'proceed with normal wait'. Strengthen the wrapper test to verify the error-status handling (e.g. assert the code checks err.status or equivalent) instead of only static strings, so the feature cannot silently regress to dead code.",
+      "verification": "Re-run node --check scripts/e2e-android.js, npx jest __tests__/domain/v3-08-finalizer-wrapper.test.ts, and a behavior simulation where the pidof command exits 1 → the relaunch branch executes (APP CRASHED logged, monkey invoked)."
+    },
+    {
+      "path": "__tests__/domain/v3-08-finalizer-wrapper.test.ts (test 'screenshot reuses cached dump instead of triggering fresh uiautomator dump', lines 184-194)",
+      "problem": "The screenshot cache-reuse test is a static-string check (cacheFresh/_dumpCacheTime substrings). The feature itself is functionally correct (verified by reading: cacheFresh mirrors dumpUi's own TTL logic and adds an empty-xml guard), so this is informational only.",
+      "evidence": "Test asserts only /function screenshot[\\s\\S]*cacheFresh/ and /function screenshot[\\s\\S]*_dumpCacheTime/; no behavioral assertion. Code review confirms the logic is sound and equivalent to dumpUi()'s own cache path.",
+      "mustFix": false,
+      "requiredFix": "None required for this cycle. If future cycles touch screenshot(), consider a behavioral test (e.g. mock dumpUi and assert it is not called when the cache is fresh).",
+      "verification": "Feature verified by reading; full jest suite 445/445 PASS."
+    },
+    {
+      "path": "__tests__/domain/v3-08-finalizer-wrapper.test.ts (test 'finalizer wrapper does not unconditionally restart adb server before golden path', lines 224-239)",
+      "problem": "The adb-restart-removal test asserts the presence of the health-check strings ('Verifying adb connection health', 'adb get-state') but does not assert the absence of 'adb kill-server' in the wrapper, so a regression reintroducing the restart alongside the health check would still pass. Current state is correct (verified: no kill-server command remains in finalizer-e2e.sh, only the explanatory comment), so this is informational only.",
+      "evidence": "grep -c kill-server scripts/finalizer-e2e.sh = 1 (comment line only); the test's own comment says 'Should NOT contain an unconditional adb kill-server' but the assertions do not enforce it.",
+      "mustFix": false,
+      "requiredFix": "None required for this cycle. Consider adding expect(wrapper).not.toMatch(/adb kill-server/) to the test in a future cycle.",
+      "verification": "Wrapper verified by reading: kill-server/start-server commands removed; health loop bounded to 3 attempts."
+    },
+    {
+      "path": "scripts/e2e-android.js (waitFor app-alive check)",
+      "problem": "The pidof app-alive check uses shell() with default retries=3, so on degraded adb transport each check can take up to ~10s (3 attempts × command + 2s sleeps) every 30s. Bounded and acceptable: on healthy transport pidof is <2s, and on degraded transport the dump would be failing anyway and the waitFor would fail with diagnostics.",
+      "evidence": "shell() defaults to retries=3 via adb(); the check is wrapped in try/catch and runs at most every 30s within the waitFor deadline.",
+      "mustFix": false,
+      "requiredFix": "None required for this cycle. If the next finalizer run shows excessive pidof overhead in step logs, reduce retries for the pidof call (e.g. { retries: 1 }).",
+      "verification": "Bounded by waitFor deadline; no unbounded loop introduced."
+    }
+  ]
+}

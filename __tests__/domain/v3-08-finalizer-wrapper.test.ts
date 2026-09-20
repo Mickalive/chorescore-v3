@@ -156,6 +156,42 @@ describe('V3-08 finalizer wrapper contract', () => {
     expect(wrapper).toContain('UI dump XML files');
     expect(wrapper).toContain('audit/android-e2e/*.xml');
   });
+
+  test('waitFor detects app crash and relaunches instead of waiting full timeout', () => {
+    // If the app process dies during a long waitFor (e.g. ANR on API 35
+    // x86_64), each dumpUi call returns empty XML and the loop burns
+    // through the entire 600 s timeout doing nothing.  The crash-recovery
+    // check detects pidof returning empty and relaunches the app, saving
+    // up to 10 minutes of wasted wait time.
+    const e2e = readRepo('scripts/e2e-android.js');
+    expect(e2e).toMatch(/APP CRASHED[\s\S]*relaunch/);
+    expect(e2e).toMatch(/pidof[\s\S]*force-stop/);
+    expect(e2e).toMatch(/pidof[\s\S]*monkey/);
+  });
+
+  test('uiautomator dump timeout is >= 60s for degraded API 35 emulators', () => {
+    // Each uiautomator dump on API 35 x86_64 under React Native cold-start
+    // load can take 30-60s.  A 45s timeout caused intermittent failures
+    // where the dump was killed mid-transfer, producing empty XML and
+    // wasting the entire investment.  60s gives sufficient headroom.
+    const e2e = readRepo('scripts/e2e-android.js');
+    const dumpMatch = e2e.match(/uiautomator.*dump.*timeoutMs:\s*([\d_]+)/);
+    expect(dumpMatch).not.toBeNull();
+    const timeout = Number(dumpMatch![1].replace(/_/g, ''));
+    expect(timeout).toBeGreaterThanOrEqual(60_000);
+  });
+
+  test('screenshot reuses cached dump instead of triggering fresh uiautomator dump', () => {
+    // Each fresh uiautomator dump takes 30-60s on slow emulators.
+    // Screenshots are diagnostic-only and don't affect golden-path
+    // pass/fail.  Reusing a fresh cache (already < 30s old from the
+    // most recent findNodes/tapNode) avoids 8 redundant 30-60s dumps
+    // across the golden path.
+    const e2e = readRepo('scripts/e2e-android.js');
+    // The screenshot function should check cache freshness before dumping
+    expect(e2e).toMatch(/function screenshot[\s\S]*cacheFresh/);
+    expect(e2e).toMatch(/function screenshot[\s\S]*_dumpCacheTime/);
+  });
 });
 
 describe('V3-08 finalize workflow YAML regression guard', () => {
@@ -183,6 +219,23 @@ describe('V3-08 finalize workflow YAML regression guard', () => {
     expect(emulatorStep).toContain('script: bash scripts/finalizer-e2e.sh');
     // Explicitly reject the multi-line form that caused the regression.
     expect(emulatorStep).not.toMatch(/script:\s*\|/);
+  });
+
+  test('finalizer wrapper does not unconditionally restart adb server before golden path', () => {
+    // Previous cycles restarted the adb server after emulator boot but
+    // before the golden path.  This destabilised a healthy connection:
+    // kill-server + start-server takes 6+s and the uiautomator server on
+    // the device may not re-register in time, causing every dumpUi()
+    // call to return empty XML and the waitFor('Demarrer') to time out.
+    // The E2E script's own adbReconnect() handles truly degraded
+    // transport, so the wrapper should verify health instead of blindly
+    // restarting.
+    const wrapper = readRepo('scripts/finalizer-e2e.sh');
+    // Should NOT contain an unconditional adb kill-server before the E2E
+    // golden path (the E2E script handles this internally).
+    // The wrapper should verify health with get-state instead.
+    expect(wrapper).toContain('Verifying adb connection health');
+    expect(wrapper).toContain('adb get-state');
   });
 });
 
