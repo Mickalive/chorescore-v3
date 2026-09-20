@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "cycle": "35487229476",
+  "decision": "stop",
+  "reason": "V3-08 audit decision is accept. The candidate is a non-empty delta (changedFiles=2, hasDelta=true) repairing the trusted finalizer step-7 blocker from Actions run 35485115705 within Builder scope: scripts/e2e-android.js and __tests__/domain/v3-08-finalizer-wrapper.test.ts only. The repair fixes the inert 2s dump cache TTL (now 30s), adds cache invalidation on tapNode/swipeUp, reduces dumpsys pre-check dead time (60s→15s), and widens all golden-path waitFor windows to ≥60s. Trusted verification passed exit 0: typecheck, 435 tests (22 suites), privacy 71, cost 21 (10 gates), expo export/prebuild/build SUCCESSFUL in 18m59s. V3-08 is the final criterion on the roadmap; there is no next roadmap step. The trusted release finalizer must empirically confirm the repair by passing step 7 (Android install, launch, golden path) on the next run. All V3-01 through V3-07 remain accepted with zero regression.",
+  "progressEvidence": [
+    "audit-accepted-35487229476-V3-08",
+    "candidate-delta-non-empty-hasDelta-true-changedFiles-2",
+    "dump-cache-TTL-repaired-2s-to-30s-effective-for-same-screen-rapid-calls",
+    "cache-invalidation-on-tapNode-swipeUp-golden-path-transitions-covered",
+    "dumpsys-pre-check-reduced-12-to-3-iterations-saving-45s-dead-time",
+    "all-golden-path-waitFor-windows-widened-to-60s-or-more",
+    "trusted-verification-exit-0-435-tests-22-suites-privacy-71-cost-21",
+    "expo-export-android-prebuild-assembleDebug-BUILD-SUCCESSFUL-18m59s",
+    "wrapper-contract-tests-9-9-pass-TTL-invalidation-timeouts-bounds",
+    "regression-spot-check-435-tests-pass-no-product-code-changed",
+    "V3-08-is-final-criterion-no-next-roadmap-step",
+    "all-previous-criteria-V3-01-through-V3-07-preserved",
+    "trusted-finalizer-step-7-empirical-confirmation-pending-next-run"
+  ]
+}
