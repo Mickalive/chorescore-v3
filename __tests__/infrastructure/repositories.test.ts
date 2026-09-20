@@ -41,7 +41,7 @@ import {
   SqliteInvitationRepository,
   SqliteSyncStateRepository,
 } from '../../src/infrastructure/repositories/SqliteRepositories';
-import { createRepositories } from '../../src/infrastructure/repositories/RepositoryFactory';
+import { createRepositories, withTimeout } from '../../src/infrastructure/repositories/RepositoryFactory';
 import {
   ensureDemoFixture,
   loadHouseholdsForUser,
@@ -755,6 +755,36 @@ describe('V3-02 RepositoryFactory selection', () => {
     expect(fetched?.name).toBe('Colocation');
     expect(await repos.memberships.getByUser('user-1')).toHaveLength(1);
     expect(await repos.contributions.getByHousehold(household.id)).toHaveLength(1);
+  });
+});
+
+describe('V3-08 bounded repository initialization', () => {
+  test('withTimeout resolves with the promise value when the promise wins', async () => {
+    const result = await withTimeout(Promise.resolve('sqlite'), 1000, () => 'memory');
+    expect(result).toBe('sqlite');
+  });
+
+  test('withTimeout resolves with the fallback when the timer wins (hung init)', async () => {
+    // A promise that never settles simulates a hung native SQLite open.
+    const result = await withTimeout(new Promise<string>(() => {}), 50, () => 'memory');
+    expect(result).toBe('memory');
+  });
+
+  test('withTimeout resolves with the fallback when the promise rejects', async () => {
+    const result = await withTimeout(Promise.reject(new Error('boom')), 1000, () => 'memory');
+    expect(result).toBe('memory');
+  });
+
+  test('withTimeout ignores the late settlement of a hung promise without unhandled rejection', async () => {
+    // The timer wins; the underlying promise later resolves.  The late value
+    // must be ignored (the app already fell back to in-memory) and the
+    // settlement must be handled so no unhandled-rejection warning appears.
+    let resolveLate!: (v: string) => void;
+    const late = new Promise<string>((resolve) => { resolveLate = resolve; });
+    const result = await withTimeout(late, 50, () => 'memory');
+    expect(result).toBe('memory');
+    resolveLate('sqlite-too-late');
+    await new Promise((r) => setTimeout(r, 10));
   });
 });
 

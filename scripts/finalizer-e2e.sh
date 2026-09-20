@@ -185,6 +185,14 @@ if [ "$E2E_EXIT" -ne 0 ]; then
     fi
   done
   echo ""
+  echo "--- UI dump XML files (screen content at checkpoints) ---"
+  for f in audit/android-e2e/*.xml; do
+    if [ -f "$f" ]; then
+      echo "=== $(basename "$f") ==="
+      cat "$f"
+    fi
+  done
+  echo ""
   echo "═══════════════════════════════════════════════════════════════"
   echo "  END DIAGNOSTIC EVIDENCE"
   echo "═══════════════════════════════════════════════════════════════"

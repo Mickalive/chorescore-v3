@@ -389,6 +389,22 @@ function waitFor(label, timeoutMs = 10000) {
       console.log('  App process is NOT running — likely crashed during cold start');
     }
   } catch (_) {}
+  // Capture the current UI dump content so the next cycle can see exactly
+  // what was on screen at timeout.  The dump XML is otherwise only saved to
+  // the artifact directory, which is NOT uploaded when the step fails (the
+  // upload step has no if: always()), so echoing the text/content-desc nodes
+  // here is the only way the evidence survives in the step logs.
+  try {
+    const dump = dumpUi();
+    const visible = dump.nodes
+      .filter((n) => n.text || n['content-desc'])
+      .map((n) => `text="${n.text || ''}" desc="${n['content-desc'] || ''}" class=${n.class || ''}`)
+      .slice(0, 40);
+    console.log(`  UI dump at timeout (${dump.nodes.length} nodes):`);
+    console.log(`  ${visible.join('\n  ') || '(no text/content-desc nodes found)'}`);
+  } catch (_) {
+    console.log('  Could not capture UI dump at timeout');
+  }
   throw new Error(`Timed out waiting for ${label} after ${timeoutMs}ms`);
 }
 

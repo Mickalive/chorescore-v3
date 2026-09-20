@@ -1,0 +1,46 @@
+{
+  "schemaVersion": 1,
+  "cycle": "35492810195",
+  "role": "builder",
+  "decision": "accept",
+  "summary": "V3-08 repair candidate accepted. 5 files changed (137 insertions) repairing trusted finalizer run 35490543018 blocker within Builder scope: bounded RepositoryFactory SQLite initialization (45s withTimeout fallback to in-memory) to prevent indefinite 'Chargement...' hang on degraded API 35 emulators, plus diagnostic echo of UI dump text nodes at waitFor timeout and XML echo in finalizer-e2e.sh so evidence survives when artifact upload is skipped. Trusted verification exit 0: typecheck PASS, 441 tests/22 suites PASS (was 435), privacy 71 PASS, cost 21 PASS (10 gates), expo export/prebuild PASS, assembleDebug BUILD SUCCESSFUL in 20m15s. No product domain/ledger/analytics regression, no chrono/premium/warm-V2 reintroduction, no cost regression.",
+  "checks": [
+    "trusted verification exit 0 (reports/audits/TRUSTED_35492810195.md) — typecheck PASS, 441 tests/22 suites PASS, privacy 71 PASS, cost 21 PASS (10 gates), expo install --check up to date, expo export android OK, prebuild OK, :app:assembleDebug BUILD SUCCESSFUL in 20m15s",
+    "candidate patch byte-for-byte identical to staged diff (5 files: RepositoryFactory.ts, repositories.test.ts, v3-08-finalizer-wrapper.test.ts, e2e-android.js, finalizer-e2e.sh; 137 insertions)",
+    "syntax checks: node --check scripts/e2e-android.js PASS; bash -n scripts/finalizer-e2e.sh PASS; tsc --noEmit PASS",
+    "pristine accepted tree diff: only the 5 candidate files differ; no governance/directives/docs/workflow/control-plane files changed",
+    "independent re-run: npm run typecheck PASS; npx jest 441/441 PASS (22 suites); repositories.test.ts 4 withTimeout tests PASS; wrapper contract 11/11 PASS; privacy:check PASS (71); cost:check PASS (21)",
+    "RepositoryFactory withTimeout contract verified: promise-win resolves value, timer-win resolves fallback, rejection resolves fallback, late settlement ignored without unhandled rejection; SQLITE_INIT_TIMEOUT_MS=45000 generous vs healthy <1s open, bounded fallback preserves existing catch→in-memory behavior",
+    "failure chain addressed: degraded emulator SQLite open stalled >10min leaving app on Chargement screen; bounded 45s window degrades to in-memory so sign-in/Demarrer renders within waitFor 600s window; diagnostic echo ensures next-cycle root cause visible in step logs even when audit/android-e2e/*.xml not uploaded",
+    "V3-01..V3-07 regression green: ledgers.test.ts zero-sum per currency, property-invariants PASS, materialized-balances PASS (materialized==reconstructed), expense integer minor units, cross-ledger snapshot immutable, Minutes/Points never silently converted, tenant isolation PASS, sync e2e PASS",
+    "cost regression gates green: Gate1 50k entries bounded ≤5 reads (224ms), Gate2 tab switching 0 additional reads, Gate3 3 deltas incremental only, Gate4 contribution/expense exactly 1 write, Gate5 10k identical labels 1 classification, Gate6 privacy gate, Gate7 budgets, Gate8 offline fallback, Gate9 golden path, Gate10 WCAG AA + no chrono/premium",
+    "privacy/analytics plane preserved: Operational Store vs Research Analytics Plane separated, no operational IDs/free text/device IDs in outputs, classification cache synchronous, async incremental checkpointed batchable, consent/retention/rare-cell suppression intact, analytics disabled by default still does not break product",
+    "prohibited-pattern scan: only comments, honest assertAbsent checks and diagnostic echo strings; no chronoTimer, Premium/paywall/subscription, warm terracotta/sage copy, cross-currency netting, or silent unit conversion introduced"
+  ],
+  "findings": [
+    {
+      "path": "src/infrastructure/repositories/RepositoryFactory.ts",
+      "problem": "Late SQLite handle leak after timeout: when withTimeout fires fallback, the underlying createSqliteRepositories promise may eventually resolve with an opened SQLite handle that is then discarded. No close/dispose is attempted.",
+      "evidence": "withTimeout ignores late settlement (settled flag) but does not cancel or close the late value; createSqliteRepositories opens DB via getDatabase() before resolving; late handle remains open but unreferenced.",
+      "mustFix": false,
+      "requiredFix": "No fix required for this cycle: on degraded CI emulator the process terminates after E2E, and on healthy devices the timeout never fires (<1s). If SQLite init routinely exceeds 45s in production telemetry, add cancellation/close of late handle and metric.",
+      "verification": "Existing behavior before candidate discarded null on catch without close as well; no resource leak observed in 441 tests; trusted verification BUILD SUCCESSFUL with no SQLITE_BUSY warnings."
+    },
+    {
+      "path": "scripts/e2e-android.js",
+      "problem": "typeInto(), back() and swipeToTop() still do not invalidate _dumpCache, so with TTL=30s they could read stale UI state after a transition (e.g. typeInto 3s verification loop).",
+      "evidence": "grep: typeInto/back/swipeToTop defined at lines 277,318,329,344 and never invoked in golden path (524-664); golden-path transitions only via tapLabel→tapNode and swipeUp which both do _dumpCache=null.",
+      "mustFix": false,
+      "requiredFix": "None for current golden path. If future golden-path adds typing/back/swipeToTop, those functions must invalidate _dumpCache same as tapNode/swipeUp.",
+      "verification": "Current golden path passes wrapper contract 11/11; cached dump only reused for same-screen rapid calls; post-transition calls always get fresh dump in exercised path."
+    },
+    {
+      "path": "release",
+      "problem": "Empirical confirmation of emulator-step repair pending: repo tests cannot prove next trusted finalizer API 35 install/launch/golden-path will pass.",
+      "evidence": "Failure history: 6 consecutive emulator-step failures before this repair (runs 35476794686 … 35490543018) despite successive accepted CI-script repairs; each required finalizer as empirical gate.",
+      "mustFix": false,
+      "requiredFix": "None within Builder scope. The bounded-init repair directly targets the documented hang (>10min Chargement), and diagnostic echoes guarantee next failure's UI dump survives in step logs without admin token.",
+      "verification": "Next trusted finalizer run must pass step 7 (install, launch, golden path) to close openFinding; if it fails, echoed UI dump text nodes and XML will identify concrete next cause."
+    }
+  ]
+}

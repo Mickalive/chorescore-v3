@@ -473,6 +473,58 @@ async function createSqliteRepositories(): Promise<AllRepositories | null> {
 // ── Factory ────────────────────────────────────────────────────
 
 /**
+ * Bounded SQLite initialization window.
+ *
+ * On a healthy device, expo-sqlite opens and initializes the schema in well
+ * under a second.  On degraded emulators/CI runners the native open can stall
+ * indefinitely (observed: an API 35 x86_64 emulator with SystemUI and phone
+ * ANRs kept the app on the "Chargement..." loading screen for >10 minutes
+ * because `createRepositories()` never resolved).  A bounded window keeps the
+ * app usable: when the local store cannot be initialized in time, the app
+ * degrades to the in-memory repository set (the same fallback already used
+ * when SQLite is unavailable), so the sign-in screen and demo flow still
+ * render instead of hanging forever.  This is a V3-08 offline/error-state
+ * resilience requirement, not a masking shortcut: the golden-path assertions
+ * still require the app to reach the sign-in screen.
+ */
+const SQLITE_INIT_TIMEOUT_MS = 45_000;
+
+/**
+ * Race `promise` against a bounded timer.  If the timer fires first (the
+ * operation is hung), resolve with `fallback()`.  If the promise settles
+ * first (resolve or reject), resolve with its value or `fallback()`.
+ * The late settlement of a hung promise is ignored but still handled, so
+ * no unhandled-rejection warning is produced.
+ */
+export function withTimeout<T>(promise: Promise<T>, ms: number, fallback: () => T): Promise<T> {
+  return new Promise<T>((resolve) => {
+    let settled = false;
+    const timer = setTimeout(() => {
+      if (!settled) {
+        settled = true;
+        resolve(fallback());
+      }
+    }, ms);
+    promise.then(
+      (value) => {
+        if (!settled) {
+          settled = true;
+          clearTimeout(timer);
+          resolve(value);
+        }
+      },
+      () => {
+        if (!settled) {
+          settled = true;
+          clearTimeout(timer);
+          resolve(fallback());
+        }
+      },
+    );
+  });
+}
+
+/**
  * Create the appropriate repository set.
  * On device: SQLite-backed, indexed, persists across restarts.
  * In tests: In-memory fallback for deterministic testing.
@@ -481,13 +533,21 @@ async function createSqliteRepositories(): Promise<AllRepositories | null> {
  *   - Sync recording wrappers for all 8 collections
  *   - MaterializingSyncState for transactional delta application
  *   - Real local revision tracking for deterministic conflict resolution
+ *
+ * The SQLite attempt is bounded by SQLITE_INIT_TIMEOUT_MS so a hung native
+ * open (degraded emulator, corrupted store, etc.) degrades to the in-memory
+ * repository set instead of leaving the app on the loading screen forever.
  */
 export async function createRepositories(): Promise<AllRepositories> {
   if (isTestEnvironment()) {
     return createInMemoryRepositories();
   }
 
-  const sqliteRepos = await createSqliteRepositories();
+  const sqliteRepos = await withTimeout(
+    createSqliteRepositories(),
+    SQLITE_INIT_TIMEOUT_MS,
+    () => null,
+  );
   if (sqliteRepos) {
     return sqliteRepos;
   }

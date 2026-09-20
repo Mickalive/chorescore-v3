@@ -135,6 +135,27 @@ describe('V3-08 finalizer wrapper contract', () => {
     const iterations = Number(loopMatch![1]);
     expect(iterations).toBeLessThanOrEqual(5);
   });
+
+  test('waitFor timeout echoes the current UI dump text nodes for diagnosis', () => {
+    // The UI dump XML is only saved to the artifact directory, which is NOT
+    // uploaded when the emulator step fails (the upload step has no
+    // if: always()).  Echoing the text/content-desc nodes at timeout is the
+    // only way the exact on-screen content survives in the step logs, so the
+    // next Builder cycle can see whether the app was stuck on "Chargement...",
+    // a blank screen, or an error state.
+    const e2e = readRepo('scripts/e2e-android.js');
+    expect(e2e).toMatch(/function waitFor[\s\S]*UI dump at timeout/);
+    expect(e2e).toMatch(/function waitFor[\s\S]*content-desc/);
+  });
+
+  test('finalizer diagnostic echo includes the UI dump XML files', () => {
+    // Same rationale as above: the checkpoint XML files (post-launch and
+    // failure) must be echoed to the step logs so the screen content survives
+    // even when the artifact upload is skipped.
+    const wrapper = readRepo('scripts/finalizer-e2e.sh');
+    expect(wrapper).toContain('UI dump XML files');
+    expect(wrapper).toContain('audit/android-e2e/*.xml');
+  });
 });
 
 describe('V3-08 finalize workflow YAML regression guard', () => {
