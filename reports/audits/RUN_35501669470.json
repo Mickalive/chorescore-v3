@@ -1,0 +1,38 @@
+{
+  "schemaVersion": 1,
+  "cycle": "35501669470",
+  "role": "builder",
+  "decision": "accept",
+  "summary": "V3-08 repair candidate directly addresses the audited mustFix of cycle 35498415263 (crash-detection feature non-functional + weak static test). Candidate delta is exactly 2 Builder-scope files: (1) scripts/e2e-android.js waitFor() catch block now captures the error and checks err.status === 1 (Android toybox pidof's 'no process' exit) to trigger the relaunch branch — invalidate dump cache, force-stop, monkey relaunch, sleep 15s, continue — while other errors (transport ETIMEDOUT/adb disconnect) proceed with the normal wait; (2) __tests__/domain/v3-08-finalizer-wrapper.test.ts adds a test asserting the error-status handling (catch (err), err.status === 1, relaunch path reachable from the status-1 branch, transport distinction) so the feature cannot silently regress to dead code. Behavior simulation confirms: pidof exit 1 → err.status === 1 → relaunch triggered; transport timeout → err.status null → normal wait. The adb() wrapper already logs each failed pidof attempt, satisfying the 'transport errors are logged' acceptance criterion. Trusted verification exit 0: typecheck PASS, 446 tests/22 suites PASS, privacy 71 PASS, cost 21 PASS (10 gates), expo export/prebuild PASS, :app:assembleDebug BUILD SUCCESSFUL. Independent re-run of the full suite: 446/446 PASS; wrapper contract suite 16/16 PASS; node --check scripts/e2e-android.js PASS. No product/domain/ledger/sync/analytics/UI code touched; no chrono/premium/warm-V2/cross-currency/silent-conversion/fake-integration introduced; no cost regression (pidof check remains 1 bounded adb command every 30s). Decision: accept — no mustFix remains.",
+  "checks": [
+    "trusted verification exit 0 (reports/audits/TRUSTED_35501669470.md): typecheck PASS, 446 tests/22 suites PASS (incl. v3-08-finalizer-wrapper.test.ts PASS), privacy 71 PASS, cost 21 PASS (10 gates), expo export android OK, prebuild OK, :app:assembleDebug BUILD SUCCESSFUL in 19m50s",
+    "candidate delta exactly 2 files vs pristine accepted tree (/home/runner/work/_temp/accepted-pristine): scripts/e2e-android.js (+20 lines) and __tests__/domain/v3-08-finalizer-wrapper.test.ts (+21 lines); no governance/directives/docs/workflow/control-plane file changed; diff -rq confirms only these 2 product files differ",
+    "fix semantics verified in code: waitFor() catch block is 'catch (err)' with 'if (err && err.status === 1)' → console.log APP CRASHED (pidof exit 1), _dumpCache = null, shell('am','force-stop',packageName), sleep(1000), shell('monkey','-p',packageName,'-c','android.intent.category.LAUNCHER','1'), sleep(15000), continue; non-status-1 errors fall through to normal wait with explanatory comment",
+    "behavior simulation with Node execFileSync semantics: child exit 1 → err.status === 1 → relaunch branch executes; timeout kill → err.status === null → normal wait continues; adb() wrapper rethrows lastError preserving err.status, so the status check is reliable",
+    "transport-error logging: adb() wrapper logs every failed attempt ('adb shell failed (attempt N/3): ...') before rethrowing, so transport failures during the pidof check are logged even though the waitFor catch block itself only documents the fall-through in a comment",
+    "test strengthened per mustFix: new test asserts /catch\\s*\\(\\s*err\\s*\\)/, /err\\.status\\s*===\\s*1/, /pidof exit 1[\\s\\S]*force-stop/, /pidof exit 1[\\s\\S]*monkey/, /pidof exit 1[\\s\\S]*_dumpCache\\s*=\\s*null/, /pidof exit 1[\\s\\S]*continue/, /Transport or other adb error/ — a regression to the old 'catch (_) { /* pidof failed */ }' dead-code form fails every one of these assertions",
+    "independent re-run: npx jest __tests__/domain/v3-08-finalizer-wrapper.test.ts 16/16 PASS; npm run check (typecheck + full suite) 446/446 PASS, 22 suites",
+    "node --check scripts/e2e-android.js PASS",
+    "acceptance criteria of directives/TASKS.json all met: (1) pidof exit-1 triggers relaunch branch (force-stop, monkey, sleep, continue); (2) other pidof errors logged (by adb wrapper) and normal wait continues; (3) guarding test asserts error-status handling; (4) node --check PASS; (5) jest wrapper test PASS; (6) full trusted verification exit 0",
+    "regression of accepted criteria V3-01..V3-08: delta confined to E2E infrastructure script and its contract test; no domain/ledger/persistence/sync/analytics/UI change; full suite green; cost gates green (open ≤5 reads, tab switch 0, 3 deltas incremental, writes 1, 10k labels 1 classification, no-op analytics without new data)",
+    "prohibited-pattern scan: no chrono, Premium/paywall/subscription, warm V2 copy, cross-currency netting, silent unit conversion, fake integration, or destructive history behavior introduced"
+  ],
+  "findings": [
+    {
+      "path": "scripts/e2e-android.js (waitFor app-alive check catch block, lines ~371-389)",
+      "problem": "Informational only: the non-status-1 (transport) fall-through in the waitFor catch block has no explicit console.log of its own; the behavior is documented in a comment. The acceptance criterion 'other pidof errors (transport) are logged' is nevertheless satisfied because the adb() wrapper logs every failed attempt ('adb shell failed (attempt N/3): ...') before rethrowing, and subsequent dump failures are logged by dumpUi()/waitFor's dump-failure detection with adbReconnect.",
+      "evidence": "adb() wrapper lines 118-131 log each failed attempt with err.message; waitFor catch block falls through silently with comment 'Transport or other adb error — cannot determine process state; proceed with normal wait (dump failures will trigger reconnect)'.",
+      "mustFix": false,
+      "requiredFix": "None required for this cycle. If future cycles want the transport path visible in waitFor's own log stream, add a console.log in the fall-through branch.",
+      "verification": "Verified by reading the adb() wrapper logging path; full suite 446/446 PASS."
+    },
+    {
+      "path": "scripts/e2e-android.js (waitFor app-alive check, err.status === 1 branch)",
+      "problem": "Informational only: an adb client transport failure that itself exits with code 1 (e.g. 'error: device offline') would be misclassified as app-dead and enter the relaunch branch. Impact is bounded and non-correctness-breaking: force-stop and monkey are wrapped in try/catch and fail identically on the same transport error, the loop continues, and the dump-failure path (3 consecutive failures) triggers adbReconnect. This is the design explicitly prescribed by the task ('treat err.status === 1 as app-dead').",
+      "evidence": "Simulation: adb client exit 1 with 'device offline' message → err.status === 1 → relaunch branch; force-stop/monkey fail silently (try/catch), sleep 15s, continue; next dump fails → adbReconnect after 3 consecutive dump failures. Worst case ~16s wasted, then normal recovery.",
+      "mustFix": false,
+      "requiredFix": "None required for this cycle; behavior matches the prescribed design. If the next finalizer run shows repeated false relaunches on transport errors, consider additionally checking err.message for 'device offline'/'no devices' before treating status 1 as app-dead.",
+      "verification": "Behavior simulation; bounded by waitFor deadline and dump-failure recovery path."
+    }
+  ]
+}

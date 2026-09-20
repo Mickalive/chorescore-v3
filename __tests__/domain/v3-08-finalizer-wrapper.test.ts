@@ -169,6 +169,27 @@ describe('V3-08 finalizer wrapper contract', () => {
     expect(e2e).toMatch(/pidof[\s\S]*monkey/);
   });
 
+  test('waitFor distinguishes pidof exit-1 (app dead) from transport errors', () => {
+    // Android toybox pidof exits with status 1 when no process matches.
+    // This is the primary signal that the app has crashed.  When
+    // execFileSync throws, the catch block must check err.status === 1
+    // to trigger the relaunch branch, and treat other errors (transport
+    // ETIMEDOUT, adb disconnect) as 'continue normal wait'.
+    const e2e = readRepo('scripts/e2e-android.js');
+    // The catch block must check err.status === 1 (pidof no-process exit)
+    expect(e2e).toMatch(/catch\s*\(\s*err\s*\)/);
+    expect(e2e).toMatch(/err\.status\s*===\s*1/);
+    // On status === 1, the relaunch path must execute (force-stop + monkey)
+    expect(e2e).toMatch(/pidof exit 1[\s\S]*force-stop/);
+    expect(e2e).toMatch(/pidof exit 1[\s\S]*monkey/);
+    // On status === 1, the code must invalidate the dump cache
+    expect(e2e).toMatch(/pidof exit 1[\s\S]*_dumpCache\s*=\s*null/);
+    // On status === 1, the code must sleep and continue (not throw)
+    expect(e2e).toMatch(/pidof exit 1[\s\S]*continue/);
+    // Transport errors must NOT trigger the relaunch branch
+    expect(e2e).toMatch(/Transport or other adb error/);
+  });
+
   test('uiautomator dump timeout is >= 60s for degraded API 35 emulators', () => {
     // Each uiautomator dump on API 35 x86_64 under React Native cold-start
     // load can take 30-60s.  A 45s timeout caused intermittent failures

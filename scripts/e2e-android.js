@@ -368,7 +368,25 @@ function waitFor(label, timeoutMs = 10000) {
           sleep(15000); // Give the relaunched app time to initialize
           continue; // Re-enter the loop; the next dumpUi() will capture the new screen
         }
-      } catch (_) { /* pidof failed — proceed with normal wait */ }
+      } catch (err) {
+        // Distinguish pidof's 'no process' exit (status === 1) from adb
+        // transport errors.  Android toybox pidof exits 1 when no process
+        // matches — this means the app is dead and must be relaunched.
+        // Transport errors (ETIMEDOUT, adb disconnect) mean we cannot
+        // determine process state; continue the normal wait and let
+        // adbReconnect() handle it on the next dump failure.
+        if (err && err.status === 1) {
+          console.log(`  APP CRASHED while waiting for "${label}" (pidof exit 1) — relaunching...`);
+          _dumpCache = null;
+          try { shell('am', 'force-stop', packageName); } catch (_) {}
+          sleep(1000);
+          try { shell('monkey', '-p', packageName, '-c', 'android.intent.category.LAUNCHER', '1'); } catch (_) {}
+          sleep(15000);
+          continue;
+        }
+        // Transport or other adb error — cannot determine process state;
+        // proceed with normal wait (dump failures will trigger reconnect).
+      }
     }
     if (findNodes(label).length) return;
     // Detect if the dump that just ran inside findNodes failed
