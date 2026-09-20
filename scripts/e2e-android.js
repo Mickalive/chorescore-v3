@@ -579,6 +579,32 @@ function launch() {
   } catch (_) {
     console.log('WARN: Could not check app process state');
   }
+
+  // Warm up uiautomator server before the golden path begins.
+  // On API 35 x86_64 under React Native cold-start load, the uiautomator
+  // server can take 30-60s to initialize and often fails on the first dump.
+  // A warm-up dump forces the server to initialize, so the first real
+  // dumpUi() call in the golden path succeeds immediately instead of
+  // burning 30-60s on a cold-start failure that cascades into timeouts.
+  // The warm-up is best-effort: if it fails, the golden path's long
+  // waitFor windows (600s Demarrer, 120s others) provide headroom.
+  console.log('  Warming up uiautomator server...');
+  try {
+    shell('rm', '-f', '/sdcard/chorescore-window.xml');
+    shell('uiautomator', 'dump', '/sdcard/chorescore-window.xml', { timeoutMs: 60_000, retries: 1 });
+    const warmupXml = adb(['shell', 'cat', '/sdcard/chorescore-window.xml'], { timeoutMs: 30_000, retries: 1 });
+    if (warmupXml && warmupXml.includes('<node')) {
+      console.log('  uiautomator server ready — warm-up dump successful');
+      // Cache the warm-up dump so the first findNodes() in waitFor() reuses
+      // it instead of triggering another 30-60s dump.
+      _dumpCache = { xml: warmupXml, nodes: [] };
+      _dumpCacheTime = Date.now();
+    } else {
+      console.log('  WARN: uiautomator warm-up returned empty XML — proceeding anyway');
+    }
+  } catch (err) {
+    console.log(`  WARN: uiautomator warm-up failed — proceeding anyway: ${err.message?.slice(0, 100) || err}`);
+  }
 }
 
 // ══════════════════════════════════════════════════════════════

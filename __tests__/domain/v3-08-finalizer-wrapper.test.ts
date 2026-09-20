@@ -190,6 +190,23 @@ describe('V3-08 finalizer wrapper contract', () => {
     expect(e2e).toMatch(/Transport or other adb error/);
   });
 
+  test('launch() warms up uiautomator server before golden path begins', () => {
+    // On API 35 x86_64 under React Native cold-start load, the uiautomator
+    // server can take 30-60s to initialize and often fails on the first dump.
+    // Without a warm-up, the first dumpUi() in the golden path is a cold
+    // start that burns 30-60s and often cascades into timeout failures.
+    // A warm-up dump at the end of launch() forces the server to initialize,
+    // so the first real dumpUi() in the golden path succeeds immediately.
+    const e2e = readRepo('scripts/e2e-android.js');
+    // The launch function must contain a uiautomator warm-up dump
+    expect(e2e).toMatch(/function launch\(\)[\s\S]*Warming up uiautomator server/);
+    // The warm-up must be best-effort (wrapped in try/catch)
+    expect(e2e).toMatch(/Warming up uiautomator server[\s\S]*try\s*\{/);
+    expect(e2e).toMatch(/Warming up uiautomator server[\s\S]*WARN.*warm-up/);
+    // The warm-up must cache the result so the first findNodes() reuses it
+    expect(e2e).toMatch(/Warming up uiautomator server[\s\S]*_dumpCache\s*=\s*\{/);
+  });
+
   test('uiautomator dump timeout is >= 60s for degraded API 35 emulators', () => {
     // Each uiautomator dump on API 35 x86_64 under React Native cold-start
     // load can take 30-60s.  A 45s timeout caused intermittent failures
