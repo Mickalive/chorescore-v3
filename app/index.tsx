@@ -38,7 +38,7 @@ export default function HomeScreen() {
 
   const openHousehold = async (id: string) => {
     setCurrentHouseholdId(id);
-    router.push('/(tabs)');
+    router.push('/add');
   };
 
   const handleCreateHousehold = async () => {
