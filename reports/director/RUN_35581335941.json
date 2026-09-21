@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "cycle": "35581335941",
+  "decision": "stop",
+  "reason": "Audit decision: accept. V3-08 repair accepted. The candidate repairs the trusted finalizer E2E timeout exhaustion from Actions run 35577033059: all E2E timing budgets are strictly increased with documented rationale (cold-start grace 300→450s, Demarrer wait 600→900s, 9 mid-path waits 120→300s, boot timeout 300→420s, package-manager settle 15→30s) and the contract test is updated to match (23/23 PASS). The delta is confined to scripts/e2e-android.js, scripts/finalizer-e2e.sh and __tests__/domain/v3-08-finalizer-wrapper.test.ts — zero product code (src/, app/) touched, so V3-01..V3-07 invariants are preserved. Trusted verification exit 0: typecheck PASS, 453/453 tests PASS (22 suites), privacy 71/71 PASS, cost 21/21 PASS, expo export android PASS, prebuild PASS, assembleDebug BUILD SUCCESSFUL in 19m12s. Independent re-runs confirm all gates pass. Per-relaunch recovery (FORCE_STOP_RECOVERY_MS = 300s) preserved unchanged. V3-08 is the final criterion on the V3 roadmap (V3-01..V3-07 already complete). The Builder has no further work. The trusted shell must re-dispatch the trusted finalizer to exercise the emulator E2E golden-path step with the increased budgets in place. Once the finalizer passes the emulator step, V3-08 transitions to complete and all V3-01..V3-08 are accepted.",
+  "progressEvidence": [
+    "audit-accepted-35581335941-V3-08-e2e-timeout-budgets-repaired",
+    "COLD_START_GRACE_MS-300000-to-450000-documented-240s-cold-start",
+    "waitFor-Demarrer-600000-to-900000-crash-relaunch-headroom",
+    "9-mid-path-waitFor-120000-to-300000-crash-relaunch-cold-starts",
+    "emulator-boot-TIMEOUT-300-to-420s-package-manager-settle-15-to-30s",
+    "contract-test-updated-graceMs-bound-900000-Demarrer-string-23-23-PASS",
+    "delta-confined-to-3-script-test-files-zero-product-code-changed",
+    "trusted-verification-exit-0-453-tests-privacy-71-cost-21-BUILD-SUCCESSFUL",
+    "independent-re-run-typecheck-tests-privacy-cost-syntax-all-pass",
+    "per-relaunch-recovery-FORCE_STOP_RECOVERY_MS-300000-preserved",
+    "V3-01-through-V3-07-invariants-preserved-zero-regression",
+    "V3-08-is-final-criterion-builder-work-complete",
+    "next-step-trusted-shell-re-dispatches-finalizer-for-emulator-E2E-verification"
+  ]
+}

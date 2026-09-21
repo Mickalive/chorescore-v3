@@ -1,12 +1,10 @@
 {
   "schemaVersion": 1,
   "milestone": "v3-rc",
-  "lastCycle": "35566361438",
-  "activeCriteria": [
-    "V3-08"
-  ],
-  "pendingArtifact": null,
-  "progressSummary": "V3-08 reopened after trusted finalizer failure in run 35577033059",
+  "lastCycle": "35581335941",
+  "activeCriteria": [],
+  "pendingArtifact": "V3-08-RELEASE",
+  "progressSummary": "V3-08 independently accepted; trusted mobile finalizer owns APK/install/runtime/E2E completion.",
   "criteria": [
     {
       "id": "V3-01",
@@ -119,24 +117,16 @@
         "per-relaunch-recovery-FORCE_STOP_RECOVERY_MS-300000",
         "kill-loop-eliminated-16-consecutive-failures-addressed",
         "trusted-verification-exit-0-453-tests-BUILD-SUCCESSFUL",
-        "audit-accepted-35566361438"
+        "audit-accepted-35566361438",
+        "audit-accepted-35581335941"
       ]
     }
   ],
-  "openFindings": [
-    {
-      "path": "release",
-      "problem": "Trusted V3 finalizer failed",
-      "evidence": "GitHub Actions finalizer run 35577033059",
-      "mustFix": true,
-      "requiredFix": "Inspect the exact trusted finalizer failure and repair only the concrete product/privacy/cost/APK/runtime/E2E blocker while preserving V3-01..V3-07.",
-      "verification": "Trusted V3 finalizer must pass product, privacy and cost gates, APK build, install/launch and golden path."
-    }
-  ],
+  "openFindings": [],
   "factoryHealth": {
     "stalled": false,
     "consecutiveNoProgress": 0,
-    "lastProductSha": "bb4071fcb89e432896f637a03e353cbfcd33fe62",
+    "lastProductSha": "4ebb2a505a88c88c05bb11aad285c65150cc4633",
     "reason": null
   }
 }
