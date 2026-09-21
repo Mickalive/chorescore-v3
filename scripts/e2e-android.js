@@ -360,8 +360,18 @@ function typeInto(label, value) {
 
 function back() { shell('input', 'keyevent', 'KEYCODE_BACK'); sleep(500); }
 
-function waitFor(label, timeoutMs = 10000) {
+// Cold-start grace period: on API 35 x86_64 emulators under GitHub Actions
+// load, React Native cold start can take up to 240 s.  During this window,
+// the app process is alive and uiautomator dumps return valid XML with nodes
+// — just not the expected label yet because Hermes is still initializing.
+// The stuck-app detector must NOT fire during cold start, otherwise it
+// force-stops a healthy-but-slow app and the cycle never recovers.
+// 300 s (5 min) provides headroom beyond the documented 240 s worst case.
+const COLD_START_GRACE_MS = 300_000;
+
+function waitFor(label, timeoutMs = 10000, { graceMs = 0 } = {}) {
   const until = Date.now() + timeoutMs;
+  const waitStart = Date.now();
   let previousDumpFailures = dumpFailures;
   let consecutiveDumpFails = 0;
   // Track successful dumps that return nodes but none match the expected label.
@@ -371,6 +381,12 @@ function waitFor(label, timeoutMs = 10000) {
   // live process and does nothing, so the script burns through the full
   // timeout doing 30-60 s dumps that always miss.  After STUCK_APP_THRESHOLD
   // consecutive empty-match dumps we force-stop + relaunch to recover.
+  //
+  // HOWEVER: during cold start, 4 consecutive empty-match dumps (2-4 min)
+  // can fire BEFORE the documented 240 s cold-start completes, killing a
+  // healthy app.  The `graceMs` parameter (typically COLD_START_GRACE_MS)
+  // suppresses stuck detection until the grace period has elapsed, giving
+  // slow emulators time to finish Hermes initialization.
   let consecutiveEmptyMatchCount = 0;
   const STUCK_APP_THRESHOLD = 4; // ~4 × 30-60 s = 2-4 min before recovery
   let lastAppCheck = 0;
@@ -425,9 +441,20 @@ function waitFor(label, timeoutMs = 10000) {
     // starts or screen transitions.
     if (!nodes._fromCache && dumpFailures <= previousDumpFailures) {
       // Dump succeeded (no failure increment) but the label wasn't found.
-      consecutiveEmptyMatchCount += 1;
+      const elapsedMs = Date.now() - waitStart;
+      if (elapsedMs < graceMs) {
+        // Still within cold-start grace period.  Successful-but-empty dumps
+        // are expected — the app is alive and rendering, just not ready yet.
+        // Log periodically so the evidence shows cold-start progress.
+        if (consecutiveEmptyMatchCount === 0 || consecutiveEmptyMatchCount % 2 === 0) {
+          console.log(`  COLD-START GRACE: ${Math.round(elapsedMs / 1000)}s elapsed (< ${Math.round(graceMs / 1000)}s grace) — ${consecutiveEmptyMatchCount} empty dumps so far for "${label}", app alive`);
+        }
+      } else {
+        // Grace period elapsed — count toward stuck threshold.
+        consecutiveEmptyMatchCount += 1;
+      }
       if (consecutiveEmptyMatchCount >= STUCK_APP_THRESHOLD) {
-        console.log(`  APP STUCK: ${consecutiveEmptyMatchCount} consecutive dumps with no "${label}" match — force-stopping and relaunching...`);
+        console.log(`  APP STUCK: ${consecutiveEmptyMatchCount} consecutive dumps with no "${label}" match after ${Math.round((Date.now() - waitStart) / 1000)}s — force-stopping and relaunching...`);
         _dumpCache = null;
         try { shell('am', 'force-stop', packageName); } catch (_) {}
         sleep(2000);
@@ -704,7 +731,13 @@ try {
   // while screen transitions always trigger fresh dumps.  Combined with
   // the reduced dumpsys pre-check (15s vs 60s), the golden path fits
   // within the step timeout even on the slowest API 35 x86_64 runs.
-  waitFor('Demarrer', 600000);
+  //
+  // graceMs: suppress the stuck-app detector during cold start (first 5 min).
+  // On slow emulators, the app process is alive and dumps return valid XML
+  // with nodes — just not "Demarrer" yet because Hermes is still initializing.
+  // Without grace, 4 consecutive empty dumps (2-4 min) fires before the
+  // documented 240s cold start completes, killing a healthy app.
+  waitFor('Demarrer', 600000, { graceMs: COLD_START_GRACE_MS });
   screenshot('01-login');
   tapLabel('Demarrer', { exact: false });
   console.log('Waiting for Appartement group...');

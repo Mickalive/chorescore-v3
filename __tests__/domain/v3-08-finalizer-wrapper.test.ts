@@ -114,8 +114,9 @@ describe('V3-08 finalizer wrapper contract', () => {
     // sleeping 500ms.  If the timeout is < 60s, only 0-1 dump attempts
     // fit, so the element is never found even if visible.
     const e2e = readRepo('scripts/e2e-android.js');
-    // Extract all waitFor('label', timeout) calls
-    const waitForCalls = [...e2e.matchAll(/waitFor\('[^']+',\s*(\d+)\)/g)];
+    // Extract all waitFor('label', timeout[, options]) calls — handles both
+    // two-argument and three-argument (with graceMs) forms.
+    const waitForCalls = [...e2e.matchAll(/waitFor\('[^']+',\s*(\d+)(?:,\s*\{[^}]*\})?\)/g)];
     expect(waitForCalls.length).toBeGreaterThan(0);
     for (const [, ms] of waitForCalls) {
       expect(Number(ms)).toBeGreaterThanOrEqual(60_000);
@@ -287,6 +288,32 @@ describe('V3-08 finalizer wrapper contract', () => {
     expect(e2e).toMatch(/!nodes\._fromCache\s*&&\s*dumpFailures\s*<=\s*previousDumpFailures/);
     // The comment must explain why cache hits are excluded
     expect(e2e).toContain('Cache hits must NOT increment the counter');
+  });
+
+  test('cold-start grace period prevents stuck-app detector from killing healthy cold-starting app', () => {
+    // CRITICAL CONTRACT: On API 35 x86_64 emulators, React Native cold start
+    // can take up to 240s.  During this window, the app process is alive and
+    // uiautomator dumps return valid XML with nodes — just not the expected
+    // label yet because Hermes is still initializing.  Without a grace period,
+    // 4 consecutive empty dumps (2-4 min) fires before the 240s cold start
+    // completes, killing a healthy app.
+    const e2e = readRepo('scripts/e2e-android.js');
+    // COLD_START_GRACE_MS constant must exist (300s = 5 min)
+    const graceMatch = e2e.match(/COLD_START_GRACE_MS\s*=\s*([\d_]+)/);
+    expect(graceMatch).not.toBeNull();
+    const graceMs = Number(graceMatch![1].replace(/_/g, ''));
+    expect(graceMs).toBeGreaterThanOrEqual(240_000); // At least the documented cold start
+    expect(graceMs).toBeLessThanOrEqual(600_000);   // Not more than the Demarrer timeout
+    // waitFor must accept a graceMs option
+    expect(e2e).toContain('{ graceMs = 0 }');
+    // The Demarrer waitFor must pass COLD_START_GRACE_MS
+    expect(e2e).toContain("waitFor('Demarrer', 600000, { graceMs: COLD_START_GRACE_MS })");
+    // During grace period, the stuck detector must NOT increment the counter
+    expect(e2e).toContain('elapsedMs < graceMs');
+    // After grace period, the counter must increment normally
+    expect(e2e).toContain('Grace period elapsed');
+    // Diagnostic logging must show grace period progress
+    expect(e2e).toContain('COLD-START GRACE');
   });
 
   test('screenshot reuses cached dump instead of triggering fresh uiautomator dump', () => {
