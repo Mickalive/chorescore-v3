@@ -1,12 +1,12 @@
 {
   "schemaVersion": 1,
   "milestone": "v3-rc",
-  "lastCycle": "35546606058",
+  "lastCycle": "35555772885",
   "activeCriteria": [
     "V3-08"
   ],
   "pendingArtifact": null,
-  "progressSummary": "V3-08 reopened after trusted finalizer failure in run 35552961193",
+  "progressSummary": "Audited V3-08 requires repair; WIP baseline preserved when a safe delta existed.",
   "criteria": [
     {
       "id": "V3-01",
@@ -112,24 +112,25 @@
         "audit-accepted-35517442615",
         "audit-accepted-35524260895",
         "audit-accepted-35540683935",
-        "audit-accepted-35546606058"
+        "audit-accepted-35546606058",
+        "audit-repair-35555772885-empty-delta-E2E-stuck-app-detector-hypothesis"
       ]
     }
   ],
   "openFindings": [
     {
-      "path": "release",
-      "problem": "Trusted V3 finalizer failed",
-      "evidence": "GitHub Actions finalizer run 35552961193",
+      "path": "candidate delta (empty) — scripts/e2e-android.js (stuck-app detector) and finalizer step 'Android API 35 install, launch and golden path'",
+      "problem": "The cycle objective was to repair the trusted finalizer failure from Actions run 35552961193, but the candidate contains no delta (changedFiles=0, hasDelta=false, candidate.patch empty). The failing step is the emulator E2E golden path, which is NOT covered by the trusted verification (verify-product.sh runs typecheck/tests/privacy/cost/expo-export-android/prebuild/assembleDebug only). The step has failed 15 consecutive dispatched finalizer runs at the same point while the gates step (assembleRelease + iOS export) passes, so the failure is persistent and nothing in the candidate can change the outcome of the next finalizer run. The release-level mustFix 'Trusted V3 finalizer failed' remains unaddressed; accepting would dispatch the finalizer again with no change and fail identically.",
+      "evidence": "metadata.json: changedFiles=0, hasDelta=false, verificationOnly=true, agentExitCode=0; candidate.patch 0 bytes; diff vs accepted-pristine shows only .expo/.opencode tooling; GitHub API run 35552961193: release job failed at 'Android API 35 install, launch and golden path' (02:28:18 to 02:55:34) after the gates step passed; 15 consecutive dispatched finalizer runs failed at the same step (35552961193, 35544223219, 35530222887, 35521604346, 35515804944, 35505122996, 35496233889, 35490543018, 35485115705, 35476794686, 35470723768, 35464672760, 35457974999, 35451816114, 35445913329, 35437961965); TRUSTED_35555772885.md exit 0 covers only verify-product.sh scope; scripts/e2e-android.js waitFor() force-stops and relaunches the app after STUCK_APP_THRESHOLD=4 consecutive real dumps with no label match, which on a slow API 35 x86_64 emulator (documented cold start up to 240s, dump latency 30-60s each) can kill a healthy app mid-cold-start before 'Demarrer (demo)' renders",
       "mustFix": true,
-      "requiredFix": "Inspect the exact trusted finalizer failure and repair only the concrete product/privacy/cost/APK/runtime/E2E blocker while preserving V3-01..V3-07.",
-      "verification": "Trusted V3 finalizer must pass product, privacy and cost gates, APK build, install/launch and golden path."
+      "requiredFix": "Inspect the step-7 evidence of run 35552961193 (logcat-wait-*.txt, logcat-failure.txt, dump-*.xml, step logs — accessible with the factory token) and repair the concrete runtime/E2E blocker. Primary hypothesis to verify: the stuck-app detector in scripts/e2e-android.js force-stops a healthy-but-slow app during cold start (4 real dumps with no match = 2-4 min on a loaded API 35 x86_64 emulator, while the documented cold start can reach 240s); fix with time-based stuck detection, a higher threshold, or by skipping force-stop while the app process is alive and dumps are healthy. If the evidence instead shows an infrastructure-only failure (emulator boot/KVM), document it explicitly in the next cycle so the trusted shell can decide on a workflow-level remedy. Preserve V3-01..V3-07 and all accepted invariants.",
+      "verification": "Re-run the trusted finalizer (or at minimum the emulator E2E step) and confirm the golden path completes: Demarrer (demo) -> Appartement -> tabs Ajouter/Balances/A faire -> Vaisselle du soir visible -> Balances shows Alex/Sam/Contribution/Argent -> A faire shows Sortir les poubelles -> back to Ajouter; trusted verification exit 0; no regression in the 451-test suite, privacy 71, cost 21."
     }
   ],
   "factoryHealth": {
     "stalled": false,
-    "consecutiveNoProgress": 0,
-    "lastProductSha": "df32d8a7995445f53f74e6703237d3833e8274c2",
+    "consecutiveNoProgress": 1,
+    "lastProductSha": "ed0744cc58fce228deb8f16730b405e2dd693999",
     "reason": null
   }
 }

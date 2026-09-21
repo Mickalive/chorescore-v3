@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "cycle": "35555772885",
+  "decision": "continue",
+  "reason": "Audit decision: repair. V3-08 remains in_progress. The candidate contains no delta (changedFiles=0, hasDelta=false) — the cycle objective (repair the trusted finalizer failure from Actions run 35552961193) is unmet. The emulator E2E golden-path step has failed 15 consecutive dispatched finalizer runs while all other gates pass. Primary hypothesis: the stuck-app detector (STUCK_APP_THRESHOLD=4 consecutive real dumps with no label match) force-stops a healthy-but-slow app during cold start on API 35 x86_64 emulator (cold start up to 240s, dump latency 30-60s each, so 4 dumps = 2-4 min, killing the app before Demarrer renders). The next Builder must inspect the step-7 evidence of run 35552961193 (logcat-wait-*.txt, logcat-failure.txt, dump-*.xml, step logs accessible via factory token) and repair the concrete runtime/E2E blocker. If the evidence shows an infrastructure-only failure (emulator boot/KVM), document it explicitly so the trusted shell can decide on a workflow-level remedy. All V3-01 through V3-07 accepted criteria are preserved with zero regression.",
+  "progressEvidence": [
+    "audit-repair-35555772885-empty-delta-V3-08-unmet",
+    "candidate-changedFiles-0-hasDelta-false",
+    "trusted-verification-exit-0-451-tests-privacy-71-cost-21",
+    "15-consecutive-finalizer-E2E-failures-same-step",
+    "stuck-app-detector-STUCK_APP_THRESHOLD-4-hypothesis",
+    "next-cycle-must-inspect-step-7-evidence-and-repair"
+  ]
+}
