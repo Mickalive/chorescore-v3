@@ -369,6 +369,15 @@ function back() { shell('input', 'keyevent', 'KEYCODE_BACK'); sleep(500); }
 // 300 s (5 min) provides headroom beyond the documented 240 s worst case.
 const COLD_START_GRACE_MS = 300_000;
 
+// Recovery grace after each force-stop + relaunch: after a force-stop, the
+// relaunched app needs time to cold-start again.  Without a per-relaunch
+// recovery window, the stuck-app detector immediately starts counting
+// against the fresh cold start, creating an infinite kill loop on slow
+// emulators (the documented 240 s cold start far exceeds the 2-4 min
+// threshold window).  FORCE_STOP_RECOVERY_MS ensures at least 5 min of
+// undisturbed cold-start time after every force-stop.
+const FORCE_STOP_RECOVERY_MS = 300_000;
+
 function waitFor(label, timeoutMs = 10000, { graceMs = 0 } = {}) {
   const until = Date.now() + timeoutMs;
   const waitStart = Date.now();
@@ -387,9 +396,20 @@ function waitFor(label, timeoutMs = 10000, { graceMs = 0 } = {}) {
   // healthy app.  The `graceMs` parameter (typically COLD_START_GRACE_MS)
   // suppresses stuck detection until the grace period has elapsed, giving
   // slow emulators time to finish Hermes initialization.
+  //
+  // IMPORTANT: after a force-stop + relaunch, the app needs a fresh cold-start
+  // window.  Without per-relaunch recovery, the stuck detector immediately
+  // starts counting against the relaunched app, creating an infinite kill loop
+  // on slow emulators.  `lastForceStopTime` tracks the wall-clock time of the
+  // most recent force-stop; stuck detection is suspended until
+  // FORCE_STOP_RECOVERY_MS have elapsed since that force-stop.
   let consecutiveEmptyMatchCount = 0;
   const STUCK_APP_THRESHOLD = 4; // ~4 × 30-60 s = 2-4 min before recovery
   let lastAppCheck = 0;
+  // Track when the last force-stop occurred (shared across the entire golden
+  // path via the outer scope, so a crash-detector relaunch in one waitFor
+  // also suppresses stuck detection in subsequent waitFor calls).
+  if (typeof globalThis._lastForceStopTime === 'undefined') globalThis._lastForceStopTime = 0;
   while (Date.now() < until) {
     // App-alive check every 30s: if the app crashed mid-golden-path,
     // relaunch it immediately instead of burning 600 s on empty dumps.
@@ -403,6 +423,7 @@ function waitFor(label, timeoutMs = 10000, { graceMs = 0 } = {}) {
           console.log(`  APP CRASHED while waiting for "${label}" — relaunching...`);
           // Invalidate dump cache so the first dump after relaunch is fresh
           _dumpCache = null;
+          globalThis._lastForceStopTime = Date.now();
           try { shell('am', 'force-stop', packageName); } catch (_) {}
           sleep(1000);
           try { shell('monkey', '-p', packageName, '-c', 'android.intent.category.LAUNCHER', '1'); } catch (_) {}
@@ -420,6 +441,7 @@ function waitFor(label, timeoutMs = 10000, { graceMs = 0 } = {}) {
         if (err && err.status === 1) {
           console.log(`  APP CRASHED while waiting for "${label}" (pidof exit 1) — relaunching...`);
           _dumpCache = null;
+          globalThis._lastForceStopTime = Date.now();
           try { shell('am', 'force-stop', packageName); } catch (_) {}
           sleep(1000);
           try { shell('monkey', '-p', packageName, '-c', 'android.intent.category.LAUNCHER', '1'); } catch (_) {}
@@ -450,12 +472,25 @@ function waitFor(label, timeoutMs = 10000, { graceMs = 0 } = {}) {
           console.log(`  COLD-START GRACE: ${Math.round(elapsedMs / 1000)}s elapsed (< ${Math.round(graceMs / 1000)}s grace) — ${consecutiveEmptyMatchCount} empty dumps so far for "${label}", app alive`);
         }
       } else {
-        // Grace period elapsed — count toward stuck threshold.
-        consecutiveEmptyMatchCount += 1;
+        // Grace period elapsed — count toward stuck threshold ONLY if enough
+        // time has elapsed since the last force-stop.  After a force-stop +
+        // relaunch the app needs a fresh cold-start window; counting immediately
+        // would recreate the infinite kill loop on slow emulators.
+        const sinceLastForceStop = Date.now() - globalThis._lastForceStopTime;
+        if (sinceLastForceStop >= FORCE_STOP_RECOVERY_MS) {
+          consecutiveEmptyMatchCount += 1;
+        } else {
+          // Still within recovery window after a force-stop — the app is
+          // cold-starting, not stuck.  Log periodically for diagnostics.
+          if (consecutiveEmptyMatchCount === 0 || consecutiveEmptyMatchCount % 2 === 0) {
+            console.log(`  FORCE-STOP RECOVERY: ${Math.round(sinceLastForceStop / 1000)}s since relaunch (< ${Math.round(FORCE_STOP_RECOVERY_MS / 1000)}s recovery) — ${consecutiveEmptyMatchCount} empty dumps for "${label}", app cold-starting`);
+          }
+        }
       }
       if (consecutiveEmptyMatchCount >= STUCK_APP_THRESHOLD) {
         console.log(`  APP STUCK: ${consecutiveEmptyMatchCount} consecutive dumps with no "${label}" match after ${Math.round((Date.now() - waitStart) / 1000)}s — force-stopping and relaunching...`);
         _dumpCache = null;
+        globalThis._lastForceStopTime = Date.now();
         try { shell('am', 'force-stop', packageName); } catch (_) {}
         sleep(2000);
         try { shell('monkey', '-p', packageName, '-c', 'android.intent.category.LAUNCHER', '1'); } catch (_) {}

@@ -316,6 +316,31 @@ describe('V3-08 finalizer wrapper contract', () => {
     expect(e2e).toContain('COLD-START GRACE');
   });
 
+  test('per-relaunch recovery prevents infinite kill loop after force-stop during cold start', () => {
+    // CRITICAL CONTRACT: After a force-stop + relaunch, the relaunched app
+    // needs a fresh cold-start window (up to 240s).  Without per-relaunch
+    // recovery, the stuck-app detector immediately starts counting against the
+    // fresh cold start, creating an infinite kill loop on slow emulators:
+    // force-stop → relaunch → 120-240s stuck detection → force-stop → ...
+    // FORCE_STOP_RECOVERY_MS ensures at least 5 min of undisturbed cold-start
+    // time after every force-stop.
+    const e2e = readRepo('scripts/e2e-android.js');
+    // FORCE_STOP_RECOVERY_MS must exist and be >= 240s (cold start)
+    const recoveryMatch = e2e.match(/FORCE_STOP_RECOVERY_MS\s*=\s*([\d_]+)/);
+    expect(recoveryMatch).not.toBeNull();
+    const recoveryMs = Number(recoveryMatch![1].replace(/_/g, ''));
+    expect(recoveryMs).toBeGreaterThanOrEqual(240_000);
+    // Global tracking variable must be used
+    expect(e2e).toContain('globalThis._lastForceStopTime');
+    // Every force-stop path must record the timestamp
+    expect(e2e).toMatch(/APP STUCK[\s\S]*globalThis\._lastForceStopTime\s*=\s*Date\.now\(\)/);
+    expect(e2e).toMatch(/APP CRASHED[\s\S]*globalThis\._lastForceStopTime\s*=\s*Date\.now\(\)/);
+    // Stuck detection must check recovery time before counting
+    expect(e2e).toContain('sinceLastForceStop >= FORCE_STOP_RECOVERY_MS');
+    // Diagnostic logging must show recovery window progress
+    expect(e2e).toContain('FORCE-STOP RECOVERY');
+  });
+
   test('screenshot reuses cached dump instead of triggering fresh uiautomator dump', () => {
     // Each fresh uiautomator dump takes 30-60s on slow emulators.
     // Screenshots are diagnostic-only and don't affect golden-path
