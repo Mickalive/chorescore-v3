@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "cycle": "35626262217",
+  "decision": "stop",
+  "reason": "Audit decision: accept. V3-08 repair accepted. The candidate repairs the trusted finalizer E2E stuck-detector cascade from Actions run 35617229931: a global 450 s cold-start grace anchored to app launch time now protects ALL waitFor calls during the launch phase (previously only the Demarrer waitFor had a per-wait grace, so the next waitFor fired the stuck-app detector during the 1-3 min SQLite demo sign-in, force-stopped a healthy app and cascaded into timeout exhaustion); STUCK_APP_THRESHOLD raised 4→8 (4-8 min before recovery after grace expiry); _appLaunchTime reset on every force-stop/relaunch path so a relaunched app receives a fresh grace window. Delta confined to scripts/e2e-android.js (+38/−3) — zero product code (src/, app/) touched, so V3-01..V3-07 invariants preserved. Trusted verification exit 0: typecheck PASS, 453/453 tests PASS (22 suites), privacy 71/71 PASS, cost 21/21 PASS, expo export android PASS, prebuild PASS, assembleDebug BUILD SUCCESSFUL. Contract test v3-08-finalizer-wrapper 23/23 PASS. V3-08 is the final criterion on the V3 roadmap (V3-01..V3-07 already complete). The Builder has no further work. The trusted shell must re-dispatch the trusted finalizer to exercise the emulator E2E golden-path step with the global grace in place. Once the finalizer passes the emulator step, V3-08 transitions to complete and all V3-01..V3-08 are accepted.",
+  "progressEvidence": [
+    "audit-accepted-35626262217-V3-08-global-cold-start-grace-repaired",
+    "global-cold-start-grace-COLD_START_GRACE_MS-450s-anchored-to-app-launch",
+    "all-waitFor-calls-protected-during-launch-phase-not-just-demarrer",
+    "STUCK_APP_THRESHOLD-raised-4-to-8-longer-recovery-window",
+    "_appLaunchTime-reset-on-every-force-stop-relaunch-path",
+    "delta-confined-to-scripts-e2e-android-js-plus-38-minus-3-no-product-code",
+    "trusted-verification-exit-0-453-tests-privacy-71-cost-21-BUILD-SUCCESSFUL",
+    "independent-re-run-typecheck-tests-privacy-cost-syntax-all-pass",
+    "v3-08-finalizer-wrapper-contract-suite-23-23-PASS",
+    "forbidden-regression-scan-clean-no-chrono-premium-paywall-warm-V2",
+    "V3-01-through-V3-07-invariants-preserved-zero-regression",
+    "V3-08-is-final-criterion-builder-work-complete",
+    "next-step-trusted-shell-re-dispatches-finalizer-for-emulator-E2E-golden-path"
+  ]
+}
