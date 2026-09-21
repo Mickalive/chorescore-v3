@@ -177,7 +177,7 @@ export class ScopedContributionRepository implements ContributionEntryRepository
     requireHouseholdMembership(this.callerUserId, householdId, memberships);
   }
 
-  seed(items: ContributionEntry[]): void { this.inner.seed(items); }
+  seed(items: ContributionEntry[]): Promise<void> | void { return this.inner.seed(items); }
 
   async getByHousehold(householdId: string): Promise<ContributionEntry[]> {
     await this.checkMembership(householdId);
@@ -235,7 +235,7 @@ export class ScopedExpenseRepository implements ExpenseEntryRepository {
     requireHouseholdMembership(this.callerUserId, householdId, memberships);
   }
 
-  seed(items: ExpenseEntry[]): void { this.inner.seed(items); }
+  seed(items: ExpenseEntry[]): Promise<void> | void { return this.inner.seed(items); }
 
   async getByHousehold(householdId: string): Promise<ExpenseEntry[]> {
     await this.checkMembership(householdId);
@@ -293,7 +293,7 @@ export class ScopedTodoRepository implements TodoRepository {
     requireHouseholdMembership(this.callerUserId, householdId, memberships);
   }
 
-  seed(items: TodoItem[]): void { this.inner.seed(items); }
+  seed(items: TodoItem[]): Promise<void> | void { return this.inner.seed(items); }
 
   async getByHousehold(householdId: string): Promise<TodoItem[]> {
     await this.checkMembership(householdId);
@@ -343,7 +343,7 @@ export class ScopedSettlementRepository implements SettlementRepository {
     requireHouseholdMembership(this.callerUserId, householdId, memberships);
   }
 
-  seed(items: CrossLedgerSettlement[]): void { this.inner.seed(items); }
+  seed(items: CrossLedgerSettlement[]): Promise<void> | void { return this.inner.seed(items); }
 
   async getByHousehold(householdId: string): Promise<CrossLedgerSettlement[]> {
     await this.checkMembership(householdId);
@@ -399,7 +399,7 @@ export class ScopedHouseholdRepository implements HouseholdRepository {
     requireRole(this.callerUserId, householdId, memberships, 'OWNER');
   }
 
-  seed(items: Household[]): void { this.inner.seed(items); }
+  seed(items: Household[]): Promise<void> | void { return this.inner.seed(items); }
 
   async getAll(): Promise<Household[]> {
     // getAll returns only households the user is a member of
@@ -448,7 +448,7 @@ export class ScopedMemberRepository implements MemberRepository {
     requireHouseholdMembership(this.callerUserId, householdId, memberships);
   }
 
-  seed(items: Member[]): void { this.inner.seed(items); }
+  seed(items: Member[]): Promise<void> | void { return this.inner.seed(items); }
 
   async getByHousehold(householdId: string): Promise<Member[]> {
     await this.checkMembership(householdId);
@@ -478,7 +478,7 @@ export class ScopedMembershipRepository implements MembershipRepository {
     private callerUserId: string,
   ) {}
 
-  seed(items: Membership[]): void { this.inner.seed(items); }
+  seed(items: Membership[]): Promise<void> | void { return this.inner.seed(items); }
 
   async getByUser(userId: string): Promise<Membership[]> {
     // Users can always look up their own memberships
@@ -542,7 +542,7 @@ export class ScopedPersistentTaskRepository implements PersistentTaskRepository 
     requireHouseholdMembership(this.callerUserId, householdId, memberships);
   }
 
-  seed(items: PersistentTask[]): void { this.inner.seed(items); }
+  seed(items: PersistentTask[]): Promise<void> | void { return this.inner.seed(items); }
 
   async getByHousehold(householdId: string): Promise<PersistentTask[]> {
     await this.checkMembership(householdId);
@@ -594,7 +594,7 @@ export class ScopedInvitationRepository implements InvitationRepository {
     requireRole(this.callerUserId, householdId, memberships, 'OWNER');
   }
 
-  seed(items: Invitation[]): void { this.inner.seed(items); }
+  seed(items: Invitation[]): Promise<void> | void { return this.inner.seed(items); }
 
   /** Token-based lookup: anyone with the token can resolve it (invitation-authorized). */
   async getById(id: string): Promise<Invitation | null> {
