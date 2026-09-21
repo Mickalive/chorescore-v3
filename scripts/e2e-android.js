@@ -408,6 +408,13 @@ function dismissSystemUiAnrOverlay() {
 // The stuck-app detector must NOT fire during cold start, otherwise it
 // force-stops a healthy-but-slow app and the cycle never recovers.
 // 450 s (7.5 min) provides headroom beyond the documented 240 s worst case.
+//
+// IMPORTANT: this grace is GLOBAL (based on app launch time), not per-waitFor.
+// After tapping "Demarrer", the app performs a demo sign-in that seeds data
+// via SQLite.  On slow emulators this can take 1-3 min.  Without a global
+// grace, the NEXT waitFor (e.g. Appartement) fires the stuck detector during
+// the sign-in phase, force-stops the healthy app, and the cycle never recovers.
+// The global grace protects ALL waitFor calls during the initial launch phase.
 const COLD_START_GRACE_MS = 450_000;
 
 // Recovery grace after each force-stop + relaunch: after a force-stop, the
@@ -445,12 +452,20 @@ function waitFor(label, timeoutMs = 10000, { graceMs = 0 } = {}) {
   // most recent force-stop; stuck detection is suspended until
   // FORCE_STOP_RECOVERY_MS have elapsed since that force-stop.
   let consecutiveEmptyMatchCount = 0;
-  const STUCK_APP_THRESHOLD = 4; // ~4 × 30-60 s = 2-4 min before recovery
+  const STUCK_APP_THRESHOLD = 8; // ~8 × 30-60 s = 4-8 min before recovery
   let lastAppCheck = 0;
   // Track when the last force-stop occurred (shared across the entire golden
   // path via the outer scope, so a crash-detector relaunch in one waitFor
   // also suppresses stuck detection in subsequent waitFor calls).
   if (typeof globalThis._lastForceStopTime === 'undefined') globalThis._lastForceStopTime = 0;
+  // Global cold-start grace: protect ALL waitFor calls during the initial
+  // launch phase.  The launch() function sets this timestamp after the
+  // app is confirmed alive and uiautomator is warmed up.  Until
+  // COLD_START_GRACE_MS have elapsed since launch, the stuck detector
+  // does not count empty dumps — this covers cold start, demo sign-in
+  // and initial screen rendering without needing per-waitFor graceMs.
+  if (typeof globalThis._appLaunchTime === 'undefined') globalThis._appLaunchTime = Date.now();
+  const globalGraceElapsed = (Date.now() - globalThis._appLaunchTime) >= COLD_START_GRACE_MS;
   while (Date.now() < until) {
     // App-alive check every 30s: if the app crashed mid-golden-path,
     // relaunch it immediately instead of burning 600 s on empty dumps.
@@ -465,6 +480,9 @@ function waitFor(label, timeoutMs = 10000, { graceMs = 0 } = {}) {
           // Invalidate dump cache so the first dump after relaunch is fresh
           _dumpCache = null;
           globalThis._lastForceStopTime = Date.now();
+          // Reset global cold-start grace so the relaunched app gets a fresh
+          // COLD_START_GRACE_MS window for Hermes init + demo sign-in.
+          globalThis._appLaunchTime = Date.now();
           try { shell('am', 'force-stop', packageName); } catch (_) {}
           sleep(1000);
           try { shell('monkey', '-p', packageName, '-c', 'android.intent.category.LAUNCHER', '1'); } catch (_) {}
@@ -483,6 +501,7 @@ function waitFor(label, timeoutMs = 10000, { graceMs = 0 } = {}) {
           console.log(`  APP CRASHED while waiting for "${label}" (pidof exit 1) — relaunching...`);
           _dumpCache = null;
           globalThis._lastForceStopTime = Date.now();
+          globalThis._appLaunchTime = Date.now();
           try { shell('am', 'force-stop', packageName); } catch (_) {}
           sleep(1000);
           try { shell('monkey', '-p', packageName, '-c', 'android.intent.category.LAUNCHER', '1'); } catch (_) {}
@@ -517,12 +536,22 @@ function waitFor(label, timeoutMs = 10000, { graceMs = 0 } = {}) {
     if (!nodes._fromCache && dumpFailures <= previousDumpFailures) {
       // Dump succeeded (no failure increment) but the label wasn't found.
       const elapsedMs = Date.now() - waitStart;
-      if (elapsedMs < graceMs) {
+      // Global cold-start grace: ALL waitFor calls are protected during the
+      // initial launch phase (COLD_START_GRACE_MS since app launch).  This
+      // covers cold start, demo sign-in, and initial screen rendering without
+      // needing per-waitFor graceMs.  The per-waitFor graceMs (if provided)
+      // is an ADDITIONAL overlay — either one suppresses stuck detection.
+      const inPerWaitGrace = elapsedMs < graceMs;
+      const inGlobalGrace = !globalGraceElapsed;
+      if (inPerWaitGrace || inGlobalGrace) {
         // Still within cold-start grace period.  Successful-but-empty dumps
         // are expected — the app is alive and rendering, just not ready yet.
         // Log periodically so the evidence shows cold-start progress.
         if (consecutiveEmptyMatchCount === 0 || consecutiveEmptyMatchCount % 2 === 0) {
-          console.log(`  COLD-START GRACE: ${Math.round(elapsedMs / 1000)}s elapsed (< ${Math.round(graceMs / 1000)}s grace) — ${consecutiveEmptyMatchCount} empty dumps so far for "${label}", app alive`);
+          const reason = inPerWaitGrace
+            ? `${Math.round(elapsedMs / 1000)}s elapsed (< ${Math.round(graceMs / 1000)}s per-wait grace)`
+            : `${Math.round((Date.now() - globalThis._appLaunchTime) / 1000)}s since launch (< ${Math.round(COLD_START_GRACE_MS / 1000)}s global grace)`;
+          console.log(`  COLD-START GRACE: ${reason} — ${consecutiveEmptyMatchCount} empty dumps so far for "${label}", app alive`);
         }
       } else {
         // Grace period elapsed — count toward stuck threshold ONLY if enough
@@ -544,6 +573,7 @@ function waitFor(label, timeoutMs = 10000, { graceMs = 0 } = {}) {
         console.log(`  APP STUCK: ${consecutiveEmptyMatchCount} consecutive dumps with no "${label}" match after ${Math.round((Date.now() - waitStart) / 1000)}s — force-stopping and relaunching...`);
         _dumpCache = null;
         globalThis._lastForceStopTime = Date.now();
+        globalThis._appLaunchTime = Date.now();
         try { shell('am', 'force-stop', packageName); } catch (_) {}
         sleep(2000);
         try { shell('monkey', '-p', packageName, '-c', 'android.intent.category.LAUNCHER', '1'); } catch (_) {}
@@ -777,6 +807,11 @@ function launch() {
   } catch (err) {
     console.log(`  WARN: uiautomator warm-up failed — proceeding anyway: ${err.message?.slice(0, 100) || err}`);
   }
+
+  // Mark the app launch time for the global cold-start grace period.
+  // From this point, all waitFor calls are protected for COLD_START_GRACE_MS.
+  globalThis._appLaunchTime = Date.now();
+  console.log(`  App launched — ${Math.round(COLD_START_GRACE_MS / 1000)}s global cold-start grace started`);
 }
 
 // ══════════════════════════════════════════════════════════════
