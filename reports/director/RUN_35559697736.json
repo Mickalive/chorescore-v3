@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "cycle": "35559697736",
+  "decision": "stop",
+  "reason": "Audit decision: accept. V3-08 repair accepted. The candidate repairs the audited must-fix: the stuck-app detector in scripts/e2e-android.js now suppresses force-stop during a 300s cold-start grace period (COLD_START_GRACE_MS), preventing the infinite kill loop on slow API 35 x86_64 emulators where cold start can reach 240s. The delta is confined to scripts/e2e-android.js (+41/-6) and its contract test (+31/-2); no product code, governance, directives, workflows or release state were touched. Trusted verification exit code 0: typecheck PASS, 452/452 tests PASS (22 suites), privacy 71/71 PASS, cost 21/21 PASS, expo export android PASS, prebuild PASS, assembleDebug BUILD SUCCESSFUL. Independent re-runs confirm all gates pass. V3-08 remains in_progress because the trusted finalizer must be re-dispatched to exercise the emulator E2E golden path with the grace-period fix in place. The trusted shell owns that re-dispatch; the Builder cannot invoke the finalizer directly. Once the finalizer passes the emulator E2E step, V3-08 is complete and the release can be finalized. All V3-01 through V3-07 accepted criteria are preserved with zero regression.",
+  "progressEvidence": [
+    "audit-accepted-35559697736-V3-08-stuck-app-detector-repaired",
+    "cold-start-grace-period-COLD_START_GRACE_MS-300000-implemented",
+    "delta-confined-to-e2e-script-and-contract-test-no-product-code-changed",
+    "trusted-verification-exit-0-452-tests-privacy-71-cost-21",
+    "independent-re-run-typecheck-tests-privacy-cost-syntax-all-pass",
+    "grace-logic-simulation-healthy-cold-starts-never-killed",
+    "V3-01-through-V3-07-invariants-preserved-zero-regression",
+    "next-step-trusted-shell-re-dispatches-finalizer-with-grace-fix-in-place"
+  ]
+}

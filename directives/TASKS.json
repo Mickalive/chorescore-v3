@@ -2,16 +2,11 @@
   "schemaVersion": 1,
   "milestone": "v3-rc",
   "builder": {
-    "enabled": true,
-    "criterionId": "V3-08",
-    "objective": "REPAIR V3-08: Inspect the step-7 evidence of run 35552961193 (logcat-wait-*.txt, logcat-failure.txt, dump-*.xml, step logs — accessible with the factory token) and repair the concrete runtime/E2E blocker. Primary hypothesis to verify: the stuck-app detector in scripts/e2e-android.js force-stops a healthy-but-slow app during cold start (4 real dumps with no match = 2-4 min on a loaded API 35 x86_64 emulator, while the documented cold start can reach 240s); fix with time-based stuck detection, a higher threshold, or by skipping force-stop while the app process is alive and dumps are healthy. If the evidence instead shows an infrastructure-only failure (emulator boot/KVM), document it explicitly in the next cycle so the trusted shell can decide on a workflow-level remedy. Preserve V3-01..V3-07 and all accepted invariants.",
-    "scope": "Repair only the audited must-fix findings on the preserved V3 baseline; do not rebuild accepted work.",
-    "acceptance": [
-      "Step-7 evidence of run 35552961193 inspected and root cause confirmed or infrastructure failure documented",
-      "Stuck-app detector fixed to not kill healthy cold-starting app (time-based / threshold / liveness)",
-      "Full trusted verification exits 0",
-      "No regression in 451-test suite, privacy 71, cost 21"
-    ],
+    "enabled": false,
+    "criterionId": null,
+    "objective": "V3-08 handed to trusted release finalizer.",
+    "scope": "Trusted finalizer only.",
+    "acceptance": [],
     "previousCriteriaPreserved": [
       "V3-01: accepted and must not regress",
       "V3-02: accepted and must not regress",
