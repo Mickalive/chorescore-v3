@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "cycle": "35566361438",
+  "decision": "stop",
+  "reason": "Audit decision: accept. V3-08 repair accepted. The candidate repairs the per-relaunch kill loop: after a force-stop (crash detector or stuck detector) + relaunch, the relaunched app needs a fresh cold-start window (documented worst case 240s), but the previous COLD_START_GRACE_MS tied to waitStart has already elapsed, so the stuck-app detector immediately counts empty dumps against the fresh cold start and force-stops again — an infinite kill loop that failed the trusted finalizer emulator E2E step 16 consecutive times. The fix adds FORCE_STOP_RECOVERY_MS = 300s: every force-stop path records globalThis._lastForceStopTime, and stuck detection increments consecutiveEmptyMatchCount only once 300s have elapsed since the last force-stop. Delta confined to scripts/e2e-android.js (+39/−2) and its contract test (+25); no product code (src/, app/) touched — V3-01..V3-07 invariants preserved. Trusted verification exit 0: typecheck PASS, 453/453 tests PASS (22 suites), privacy 71/71 PASS, cost 21/21 PASS, expo export android PASS, prebuild PASS, assembleDebug BUILD SUCCESSFUL in 17m25s. Independent re-runs confirm all gates pass. V3-08 remains in_progress because the trusted finalizer must be re-dispatched to exercise the emulator E2E golden-path step with the per-relaunch recovery fix in place. The trusted shell owns that re-dispatch; the Builder cannot invoke the finalizer directly.",
+  "progressEvidence": [
+    "audit-accepted-35566361438-V3-08-per-relaunch-recovery-repaired",
+    "FORCE_STOP_RECOVERY_MS-300000-per-relaunch-window-implemented",
+    "globalThis._lastForceStopTime-recorded-at-all-three-force-stop-paths",
+    "stuck-detection-increment-guarded-by-sinceLastForceStop-gte-RECOVERY",
+    "kill-loop-eliminated-9-scenario-simulation-healthy-cold-starts-survive",
+    "delta-confined-to-e2e-script-and-contract-test-no-product-code-changed",
+    "trusted-verification-exit-0-453-tests-privacy-71-cost-21-BUILD-SUCCESSFUL",
+    "independent-re-run-typecheck-tests-privacy-cost-syntax-all-pass",
+    "contract-test-passes-new-per-relaunch-recovery-guard",
+    "V3-01-through-V3-07-invariants-preserved-zero-regression",
+    "next-step-trusted-shell-re-dispatches-finalizer-with-per-relaunch-fix"
+  ]
+}
