@@ -309,11 +309,12 @@ describe('V3-04 cost gates: Balances does not full-scan', () => {
     expect(allTimeBalances.get('a')).toBe(-17.5);
     expect(contributionLedgerIsZeroSum(allTimeBalances)).toBe(true);
 
-    // Week: only new settlement
+    // Week: only new settlement (referenceDate pinned to Sept 16 so the week
+    // boundary = Monday Sept 14, keeping the Sept 16 entries inside the week)
     // a = +7.5 - 10 = -2.5
     // b = -7.5 + 10 = +2.5
     const weekBalances = computePeriodContributionBalances(
-      entries, 'minutes', allSettlements, MEMBER_IDS, 'week'
+      entries, 'minutes', allSettlements, MEMBER_IDS, 'week', new Date('2026-09-16T14:00:00.000Z')
     );
     expect(weekBalances.get('a')).toBe(-2.5);
     expect(contributionLedgerIsZeroSum(weekBalances)).toBe(true);

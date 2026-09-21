@@ -264,8 +264,9 @@ describe('V3-04 period views: never reset', () => {
     expect(contributionLedgerIsZeroSum(allTimeBalances)).toBe(true);
 
     // Week view: only the new settlement affects balances
+    // referenceDate pinned to Sept 16 so the week boundary = Monday Sept 14
     const weekBalances = computePeriodContributionBalances(
-      entries, 'minutes', allSettlements, MEMBER_IDS, 'week'
+      entries, 'minutes', allSettlements, MEMBER_IDS, 'week', new Date('2026-09-16T14:00:00.000Z')
     );
     // a = +40 from contribution, s-new: -10 → +30
     // b = -20 from contribution, s-new: +10 → -10
@@ -306,8 +307,9 @@ describe('V3-04 period views: never reset', () => {
     expect(allTimeChf.get('b')).toBe(-2333);
 
     // Week: only new settlement
+    // referenceDate pinned to Sept 16 so the week boundary = Monday Sept 14
     const weekFinancial = computePeriodFinancialBalances(
-      expenses, allSettlements, ['a', 'b'], 'week'
+      expenses, allSettlements, ['a', 'b'], 'week', new Date('2026-09-16T14:00:00.000Z')
     );
     const weekChf = weekFinancial.get('CHF')!;
     // a = +1500 from expense, s-new: +333 → +1833
