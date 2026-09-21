@@ -91,6 +91,7 @@ jobs:
           profile: pixel_6
           script: bash scripts/finalizer-e2e.sh
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: chorescore-v3-android-release
           path: android/app/build/outputs/apk/release/*.apk
