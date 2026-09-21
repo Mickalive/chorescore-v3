@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "cycle": "35654272376",
+  "decision": "continue",
+  "reason": "Audit decision: reject. The candidate changed router.push('/add') to router.push('/(tabs)') in app/index.tsx, hypothesizing the /add route broke the golden path. Independent verification with the exact Expo Router 57.0.22 resolution pipeline DISPROVES this: /add resolves correctly to __root -> (tabs) -> add; /(tabs) resolves to +not-found (Unmatched Route screen) because the (tabs) group has no index child. The candidate change would make the golden path fail deterministically at waitFor('Ajouter') — the exact failure it claims to fix. The /add route was never the blocker; the trusted finalizer emulator-step failure (17+ consecutive) is an infrastructure/E2E issue. The rejected delta is discarded (no WIP retained). The next cycle must keep router.push('/add') and investigate the concrete emulator failure using the persisted diagnostics artifact (id 10663681034) or step-7 logs to identify the real blocker (emulator boot, APK install, cold start, sign-in, dump fragility, app crash/ANR, or System UI overlay). V3-01..V3-07 remain accepted; 453/453 tests pass; privacy 71/71; cost 21/21; BUILD SUCCESSFUL. No product code regression.",
+  "progressEvidence": [
+    "audit-rejected-35654272376-harmful-navigation-change-discarded",
+    "router-push-add-resolves-correctly-to-tabs-add-verified",
+    "router-push-tabs-resolves-to-not-found-unmatched-route-verified",
+    "expo-router-57.0.22-resolution-pipeline-empirically-tested",
+    "real-route-tree-generated-via-getRoutes-matches-expected",
+    "delta-scope-single-line-app-index-tsx-rejected-discarded",
+    "trusted-verification-exit-0-453-tests-privacy-71-cost-21",
+    "expo-export-prebuild-assembleDebug-BUILD-SUCCESSFUL",
+    "V3-01-through-V3-07-invariants-preserved-zero-regression",
+    "no-coherent-WIP-to-retain-rejected-delta-is-harmful",
+    "next-cycle-must-keep-router-push-add-and-repair-emulator-blocker",
+    "actual-emulator-failure-unidentified-17-plus-consecutive-failures",
+    "diagnostics-artifact-10663681034-available-for-investigation"
+  ]
+}

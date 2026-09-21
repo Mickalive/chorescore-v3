@@ -1,131 +1,30 @@
 {
   "schemaVersion": 1,
-  "milestone": "v3-rc",
-  "lastCycle": "35654272376",
-  "activeCriteria": [
-    "V3-08"
+  "cycle": "35654272376",
+  "role": "builder",
+  "decision": "reject",
+  "summary": "V3-08 repair of trusted finalizer failure from Actions run 35650859523. The finalizer release job failed at step 'Android API 35 install, launch and golden path' (~20m59s) with all product/privacy/cost gates and the x86_64 release build passing. The candidate delta is exactly one line in app/index.tsx: openHousehold changes router.push('/add') to router.push('/(tabs)'), hypothesizing that the /add route broke the golden path. Independent verification DISPROVES this hypothesis: using the app's real route tree (getRoutes over the actual app directory) and the exact Expo Router 57.0.22 linking config (getNavigationConfig + fork/getStateFromPath, the precise function used by router.push via getNavigateAction -> store.linking.getStateFromPath), '/add' resolves to the valid state __root -> (tabs) -> add, while '/(tabs)' resolves to '+not-found' (the generated Unmatched Route screen, active because app.json sets no router.notFound=false and the app has no +not-found file). The candidate change would therefore make the golden path fail DETERMINISTICALLY at waitFor('Ajouter') after tapping 'Appartement' — the exact failure mode it claims to fix, now guaranteed by code instead of emulator flakiness. The /add route was never the blocker: run 35650859523 failed in the emulator/E2E infrastructure, the 17th+ consecutive finalizer emulator-step failure, all previous ones attributed to E2E-script/emulator issues (stuck detector, dump fragility, cold start) and none to navigation. Trusted verification exit code 0 (typecheck, 453 tests / 22 suites, privacy 71, cost 21, expo export, prebuild, assembleDebug BUILD SUCCESSFUL) — but a green static suite cannot validate runtime navigation, and the finalizer contract tests are static checks that never assert the navigation route. Decision: reject — the delta is a single harmful line that must be discarded; the next cycle must keep router.push('/add') and repair the actual emulator/E2E blocker using the persisted diagnostics artifact (chorescore-v3-finalizer-diagnostics, id 10663681034) or step logs.",
+  "checks": [
+    "trusted-verification-exit-0",
+    "typecheck-pass",
+    "jest-453-tests-pass-22-suites",
+    "privacy-check-pass-71-tests",
+    "cost-check-pass-21-tests",
+    "expo-export-pass",
+    "expo-prebuild-pass",
+    "gradle-assembleDebug-build-successful",
+    "delta-scope-single-line-app-index-tsx",
+    "pristine-tree-identical-except-candidate-line",
+    "route-resolution-empirical-test-add-resolves-tabs-add",
+    "route-resolution-empirical-test-tabs-resolves-not-found",
+    "real-route-tree-generated-via-getRoutes",
+    "router-push-resolution-path-verified-in-source",
+    "not-found-route-active-confirmed",
+    "failed-run-35650859523-confirmed-via-public-api",
+    "e2e-script-timing-budget-analyzed",
+    "prior-audit-context-openHousehold-history-reviewed"
   ],
-  "pendingArtifact": null,
-  "progressSummary": "Audited V3-08 requires repair; WIP baseline preserved when a safe delta existed.",
-  "criteria": [
-    {
-      "id": "V3-01",
-      "status": "complete",
-      "evidence": [
-        "initial-v3-domain-entities",
-        "contribution-ledger-zero-sum",
-        "expense-ledger-integer-rounding",
-        "cross-ledger-rate-snapshot",
-        "baseline-ci-35113857194-green",
-        "audit-accepted-35136264945"
-      ]
-    },
-    {
-      "id": "V3-02",
-      "status": "complete",
-      "evidence": [
-        "audit-accepted-35146343615"
-      ]
-    },
-    {
-      "id": "V3-03",
-      "status": "complete",
-      "evidence": [
-        "audit-accepted-35163510112"
-      ]
-    },
-    {
-      "id": "V3-04",
-      "status": "complete",
-      "evidence": [
-        "audit-accepted-35182865593"
-      ]
-    },
-    {
-      "id": "V3-05",
-      "status": "complete",
-      "evidence": [
-        "audit-accepted-35210010719"
-      ]
-    },
-    {
-      "id": "V3-06",
-      "status": "complete",
-      "evidence": [
-        "audit-accepted-35250095462",
-        "trusted-verification-exit-0-tsc-320-tests-android-build",
-        "mustFix-1-import-restored-7-authorization-tests-pass",
-        "mustFix-2-ObjectCreate-prototype-chain-preservation",
-        "mustFix-3-MaterializingSyncState-exported-SQLite-wiring-fixed",
-        "audit-accepted-35250095462"
-      ]
-    },
-    {
-      "id": "V3-07",
-      "status": "complete",
-      "evidence": [
-        "audit-repair-35257638071",
-        "candidate-retained-as-WIP-12-new-files-60-of-70-tests-pass",
-        "mustFix-5-findings-identified-for-repair",
-        "audit-accepted-35261053897"
-      ]
-    },
-    {
-      "id": "V3-08",
-      "status": "in_progress",
-      "evidence": [
-        "audit-accepted-35271021564",
-        "apk-path-repair-correct-exposed-waitFor-bug",
-        "trusted-verification-exit-0-426-tests-pass",
-        "audit-repair-35284783701",
-        "audit-accepted-35288409235",
-        "audit-accepted-35295951364",
-        "audit-accepted-35310569665",
-        "audit-accepted-35325991233",
-        "audit-accepted-35421406333",
-        "audit-accepted-35425284987",
-        "diagnostic-instrumentation-e2e-scripts-bounded-adb-timeouts",
-        "emulator-step-resilience-cold-start-tolerances-graceful-dump",
-        "audit-accepted-35425284987",
-        "audit-accepted-35434905999",
-        "audit-accepted-35441953837",
-        "step-7-root-cause-identified-exec-out-ETIMEDOUT-adb-transport-flakiness",
-        "repair-adb-transport-resilience-shell-cat-reconnect-dump-failures",
-        "repair-cold-start-headroom-launch-30s-demarrer-240s-settle-30s",
-        "trusted-verification-exit-0-432-tests-22-suites-privacy-71-cost-21",
-        "expo-export-android-prebuild-assembleDebug-BUILD-SUCCESSFUL-19m20s",
-        "finalizer-wrapper-e2e-golden-path-cost-gates-41-41-pass",
-        "regression-spot-check-313-tests-pass",
-        "audit-accepted-35441953837",
-        "audit-accepted-35448051096",
-        "audit-accepted-35453691894",
-        "audit-accepted-35460432762",
-        "audit-accepted-35466799695",
-        "audit-accepted-35473025592",
-        "audit-accepted-35480197755",
-        "audit-accepted-35487229476",
-        "audit-accepted-35492810195",
-        "audit-repair-35498415263-crash-detection-non-functional-mustFix",
-        "candidate-retained-as-WIP-baseline",
-        "audit-accepted-35501669470",
-        "audit-accepted-35510712950",
-        "audit-accepted-35517442615",
-        "audit-accepted-35524260895",
-        "audit-accepted-35540683935",
-        "audit-accepted-35546606058",
-        "audit-repair-35555772885-empty-delta-E2E-stuck-app-detector-hypothesis",
-        "audit-accepted-35559697736",
-        "audit-accepted-35566361438",
-        "per-relaunch-recovery-FORCE_STOP_RECOVERY_MS-300000",
-        "kill-loop-eliminated-16-consecutive-failures-addressed",
-        "trusted-verification-exit-0-453-tests-BUILD-SUCCESSFUL",
-        "audit-accepted-35566361438",
-        "audit-accepted-35581335941",
-        "audit-accepted-35626262217"
-      ]
-    }
-  ],
-  "openFindings": [
+  "findings": [
     {
       "path": "app/index.tsx",
       "problem": "The candidate changes openHousehold from router.push('/add') to router.push('/(tabs)'). In Expo Router 57.0.22 with this app's route tree, '/(tabs)' does NOT resolve to the tabs layout: getStateFromPath returns the '+not-found' route (the generated Unmatched Route screen), because the (tabs) group has no index child and the group path itself is not a matchable URL. The golden path taps 'Appartement' then waits for 'Ajouter'; with this change the app would render 'Unmatched Route' and waitFor('Ajouter') would time out after 300s — the exact failure the candidate claims to fix, now made deterministic by code. The pristine '/add' route resolves correctly to __root -> (tabs) -> add and is the right navigation target.",
@@ -142,11 +41,5 @@
       "requiredFix": "Keep the pristine navigation ('/add') and investigate the actual emulator failure: download the chorescore-v3-finalizer-diagnostics artifact (id 10663681034) or read the step-7 logs (logcat-wait-*.txt, dumpsys-wait-*.txt, result.json, UI dump XML echoed to step stdout by scripts/finalizer-e2e.sh) to identify the concrete blocker (emulator boot, APK install, cold start, sign-in, dump fragility, app crash/ANR, or System UI overlay), then repair only that concrete blocker while preserving V3-01..V3-07.",
       "verification": "The next trusted finalizer dispatch must pass the Android API 35 install/launch/golden-path step with the repaired baseline; the golden path must reach Ajouter/Balances/A faire and the demo entries with router.push('/add') in place."
     }
-  ],
-  "factoryHealth": {
-    "stalled": false,
-    "consecutiveNoProgress": 0,
-    "lastProductSha": "686a6504d60a2c916e324327d59c65fc5c403b29",
-    "reason": null
-  }
+  ]
 }
