@@ -360,6 +360,47 @@ function typeInto(label, value) {
 
 function back() { shell('input', 'keyevent', 'KEYCODE_BACK'); sleep(500); }
 
+/**
+ * Dismiss a transient Android System UI ANR overlay that can cover the app on
+ * heavily loaded GitHub API 35 emulators. This is an emulator/system failure,
+ * not an app screen. Choose "Wait" so System UI recovers without killing it.
+ *
+ * Returns true only when the specific System UI ANR dialog was detected and
+ * dismissed. App-specific ANR dialogs are deliberately not swallowed.
+ */
+function dismissSystemUiAnrOverlay() {
+  let dump;
+  try {
+    dump = dumpUi();
+  } catch (_) {
+    return false;
+  }
+
+  const systemUiAnr = dump.nodes.find((n) => {
+    const text = n.text || n['content-desc'] || '';
+    const resourceId = n['resource-id'] || '';
+    return resourceId === 'android:id/alertTitle' && text === "System UI isn't responding";
+  });
+  if (!systemUiAnr) return false;
+
+  console.log('  SYSTEM UI ANR overlay detected — choosing "Wait" and retrying app UI');
+  const waitNode = dump.nodes.find(
+    (n) => (n['resource-id'] || '') === 'android:id/aerr_wait' || (n.text || '') === 'Wait'
+  );
+  if (waitNode) {
+    try {
+      tapNode(waitNode, 3000);
+    } catch (_) {
+      try { back(); } catch (_) {}
+    }
+  } else {
+    try { back(); } catch (_) {}
+  }
+  _dumpCache = null;
+  sleep(2000);
+  return true;
+}
+
 // Cold-start grace period: on API 35 x86_64 emulators under GitHub Actions
 // load, React Native cold start can take up to 240 s.  During this window,
 // the app process is alive and uiautomator dumps return valid XML with nodes
@@ -453,6 +494,18 @@ function waitFor(label, timeoutMs = 10000, { graceMs = 0 } = {}) {
         // proceed with normal wait (dump failures will trigger reconnect).
       }
     }
+    // GitHub's API 35 emulator can surface a transient "System UI isn't
+    // responding" dialog while the ChoreScore process is healthy. That dialog
+    // completely covers the app, so waiting for an app label can never
+    // succeed until it is dismissed. Handle only the System UI overlay here;
+    // app-specific ANRs remain real failures and are not hidden.
+    if (dismissSystemUiAnrOverlay()) {
+      consecutiveEmptyMatchCount = 0;
+      consecutiveDumpFails = 0;
+      previousDumpFailures = dumpFailures;
+      continue;
+    }
+
     const nodes = findNodes(label);
     if (nodes.length) return;
     // Track successful-but-empty dumps: only count REAL dumps (cache miss)
