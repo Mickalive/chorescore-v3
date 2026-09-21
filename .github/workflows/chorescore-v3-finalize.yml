@@ -73,16 +73,13 @@ jobs:
           npx --no-install expo export --platform android --output-dir "$RUNNER_TEMP/v3-final-android-export"
           npx --no-install expo export --platform ios --output-dir "$RUNNER_TEMP/v3-final-ios-export"
           npx --no-install expo prebuild --platform android --no-install
-          (cd android && ./gradlew :app:assembleRelease --no-daemon)
           jq -e '.scripts["e2e:android"]' package.json >/dev/null
-      - id: digest
-        name: Locate and hash APK
+      - name: Build x86_64 release candidate for API 35
         run: |
           set -euo pipefail
+          (cd android && ./gradlew :app:assembleRelease -PreactNativeArchitectures=x86_64 --no-daemon)
           apk=$(find android/app/build/outputs/apk/release -type f -name '*.apk' | head -1)
           test -s "$apk"
-          echo "apk=$apk" >> "$GITHUB_OUTPUT"
-          echo "apk_sha=$(sha256sum "$apk" | awk '{print $1}')" >> "$GITHUB_OUTPUT"
       - name: Android API 35 install, launch and golden path
         uses: reactivecircus/android-emulator-runner@v2
         with:
@@ -90,12 +87,33 @@ jobs:
           arch: x86_64
           profile: pixel_6
           script: bash scripts/finalizer-e2e.sh
+      - name: Build final universal release APK
+        run: |
+          set -euo pipefail
+          (cd android && ./gradlew :app:assembleRelease -PreactNativeArchitectures=armeabi-v7a,arm64-v8a,x86,x86_64 --no-daemon)
+      - id: digest
+        name: Locate and hash final APK
+        run: |
+          set -euo pipefail
+          apk=$(find android/app/build/outputs/apk/release -type f -name '*.apk' | head -1)
+          test -s "$apk"
+          echo "apk=$apk" >> "$GITHUB_OUTPUT"
+          echo "apk_sha=$(sha256sum "$apk" | awk '{print $1}')" >> "$GITHUB_OUTPUT"
       - uses: actions/upload-artifact@v4
-        if: always()
+        if: success()
         with:
           name: chorescore-v3-android-release
           path: android/app/build/outputs/apk/release/*.apk
           retention-days: 30
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: chorescore-v3-finalizer-diagnostics
+          path: |
+            audit/android-e2e/**
+            android/app/build/outputs/apk/release/*.apk
+          if-no-files-found: ignore
+          retention-days: 14
 
   finalize-success:
     needs: [prepare, release]
