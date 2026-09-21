@@ -19,40 +19,39 @@ set -euo pipefail
 echo "=== ChoreScore V3 finalizer E2E ==="
 echo "Time: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
-# 0. Wait for emulator to be fully booted
-# API 35 x86_64 emulators on GitHub Actions can take 120-240s to boot.
-# We use 420s (7 min) to handle slow cold starts and CI load.
-echo "Waiting for emulator to be fully booted..."
-TIMEOUT=420
-ELAPSED=0
-while [ "$ELAPSED" -lt "$TIMEOUT" ]; do
+# 0. Quick boot state check
+# The reactivecircus/android-emulator-runner@v2 action already waits for
+# sys.boot_completed=1 before running this script.  A short 60s safety loop
+# catches the rare case where the action's boot wait returned early (e.g.
+# adb transport glitch) while keeping wrapper overhead minimal.  Every
+# second saved here is a second available for the E2E golden path.
+WRAPPER_START=$(date +%s)
+echo "Quick boot state check..."
+BOOT_CONFIRMED=0
+for i in 1 2 3 4 5 6 7 8 9 10 11 12; do
   BOOT_COMPLETED=$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r' || true)
   if [ "$BOOT_COMPLETED" = "1" ]; then
-    echo "Emulator boot completed after ${ELAPSED}s"
+    echo "Emulator boot confirmed on check ${i}"
+    BOOT_CONFIRMED=1
     break
   fi
+  echo "  Boot not yet complete (check ${i}/12), waiting 5s..."
   sleep 5
-  ELAPSED=$((ELAPSED + 5))
-  # Log every 30s to avoid excessive output
-  if [ $((ELAPSED % 30)) -eq 0 ]; then
-    echo "  Waiting for boot... (${ELAPSED}s/${TIMEOUT}s)"
-  fi
 done
 
-if [ "$ELAPSED" -ge "$TIMEOUT" ]; then
-  echo "WARNING: Emulator boot timeout after ${TIMEOUT}s, proceeding anyway"
+if [ "$BOOT_CONFIRMED" -ne 1 ]; then
+  echo "WARNING: Emulator boot not confirmed after 60s, proceeding anyway"
   echo "Boot state diagnostics:"
   echo "  sys.boot_completed: $(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r' || echo 'unavailable')"
   echo "  ro.build.version.sdk: $(adb shell getprop ro.build.version.sdk 2>/dev/null | tr -d '\r' || echo 'unavailable')"
   echo "  init.svc.bootanim: $(adb shell getprop init.svc.bootanim 2>/dev/null | tr -d '\r' || echo 'unavailable')"
 fi
 
-# Additional wait for package manager and runtime to settle (API 35 x86_64 can be slow)
-# 30s gives the package manager and runtime time to fully initialize after
-# sys.boot_completed=1.  The E2E script's launch() polls dumpsys activity for up
-# to 15s and provides additional headroom for any remaining initialization.
-echo "Waiting for package manager to settle (30s)..."
-sleep 30
+# Brief settle for package manager (10s vs previous 30s).
+# The E2E script's launch() polls dumpsys activity for up to 15s and runs
+# a uiautomator warm-up dump, so the wrapper only needs a short settle.
+echo "Brief package manager settle (10s)..."
+sleep 10
 
 # Verify adb is connected and log device state
 adb get-state 2>/dev/null || {
@@ -63,26 +62,14 @@ echo "adb device state: $(adb get-state)"
 echo "adb devices:"
 adb devices -l 2>/dev/null || true
 
-# Verify adb connection health WITHOUT restarting the server.
-# Previous cycles restarted the adb server here to "ensure a clean connection
-# after the heavy boot phase", but this actually destabilised a healthy
-# connection: kill-server + start-server takes 6+s and the subsequent
-# uiautomator server initialization on the device can stall, causing the
-# golden-path waitFor('Demarrer') to time out because every dumpUi() call
-# in the E2E script returns empty XML (the uiautomator server hasn't
-# re-registered with the new adb server yet).  The E2E script's own
-# adbReconnect() already handles truly degraded transport, so an
-# unconditional restart here is counter-productive.
-echo "Verifying adb connection health..."
-for i in 1 2 3; do
-  if adb get-state 2>/dev/null | grep -q device; then
-    echo "adb connection healthy on attempt ${i}"
-    break
-  fi
-  echo "  adb state check attempt ${i} failed, waiting 3s..."
-  sleep 3
-done
-echo "adb device state: $(adb get-state 2>/dev/null || echo 'unknown')"
+# Quick adb health check (single attempt — the E2E script's own
+# adbReconnect() handles truly degraded transport).
+echo "Verifying adb connection..."
+if adb get-state 2>/dev/null | grep -q device; then
+  echo "adb connection healthy"
+else
+  echo "WARNING: adb state check failed, proceeding anyway"
+fi
 echo "sys.boot_completed: $(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r' || echo 'unknown')"
 echo "ro.build.version.sdk: $(adb shell getprop ro.build.version.sdk 2>/dev/null | tr -d '\r' || echo 'unknown')"
 
@@ -99,15 +86,17 @@ fi
 echo "APK: $apk ($(stat -c%s "$apk") bytes)"
 
 # 2. Install on the emulator with retry
+# Each install attempt is bounded by timeout(120) to prevent adb hangs
+# on degraded emulators.  Two attempts (not three) save ~70s of budget.
 echo "Installing APK..."
 echo "APK file: $apk ($(stat -c%s "$apk") bytes, $(sha256sum "$apk" | awk '{print $1}'))"
 INSTALL_ATTEMPTS=0
-MAX_ATTEMPTS=3
+MAX_ATTEMPTS=2
 INSTALLED=0
 while [ "$INSTALL_ATTEMPTS" -lt "$MAX_ATTEMPTS" ]; do
   INSTALL_ATTEMPTS=$((INSTALL_ATTEMPTS + 1))
   echo "  Install attempt ${INSTALL_ATTEMPTS}/${MAX_ATTEMPTS}..."
-  INSTALL_OUTPUT=$(adb install -r "$apk" 2>&1) && INSTALL_EXIT=0 || INSTALL_EXIT=$?
+  INSTALL_OUTPUT=$(timeout 120 adb install -r "$apk" 2>&1) && INSTALL_EXIT=0 || INSTALL_EXIT=$?
   echo "  Install exit: $INSTALL_EXIT"
   echo "  Install output: $INSTALL_OUTPUT"
   if [ "$INSTALL_EXIT" -eq 0 ]; then
@@ -116,8 +105,8 @@ while [ "$INSTALL_ATTEMPTS" -lt "$MAX_ATTEMPTS" ]; do
     break
   fi
   if [ "$INSTALL_ATTEMPTS" -lt "$MAX_ATTEMPTS" ]; then
-    echo "  Install failed, waiting 15s before retry..."
-    sleep 15
+    echo "  Install failed, waiting 10s before retry..."
+    sleep 10
   fi
 done
 
@@ -141,7 +130,9 @@ fi
 echo "Post-install adb state: $(adb get-state 2>/dev/null || echo 'unknown')"
 
 # 3. Run the golden-path E2E
-echo "Running golden-path E2E..."
+WRAPPER_OVERHEAD=$(($(date +%s) - WRAPPER_START))
+echo "Wrapper overhead: ${WRAPPER_OVERHEAD}s (boot check + settle + install)"
+echo "Running golden-path E2E... (wrapper overhead included in step timing)"
 # Capture pre-E2E logcat for diagnosis of any startup issues
 mkdir -p audit/android-e2e
 echo "Capturing pre-E2E logcat..."

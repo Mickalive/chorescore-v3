@@ -394,7 +394,9 @@ describe('V3-08 finalize workflow YAML regression guard', () => {
     // Should NOT contain an unconditional adb kill-server before the E2E
     // golden path (the E2E script handles this internally).
     // The wrapper should verify health with get-state instead.
-    expect(wrapper).toContain('Verifying adb connection health');
+    // The wrapper verifies adb health via get-state (not kill-server + restart).
+    // The exact label may vary; check for the get-state pattern used for verification.
+    expect(wrapper).toContain('Verifying adb connection');
     expect(wrapper).toContain('adb get-state');
   });
 });
