@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "cycle": "35660497212",
+  "decision": "continue",
+  "reason": "Audit decision: repair. The navigation must-fix from the previous cycle is RESOLVED — app/index.tsx is byte-identical to the pristine accepted tree (setCurrentHouseholdId(id) + router.push('/add'); /(tabs) would resolve to Unmatched Route and is not used). The candidate's safe WIP (finalizer wrapper timing improvements: boot wait 420s->60s, settle 30s->10s, install 3->2 attempts bounded by timeout(120), single-attempt adb health check) is coherent and should be retained. However, the concrete emulator blocker is NOT repaired: timing reconstruction from run 35650859523 proves the E2E script's waitFor('Demarrer', 900000) timed out because the app never showed the Demarrer button within 900s of launch (cold start / demo sign-in / app crash / dump fragility). The wrapper has no hard step timeout; reducing wrapper overhead cannot change the E2E outcome. The next cycle must keep the WIP, investigate the actual app cold-start / demo sign-in path (Hermes init, SQLite demo seeding, splash screen, sign-in flow), and add mid-wait diagnostics to scripts/e2e-android.js (periodic logcat/dumpsys during the Demarrer wait) so the exact failure point can be identified. V3-01..V3-07 remain accepted; 453 tests pass; privacy 71; cost 21; BUILD SUCCESSFUL.",
+  "progressEvidence": [
+    "audit-repair-35660497212-navigation-must-fix-resolved-pristine-add-restored",
+    "app-index-tsx-byte-identical-to-accepted-pristine-tree",
+    "router-push-add-resolves-correctly-to-tabs-add-verified",
+    "router-push-tabs-resolves-to-not-found-unmatched-route-verified",
+    "safe-wrapper-WIP-retained-boot-420s-to-60s-settle-30s-to-10s-install-2-attempts",
+    "trusted-verification-exit-0-453-tests-privacy-71-cost-21",
+    "expo-export-prebuild-assembleDebug-BUILD-SUCCESSFUL",
+    "V3-01-through-V3-07-invariants-preserved-zero-regression",
+    "timing-reconstruction-confirms-Demarrer-waitFor-900s-timeout",
+    "no-hard-step-timeout-confirmed-workflow-and-action-source",
+    "wrapper-overhead-reduction-cannot-change-E2E-outcome",
+    "concrete-emulator-blocker-not-repaired-mustFix-remains",
+    "next-cycle-must-investigate-cold-start-demo-sign-in-and-add-diagnostics"
+  ]
+}

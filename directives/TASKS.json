@@ -4,7 +4,7 @@
   "builder": {
     "enabled": true,
     "criterionId": "V3-08",
-    "objective": "REPAIR V3-08: Revert the candidate line: keep router.push('/add') in openHousehold (with setCurrentHouseholdId(id) as in the pristine baseline). Do not navigate to '/(tabs)' — it resolves to the Unmatched Route screen and would break the golden path deterministically.; Keep the pristine navigation ('/add') and investigate the actual emulator failure: download the chorescore-v3-finalizer-diagnostics artifact (id 10663681034) or read the step-7 logs (logcat-wait-*.txt, dumpsys-wait-*.txt, result.json, UI dump XML echoed to step stdout by scripts/finalizer-e2e.sh) to identify the concrete blocker (emulator boot, APK install, cold start, sign-in, dump fragility, app crash/ANR, or System UI overlay), then repair only that concrete blocker while preserving V3-01..V3-07.",
+    "objective": "REPAIR V3-08: Keep the pristine navigation (router.push('/add') + setCurrentHouseholdId(id)) and keep the safe wrapper improvements, then repair the actual blocker: the app must reach the 'Demarrer' screen within the E2E script's fixed 900s window on the API 35 emulator. Investigate the app cold-start / demo sign-in / initial render path (Hermes init, splash screen, SQLite demo seeding, sign-in flow) and/or add mid-wait diagnostics to scripts/e2e-android.js (periodic logcat/dumpsys during the Demarrer wait, not only at timeout) so the next cycle can capture the exact failure point if it persists. Preserve V3-01..V3-07 invariants.",
     "scope": "Repair only the audited must-fix findings on the preserved V3 baseline; do not rebuild accepted work.",
     "acceptance": [],
     "previousCriteriaPreserved": [
