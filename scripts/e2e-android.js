@@ -366,8 +366,8 @@ function back() { shell('input', 'keyevent', 'KEYCODE_BACK'); sleep(500); }
 // — just not the expected label yet because Hermes is still initializing.
 // The stuck-app detector must NOT fire during cold start, otherwise it
 // force-stops a healthy-but-slow app and the cycle never recovers.
-// 300 s (5 min) provides headroom beyond the documented 240 s worst case.
-const COLD_START_GRACE_MS = 300_000;
+// 450 s (7.5 min) provides headroom beyond the documented 240 s worst case.
+const COLD_START_GRACE_MS = 450_000;
 
 // Recovery grace after each force-stop + relaunch: after a force-stop, the
 // relaunched app needs time to cold-start again.  Without a per-relaunch
@@ -760,28 +760,35 @@ try {
   // Diagnostic screenshot to capture the screen state after launch
   screenshot('diagnostic-post-launch');
   console.log('Waiting for Demarrer button...');
-  // API 35 x86_64 cold start can be very slow — 600s (10 min) timeout.
+  // API 35 x86_64 cold start can be very slow — 900s (15 min) timeout.
   // The dump cache (30s TTL, invalidated on tap/swipe) ensures rapid
   // same-screen checks share one dump (~30-60s each on slow emulators),
   // while screen transitions always trigger fresh dumps.  Combined with
   // the reduced dumpsys pre-check (15s vs 60s), the golden path fits
   // within the step timeout even on the slowest API 35 x86_64 runs.
   //
-  // graceMs: suppress the stuck-app detector during cold start (first 5 min).
+  // graceMs: suppress the stuck-app detector during cold start (first 7.5 min).
   // On slow emulators, the app process is alive and dumps return valid XML
   // with nodes — just not "Demarrer" yet because Hermes is still initializing.
   // Without grace, 4 consecutive empty dumps (2-4 min) fires before the
   // documented 240s cold start completes, killing a healthy app.
-  waitFor('Demarrer', 600000, { graceMs: COLD_START_GRACE_MS });
+  //
+  // IMPORTANT: after a force-stop + relaunch mid-wait, the app needs a fresh
+  // cold-start window (up to 240s).  The 900s timeout ensures the relaunched
+  // app has enough time to cold-start AND appear before the timeout fires:
+  // worst case = 420s (initial stuck detection) + 15s (relaunch overhead) +
+  // 240s (relaunch cold start) + 120s (dump + buffer) = 795s < 900s.
+  waitFor('Demarrer', 900000, { graceMs: COLD_START_GRACE_MS });
   screenshot('01-login');
   tapLabel('Demarrer', { exact: false });
   console.log('Waiting for Appartement group...');
-  // 120s timeout: after tapping Demarrer, the app completes demo sign-in
+  // 300s timeout: after tapping Demarrer, the app completes demo sign-in
   // (which seeds the fixture via SQLite) and renders the groups list.  On
   // a cold API 35 x86_64 emulator, sign-in + fixture seeding can take
-  // 30-60s, and the first uiautomator dump adds another 30-60s.  A 60s
-  // timeout only fits one dump attempt; 120s gives 2-3 attempts.
-  waitFor('Appartement', 120000);
+  // 30-60s, and the first uiautomator dump adds another 30-60s.  If the
+  // app crashes mid-path and relaunches, it needs a full cold start (240s).
+  // 300s gives headroom for crash-recovery cold starts.
+  waitFor('Appartement', 300000);
   screenshot('02-groups');
 
   // Verify no premium/plan badges
@@ -795,11 +802,12 @@ try {
   console.log('Opening Appartement group...');
   tapLabel('Appartement', { exact: true });
   console.log('Waiting for tabs (Ajouter, Balances, A faire)...');
-  // 120s timeout: a single uiautomator dump takes 30-60s on slow
-  // emulators, so 120s gives 2-3 dump attempts per element.
-  waitFor('Ajouter', 120000);
-  waitFor('Balances', 120000);
-  waitFor('A faire', 120000);
+  // 300s timeout: a single uiautomator dump takes 30-60s on slow
+  // emulators.  If the app crashed and relaunched, it needs a full cold
+  // start (240s) before the tabs appear.  300s gives headroom for that.
+  waitFor('Ajouter', 300000);
+  waitFor('Balances', 300000);
+  waitFor('A faire', 300000);
   screenshot('03-tabs');
 
   // Verify three tabs are present
@@ -809,8 +817,8 @@ try {
 
   // 3. Verify existing demo contribution is visible
   console.log('Waiting for demo contribution "Vaisselle du soir"...');
-  // 120s: single dump takes 30-60s on slow emulators
-  waitFor('Vaisselle du soir', 120000);
+  // 300s: single dump takes 30-60s on slow emulators; crash-relaunch adds 240s.
+  waitFor('Vaisselle du soir', 300000);
   screenshot('04-add-tab');
 
   // 4. Verify contribution form fields exist (V3: no chrono!)
@@ -821,28 +829,28 @@ try {
   // 5. Switch to Balances tab
   console.log('Switching to Balances tab...');
   tapLabel('Balances', { exact: true });
-  // 120s: single dump takes 30-60s on slow emulators
-  waitFor('Alex', 120000);
-  waitFor('Sam', 120000);
+  // 300s: single dump takes 30-60s on slow emulators; crash-relaunch adds 240s.
+  waitFor('Alex', 300000);
+  waitFor('Sam', 300000);
   screenshot('05-balances');
 
   // 6. Verify dual ledger sections
   console.log('Verifying Contribution section...');
-  waitFor('Contribution', 120000);
+  waitFor('Contribution', 300000);
   screenshot('06-balances-detail');
 
   // 7. Switch to A faire tab
   console.log('Switching to A faire tab...');
   tapLabel('A faire', { exact: true });
   console.log('Waiting for demo todo "Sortir les poubelles"...');
-  // 120s: single dump takes 30-60s on slow emulators
-  waitFor('Sortir les poubelles', 120000);
+  // 300s: single dump takes 30-60s on slow emulators; crash-relaunch adds 240s.
+  waitFor('Sortir les poubelles', 300000);
   screenshot('07-todos');
 
   // 8. Switch back to Ajouter to verify tab switching doesn't reload
   tapLabel('Ajouter', { exact: true });
-  // 120s: single dump takes 30-60s on slow emulators
-  waitFor('Vaisselle du soir', 120000);
+  // 300s: single dump takes 30-60s on slow emulators; crash-relaunch adds 240s.
+  waitFor('Vaisselle du soir', 300000);
   screenshot('08-back-to-add');
 
   // 9. Verify no warm V2 aesthetic

@@ -21,9 +21,9 @@ echo "Time: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
 # 0. Wait for emulator to be fully booted
 # API 35 x86_64 emulators on GitHub Actions can take 120-240s to boot.
-# We use 300s (5 min) to handle slow cold starts.
+# We use 420s (7 min) to handle slow cold starts and CI load.
 echo "Waiting for emulator to be fully booted..."
-TIMEOUT=300
+TIMEOUT=420
 ELAPSED=0
 while [ "$ELAPSED" -lt "$TIMEOUT" ]; do
   BOOT_COMPLETED=$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r' || true)
@@ -48,10 +48,11 @@ if [ "$ELAPSED" -ge "$TIMEOUT" ]; then
 fi
 
 # Additional wait for package manager and runtime to settle (API 35 x86_64 can be slow)
-# 15s is sufficient — the E2E script's launch() polls dumpsys activity for up
-# to 60s and provides additional headroom for any remaining initialization.
-echo "Waiting for package manager to settle (15s)..."
-sleep 15
+# 30s gives the package manager and runtime time to fully initialize after
+# sys.boot_completed=1.  The E2E script's launch() polls dumpsys activity for up
+# to 15s and provides additional headroom for any remaining initialization.
+echo "Waiting for package manager to settle (30s)..."
+sleep 30
 
 # Verify adb is connected and log device state
 adb get-state 2>/dev/null || {

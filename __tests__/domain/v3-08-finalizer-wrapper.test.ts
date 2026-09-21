@@ -298,16 +298,16 @@ describe('V3-08 finalizer wrapper contract', () => {
     // 4 consecutive empty dumps (2-4 min) fires before the 240s cold start
     // completes, killing a healthy app.
     const e2e = readRepo('scripts/e2e-android.js');
-    // COLD_START_GRACE_MS constant must exist (300s = 5 min)
+    // COLD_START_GRACE_MS constant must exist (450s = 7.5 min)
     const graceMatch = e2e.match(/COLD_START_GRACE_MS\s*=\s*([\d_]+)/);
     expect(graceMatch).not.toBeNull();
     const graceMs = Number(graceMatch![1].replace(/_/g, ''));
     expect(graceMs).toBeGreaterThanOrEqual(240_000); // At least the documented cold start
-    expect(graceMs).toBeLessThanOrEqual(600_000);   // Not more than the Demarrer timeout
+    expect(graceMs).toBeLessThanOrEqual(900_000);   // Not more than the Demarrer timeout
     // waitFor must accept a graceMs option
     expect(e2e).toContain('{ graceMs = 0 }');
     // The Demarrer waitFor must pass COLD_START_GRACE_MS
-    expect(e2e).toContain("waitFor('Demarrer', 600000, { graceMs: COLD_START_GRACE_MS })");
+    expect(e2e).toContain("waitFor('Demarrer', 900000, { graceMs: COLD_START_GRACE_MS })");
     // During grace period, the stuck detector must NOT increment the counter
     expect(e2e).toContain('elapsedMs < graceMs');
     // After grace period, the counter must increment normally
