@@ -375,7 +375,7 @@ function back() { shell('input', 'keyevent', 'KEYCODE_BACK'); sleep(500); }
  * the app's main thread is likely blocked and won't recover within the
  * 5-second Wait grace.  Without the force-stop, the dialog reappears
  * immediately, creating a Wait→ANR→Wait loop that burns the entire
- * 900 s Demarrer timeout.
+ * 1080 s Demarrer timeout.
  *
  * Returns true when ANY ANR dialog was detected and dismissed.
  */
@@ -414,7 +414,7 @@ function dismissAnrOverlay() {
   // For app ANRs: force-stop and relaunch.  The app's main thread is
   // likely blocked and won't recover within the 5-second Wait grace.
   // Without force-stop the ANR dialog reappears immediately, creating
-  // a loop that burns the entire 900s timeout.
+  // a loop that burns the entire 1080s timeout.
   if (isAppAnr) {
     console.log('  App ANR — force-stopping and relaunching to clear blocked main thread');
     globalThis._lastForceStopTime = Date.now();
@@ -981,7 +981,7 @@ try {
   // Diagnostic screenshot to capture the screen state after launch
   screenshot('diagnostic-post-launch');
   console.log('Waiting for Demarrer button...');
-  // API 35 x86_64 cold start can be very slow — 900s (15 min) timeout.
+  // API 35 x86_64 cold start can be very slow — 1080s (18 min) timeout.
   // The dump cache (30s TTL, invalidated on tap/swipe) ensures rapid
   // same-screen checks share one dump (~30-60s each on slow emulators),
   // while screen transitions always trigger fresh dumps.  Combined with
@@ -995,11 +995,20 @@ try {
   // documented 240s cold start completes, killing a healthy app.
   //
   // IMPORTANT: after a force-stop + relaunch mid-wait, the app needs a fresh
-  // cold-start window (up to 240s).  The 900s timeout ensures the relaunched
+  // cold-start window (up to 240s).  The 1080s timeout ensures the relaunched
   // app has enough time to cold-start AND appear before the timeout fires:
-  // worst case = 420s (initial stuck detection) + 15s (relaunch overhead) +
-  // 240s (relaunch cold start) + 120s (dump + buffer) = 795s < 900s.
-  waitFor('Demarrer', 900000, { graceMs: COLD_START_GRACE_MS });
+  // worst case = 930s (450s grace + 480s stuck detection) + 15s (relaunch
+  // overhead) + 240s (relaunch cold start) = 1185s — but the stuck detector
+  // fires at 930s, leaving 150s for recovery before 1080s.
+  // 1080s (18 min) timeout: on degraded API 35 x86_64 emulators, each
+  // uiautomator dump takes 30-60s.  After the 450s cold-start grace,
+  // the stuck detector needs 8 dumps × 60s = 480s to fire (worst case
+  // total: 930s).  The previous 900s timeout was insufficient — the
+  // stuck detector fired AFTER the timeout had already expired, causing
+  // the force-stop + relaunch recovery to run past the deadline.
+  // 1080s provides 150s of headroom for recovery after the stuck
+  // detector fires, and fits within the GitHub Actions step timeout.
+  waitFor('Demarrer', 1080000, { graceMs: COLD_START_GRACE_MS });
   screenshot('01-login');
   tapLabel('Demarrer', { exact: false });
   console.log('Waiting for Appartement group...');
