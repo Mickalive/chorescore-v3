@@ -74,12 +74,29 @@ jobs:
           npx --no-install expo export --platform ios --output-dir "$RUNNER_TEMP/v3-final-ios-export"
           npx --no-install expo prebuild --platform android --no-install
           jq -e '.scripts["e2e:android"]' package.json >/dev/null
-      - name: Build x86_64 release candidate for API 35
+      - name: Reuse or build x86_64 release candidate for API 35
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          (cd android && ./gradlew :app:assembleRelease -PreactNativeArchitectures=x86_64 --no-daemon)
+          mkdir -p android/app/build/outputs/apk/release
+          BASE_APK_SHA=b4e31c8baf3d55e977fa5e1ff30230f5ba9d03b5
+          if git diff --quiet "$BASE_APK_SHA" HEAD -- .             ':(exclude)docs/RELEASE_STATUS.json'             ':(exclude)directives/TASKS.json'             ':(exclude)scripts/finalizer-e2e.sh'; then
+            echo "Product tree unchanged since finalizer #74 candidate; reusing trusted x86_64 APK."
+            reuse_dir="$RUNNER_TEMP/v3-reuse-74"
+            rm -rf "$reuse_dir"
+            mkdir -p "$reuse_dir"
+            gh run download 35736882254 --repo "${{ github.repository }}"               -n chorescore-v3-finalizer-diagnostics --dir "$reuse_dir"
+            src_apk=$(find "$reuse_dir" -type f -name '*.apk' | head -1)
+            test -s "$src_apk"
+            cp "$src_apk" android/app/build/outputs/apk/release/app-release.apk
+          else
+            echo "Product tree changed; building a fresh x86_64 release candidate."
+            (cd android && ./gradlew :app:assembleRelease -PreactNativeArchitectures=x86_64 --no-daemon)
+          fi
           apk=$(find android/app/build/outputs/apk/release -type f -name '*.apk' | head -1)
           test -s "$apk"
+          echo "x86_64 candidate: $apk ($(stat -c%s "$apk") bytes)"
       - name: Android API 35 install, launch and golden path
         uses: reactivecircus/android-emulator-runner@v2
         with:
@@ -87,10 +104,14 @@ jobs:
           arch: x86_64
           profile: pixel_6
           script: bash scripts/finalizer-e2e.sh
-      - name: Build final universal release APK
+      - name: Build final arm64-v8a release APK
         run: |
           set -euo pipefail
-          (cd android && ./gradlew :app:assembleRelease -PreactNativeArchitectures=armeabi-v7a,arm64-v8a,x86,x86_64 --no-daemon)
+          rm -f android/app/build/outputs/apk/release/*.apk
+          (cd android && ./gradlew :app:assembleRelease -PreactNativeArchitectures=arm64-v8a --no-daemon)
+          apk=$(find android/app/build/outputs/apk/release -type f -name '*.apk' | head -1)
+          test -s "$apk"
+          echo "Final arm64-v8a APK: $apk ($(stat -c%s "$apk") bytes)"
       - id: digest
         name: Locate and hash final APK
         run: |
