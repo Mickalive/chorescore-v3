@@ -19,6 +19,30 @@ set -euo pipefail
 echo "=== ChoreScore V3 finalizer E2E ==="
 echo "Time: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
+# Wait until Android's framework services are actually available, not merely
+# until sys.boot_completed flips to 1. On hosted API 35 emulators adb can be
+# reachable while ActivityManager/PackageManager are still absent.
+wait_android_services() {
+  local max_checks="${1:-60}"
+  local sleep_seconds="${2:-5}"
+  local i package_state activity_state
+  echo "Waiting for Android package/activity services..."
+  for ((i=1; i<=max_checks; i++)); do
+    package_state=$(adb shell service check package 2>/dev/null | tr -d '\r' || true)
+    activity_state=$(adb shell service check activity 2>/dev/null | tr -d '\r' || true)
+    if echo "$package_state" | grep -qi "found" && echo "$activity_state" | grep -qi "found"; then
+      echo "Android framework services ready on check ${i}/${max_checks}"
+      return 0
+    fi
+    echo "  Services not ready (check ${i}/${max_checks}): package='${package_state:-unavailable}', activity='${activity_state:-unavailable}'"
+    sleep "$sleep_seconds"
+  done
+  echo "ERROR: Android package/activity services did not become ready" >&2
+  adb shell getprop sys.boot_completed 2>/dev/null || true
+  adb shell service list 2>/dev/null | head -40 || true
+  return 1
+}
+
 # 0. Quick boot state check
 # The reactivecircus/android-emulator-runner@v2 action already waits for
 # sys.boot_completed=1 before running this script.  A short 60s safety loop
@@ -52,6 +76,10 @@ fi
 # a uiautomator warm-up dump, so the wrapper only needs a short settle.
 echo "Brief package manager settle (10s)..."
 sleep 10
+
+# sys.boot_completed is not sufficient on hosted API 35 runners. Require the
+# framework services used by install/launch before touching the APK.
+wait_android_services 60 5
 
 # Verify adb is connected and log device state
 adb get-state 2>/dev/null || {
@@ -129,6 +157,9 @@ while [ "$INSTALL_ATTEMPTS" -lt "$MAX_ATTEMPTS" ] && [ "$INSTALLED" -ne 1 ]; do
     sleep 2
     timeout 30 adb wait-for-device >/dev/null 2>&1 || true
     sleep 1
+    # adb can reconnect before Android's framework services have recovered.
+    # Re-gate on PackageManager/ActivityManager after restarting the daemon.
+    wait_android_services 60 5
   fi
   INSTALL_OUTPUT=$(timeout 300 adb install -r "$apk" 2>&1) && INSTALL_EXIT=0 || INSTALL_EXIT=$?
   echo "  Install exit: $INSTALL_EXIT"
