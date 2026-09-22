@@ -100,7 +100,10 @@ export async function ensureDemoFixture(repos: AllRepositories, demoUser: AuthUs
       value: 15,
       unit: 'minutes',
       persistentTaskId: dishesTask.id,
-      occurredAt: new Date(Date.now() - 2 * 86400000).toISOString(),
+      // Most recent contribution: the Ajouter history is sorted by
+      // occurredAt DESC, so "Vaisselle du soir" must be the first visible
+      // row for the E2E golden path (waitFor checks visible nodes only).
+      occurredAt: new Date(Date.now() - 1 * 86400000).toISOString(),
       createdBy: demoUser.userId,
     });
   }
@@ -113,7 +116,7 @@ export async function ensureDemoFixture(repos: AllRepositories, demoUser: AuthUs
       value: 45,
       unit: 'minutes',
       persistentTaskId: null,
-      occurredAt: new Date(Date.now() - 1 * 86400000).toISOString(),
+      occurredAt: new Date(Date.now() - 2 * 86400000).toISOString(),
       createdBy: DEMO_SAM_USER_ID,
     });
   }

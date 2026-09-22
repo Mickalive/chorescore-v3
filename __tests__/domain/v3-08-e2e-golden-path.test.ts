@@ -74,6 +74,20 @@ describe('V3-08 E2E Golden Path: full user journey', () => {
     expect(names).toEqual(['Alex', 'Sam']);
   });
 
+  test('2b. Demo fixture orders "Vaisselle du soir" most recent (first visible history row)', async () => {
+    // The Ajouter history is sorted by occurredAt DESC and the E2E golden
+    // path waits for "Vaisselle du soir" to be VISIBLE without scrolling
+    // (waitFor checks uiautomator-visible nodes only).  The demo fixture
+    // must therefore seed "Vaisselle du soir" as the most recent
+    // contribution, above "Courses Migros".
+    const contribs = await repos.contributions.getByHousehold(DEMO_HOUSEHOLD_ID);
+    const dishes = contribs.find((c) => c.label === 'Vaisselle du soir');
+    const groceries = contribs.find((c) => c.label === 'Courses Migros');
+    expect(dishes).toBeDefined();
+    expect(groceries).toBeDefined();
+    expect(dishes!.occurredAt > groceries!.occurredAt).toBe(true);
+  });
+
   test('3. Add contribution and see balance update', async () => {
     const memberIds = [DEMO_ALEX_MEMBER_ID, DEMO_SAM_MEMBER_ID];
 
