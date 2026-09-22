@@ -495,7 +495,13 @@ function waitFor(label, timeoutMs = 10000, { graceMs = 0 } = {}) {
   // does not count empty dumps — this covers cold start, demo sign-in
   // and initial screen rendering without needing per-waitFor graceMs.
   if (typeof globalThis._appLaunchTime === 'undefined') globalThis._appLaunchTime = Date.now();
-  const globalGraceElapsed = (Date.now() - globalThis._appLaunchTime) >= COLD_START_GRACE_MS;
+  // NOTE: globalGraceElapsed is intentionally NOT calculated here as a const.
+  // Force-stop handlers inside the loop reset globalThis._appLaunchTime to
+  // Date.now(), giving the relaunched app a fresh cold-start window.  If we
+  // calculated this once before the loop, the stale `true` value would prevent
+  // the global grace from ever re-activating after a force-stop, recreating
+  // the infinite kill loop on slow emulators.  Instead, we compute the grace
+  // fresh on each iteration so it always reflects the CURRENT app launch time.
   while (Date.now() < until) {
     // ── Periodic mid-wait diagnostics ────────────────────────────
     // Every DIAGNOSTIC_INTERVAL_MS, capture logcat + dumpsys activity
@@ -622,7 +628,10 @@ function waitFor(label, timeoutMs = 10000, { graceMs = 0 } = {}) {
       // needing per-waitFor graceMs.  The per-waitFor graceMs (if provided)
       // is an ADDITIONAL overlay — either one suppresses stuck detection.
       const inPerWaitGrace = elapsedMs < graceMs;
-      const inGlobalGrace = !globalGraceElapsed;
+      // Compute global grace dynamically: after a force-stop handler resets
+      // globalThis._appLaunchTime, this recalculates and correctly returns
+      // true, protecting the freshly relaunched app during its new cold start.
+      const inGlobalGrace = (Date.now() - globalThis._appLaunchTime) < COLD_START_GRACE_MS;
       if (inPerWaitGrace || inGlobalGrace) {
         // Still within cold-start grace period.  Successful-but-empty dumps
         // are expected — the app is alive and rendering, just not ready yet.
@@ -630,7 +639,7 @@ function waitFor(label, timeoutMs = 10000, { graceMs = 0 } = {}) {
         if (consecutiveEmptyMatchCount === 0 || consecutiveEmptyMatchCount % 2 === 0) {
           const reason = inPerWaitGrace
             ? `${Math.round(elapsedMs / 1000)}s elapsed (< ${Math.round(graceMs / 1000)}s per-wait grace)`
-            : `${Math.round((Date.now() - globalThis._appLaunchTime) / 1000)}s since launch (< ${Math.round(COLD_START_GRACE_MS / 1000)}s global grace)`;
+            : `${Math.round((Date.now() - globalThis._appLaunchTime) / 1000)}s since ${globalThis._lastForceStopTime > 0 ? 'relaunch' : 'launch'} (< ${Math.round(COLD_START_GRACE_MS / 1000)}s global grace)`;
           console.log(`  COLD-START GRACE: ${reason} — ${consecutiveEmptyMatchCount} empty dumps so far for "${label}", app alive`);
         }
       } else {
@@ -994,13 +1003,14 @@ try {
   screenshot('01-login');
   tapLabel('Demarrer', { exact: false });
   console.log('Waiting for Appartement group...');
-  // 300s timeout: after tapping Demarrer, the app completes demo sign-in
+  // 600s timeout: after tapping Demarrer, the app completes demo sign-in
   // (which seeds the fixture via SQLite) and renders the groups list.  On
   // a cold API 35 x86_64 emulator, sign-in + fixture seeding can take
   // 30-60s, and the first uiautomator dump adds another 30-60s.  If the
   // app crashes mid-path and relaunches, it needs a full cold start (240s).
-  // 300s gives headroom for crash-recovery cold starts.
-  waitFor('Appartement', 300000);
+  // 600s gives headroom for crash-recovery cold starts AND the fresh
+  // global cold-start grace (450s) that protects the relaunched app.
+  waitFor('Appartement', 600000);
   screenshot('02-groups');
 
   // Verify no premium/plan badges
