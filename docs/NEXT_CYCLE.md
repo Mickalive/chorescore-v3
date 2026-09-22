@@ -1,19 +1,19 @@
-# Next Cycle — 35672300447
+# Next Cycle — 35728121751
 
-## Decision: continue
+## Decision: stop
 
-V3-08 audit decision is **accept**. The candidate generalizes ANR overlay handling in `scripts/e2e-android.js`: `dismissSystemUiAnrOverlay()` becomes `dismissAnrOverlay()`, detecting ANY `android:id/alertTitle` whose text includes `"isn't responding"`. SystemUI ANRs are dismissed with Wait only (unchanged). App-specific ANRs (`"ChoreScore isn't responding"`) are dismissed with Wait + force-stop + relaunch via monkey, resetting `_lastForceStopTime` and `_appLaunchTime`, breaking the Wait→ANR→Wait loop that burned the 900s Demarrer timeout on degraded API 35 emulators. Kill-loop guards verified. Delta is exactly 2 files; no product code changed. Trusted verification exit 0: 454 tests/22 suites, privacy 71, cost 21, BUILD SUCCESSFUL (21m 27s).
+V3-08 audit decision is **accept**. The candidate repairs the trusted finalizer E2E blocker from Actions run 35720925070. Root cause: `src/features/app/demoFixture.ts` seeded `Vaisselle du soir` at `-2d` and `Courses Migros` at `-1d`, making Courses the most recent. The Ajouter history is sorted `occurredAt DESC` (`paginateActivityLog`), and `scripts/e2e-android.js:1072` does `waitFor('Vaisselle du soir', 300000)` checking only uiautomator-visible nodes without scrolling — on the pixel_6 API 35 emulator Vaisselle was the second row off-screen, so `waitFor` timed out and the finalizer failed even though product verification was green. Fix swaps the timestamps (Vaisselle `-1d` first visible row, Courses `-2d`) with an explanatory comment and adds regression test `2b` (`dishes.occurredAt > groceries.occurredAt`) that fails on the old ordering and passes now. Delta is exactly 2 files; no product ledger/sync/analytics/privacy/theme/chrono/premium change — V3-01..V3-07 preserved. Trusted verification exit 0: 469 tests/23 suites, privacy 71, cost 21, expo export android OK (3.2MB), prebuild OK, `assembleDebug` BUILD SUCCESSFUL. No mustFix remains.
 
 ## What the Builder did
 
-Generalized ANR detection and added app-specific ANR recovery in the E2E test script. Added a contract test for the new behavior. All product code untouched. Builder work on V3-08 is complete.
+Swapped the demo-fixture timestamps so `Vaisselle du soir` is the most recent/first visible row in the Ajouter history and added a repository-level regression test guarding the ordering invariant. All other product code untouched. Builder work on V3-08 is complete.
 
 ## What the trusted shell must do
 
-1. **Dispatch the trusted finalizer** to exercise the Android API 35 install/launch/golden-path with the new ANR handling in place.
-2. The finalizer will run the E2E script on a real API 35 x86_64 emulator. If the app-specific ANR dialog appears during cold start, the new `dismissAnrOverlay()` will detect it, force-stop + relaunch, and continue — instead of burning the full 900s timeout.
+1. **Re-dispatch the trusted finalizer** (`chorescore-v3-finalize.yml`) to exercise the Android API 35 install/launch/golden-path with the corrected demo-fixture ordering in place.
+2. The finalizer will run the E2E script on a real API 35 x86_64 emulator with SQLite. `waitFor('Vaisselle du soir')` will now find the row visible without scrolling.
 3. If the finalizer passes all gates (product, privacy, cost, APK build, install/launch, golden path), **V3-08 transitions to `complete`** and the V3 release is finalized.
-4. If the finalizer still fails, the mid-wait diagnostics (periodic logcat/dumpsys/pidof snapshots every 120s, cold-start snapshot at 30s, WARMUP visible-elements logging) will pinpoint the exact failure point for the next repair cycle.
+4. If the finalizer still fails, the echoed diagnostics (`audit/android-e2e/result.json`, `logcat-finalizer.txt`, UI dumps) will pinpoint the exact failure point for the next repair cycle.
 
 ## All criteria status
 

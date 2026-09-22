@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "cycle": "35728121751",
+  "decision": "stop",
+  "reason": "Audit decision: accept. V3-08 repair accepted. The candidate repairs the trusted finalizer E2E blocker from Actions run 35720925070 with a minimal, product-safe delta. Root cause: src/features/app/demoFixture.ts seeded 'Vaisselle du soir' at Date.now()-2d and 'Courses Migros' at Date.now()-1d, making Courses the most recent; the Ajouter history is sorted occurredAt DESC (paginateActivityLog) and scripts/e2e-android.js:1072 does waitFor('Vaisselle du soir', 300000) checking only uiautomator-visible nodes without scrolling, so on the pixel_6 API 35 emulator Vaisselle was the second row off-screen and waitFor timed out, blocking finalizer install/launch/golden-path even though product verification was green. Fix swaps the timestamps (Vaisselle -1d most recent/first visible row, Courses -2d) with an explanatory comment and adds regression test 2b asserting dishes.occurredAt > groceries.occurredAt, which fails on the old ordering and passes now. Delta is exactly 2 files (demoFixture.ts 2-line swap, v3-08-e2e-golden-path.test.ts +14); no ledger, sync, analytics, privacy, theme, chrono or premium change, so V3-01 through V3-07 remain preserved. Trusted verification exit 0: typecheck clean, 469 tests/23 suites pass (was 468, +1 new), privacy 71 PASS (privacy release contract PASS), cost 21 PASS (all V3-08 cost regression gates green), expo export android OK (3.2MB), prebuild OK, gradlew :app:assembleDebug BUILD SUCCESSFUL. Independent checks: jest 469 pass incl 2b ordering, privacy:check PASS, cost:check PASS, no chrono/premium/Firebase-in-domain, delta minimal and idempotent. No mustFix remains (all 3 findings informational/already fixed). Builder work on V3-08 is complete; the trusted shell must re-dispatch the trusted finalizer to exercise Android API 35 install/launch/golden-path with the corrected demo-fixture ordering. Final V3-08 completion belongs only to the trusted release finalizer after product, privacy, cost, APK build, install/launch and golden-path evidence.",
+  "progressEvidence": [
+    "audit-accepted-35728121751-V3-08-repair-accepted",
+    "root-cause-verified-demoFixture-seeded-Vaisselle-2d-Courses-1d-making-Courses-most-recent",
+    "Ajouter-history-sorted-occurredAt-DESC-paginateActivityLog",
+    "e2e-android-js-1072-waitFor-Vaisselle-du-soir-300000-visible-nodes-only-no-scroll",
+    "pixel-6-API-35-second-row-off-screen-waitFor-timeout-blocked-finalizer-35720925070",
+    "fix-swaps-timestamps-Vaisselle-1d-first-visible-row-Courses-2d-with-comment",
+    "regression-test-2b-dishes-occurredAt-greater-than-groceries-occurredAt-fails-on-pristine-passes-now",
+    "delta-confined-to-2-files-demoFixture-ts-2-line-swap-and-14-line-test",
+    "trusted-verification-exit-0-469-tests-23-suites-privacy-71-cost-21-BUILD-SUCCESSFUL",
+    "expo-export-android-OK-3-2MB-prebuild-OK",
+    "no-mustFix-remains-all-3-findings-informational-or-already-fixed",
+    "V3-01-through-V3-07-invariants-preserved-zero-regression",
+    "builder-work-complete-no-further-iterations-needed",
+    "trusted-shell-must-re-dispatch-finalizer-exercising-corrected-ordering-on-API-35-SQLite",
+    "next-step-trusted-finalizer-exercises-install-launch-golden-path-then-finally-completes-V3-08"
+  ]
+}
