@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "cycle": "35713232971",
+  "decision": "stop",
+  "reason": "Audit decision: accept. V3-08 repair accepted. The candidate fixes the trusted finalizer E2E blocker from Actions run 35709623336. Root cause: all 8 SyncRecording*Repository wrappers exposed `seed(items): void { this.inner.seed(items); }`, discarding the inner Promise. ensureDemoFixture does `await repos.households.seed` -> `await repos.memberships.seed` -> `await repos.members.seed` then immediately performs a membership-checked read (tasks.getByHousehold -> checkMembership -> memberships.getByHousehold); on device the SQLite repositories are genuinely async, so awaiting void resolved instantly while the INSERTs were still in flight, the read saw empty state and threw CROSS_TENANT — on-device symptom 'signed in but Aucun groupe forever', golden path never reached Ajouter/Balances/À faire, finalizer timed out. InMemory repos are synchronous, which is why CI stayed green while the finalizer failed. Fix makes every wrapper `async seed(...): Promise<void> { await this.inner.seed(items); }`; await undefined (InMemory) still resolves immediately so backward compatibility is retained. Delta is exactly 2 files: src/infrastructure/sync/SyncRecordingWrapper.ts (8 lines void->async await) and __tests__/infrastructure/sync-recording-seed.test.ts (+194, 9 contract tests that fail on the old void code). No product code beyond the await fix, no governance/directives/docs/workflow change — no ledger, sync protocol, analytics, privacy, theme, chrono or premium change, so V3-01 through V3-07 remain preserved. Trusted verification exit 0: typecheck clean, 468 tests/23 suites pass (was 459), privacy 71 pass (privacy release contract PASS), cost 21 pass (all V3-08 cost regression gates green), expo export android OK (3.2MB), prebuild OK, gradlew :app:assembleDebug BUILD SUCCESSFUL in 18m41s. Independent checks: tsc clean, jest 468 pass incl 9 new seed tests, privacy:check PASS, cost:check PASS, no chrono/premium/Firebase-in-domain, delta minimal. No mustFix remains (all 3 findings informational). All eight roadmap criteria V3-01 through V3-08 are accepted; the Builder has no further work. The trusted shell must re-dispatch the trusted finalizer to exercise the awaited SQLite seed path on a real Android API 35 emulator (install/launch/golden path). If the finalizer passes product, privacy, cost, APK build, install/launch and golden-path evidence, the trusted shell marks V3-08 complete and finalizes the V3 release. Final V3-08 completion belongs only to the trusted release finalizer.",
+  "progressEvidence": [
+    "audit-accepted-35713232971-V3-08-repair-accepted",
+    "root-cause-verified-SyncRecordingWrapper-seed-fire-and-forget-void-discarded-inner-Promise",
+    "await-undefined-resolved-before-SQLite-INSERTs-committed-membership-read-saw-empty-CROSS_TENANT",
+    "on-device-symptom-signed-in-but-Aucun-groupe-forever-golden-path-blocked-finalizer-timeout",
+    "InMemory-sync-repos-explain-green-CI-while-finalizer-failed-on-async-SQLite",
+    "fix-8-wrappers-async-seed-await-inner-Promise-void-await-undefined-compatible",
+    "delta-confined-to-2-files-SyncRecordingWrapper-ts-8-lines-and-9-contract-tests",
+    "9-contract-tests-fail-on-old-void-code-pass-on-new-await-code",
+    "trusted-verification-exit-0-468-tests-23-suites-privacy-71-cost-21-BUILD-SUCCESSFUL-18m41s",
+    "expo-export-android-OK-3-2MB-prebuild-OK",
+    "no-mustFix-remains-all-3-findings-informational",
+    "V3-01-through-V3-08-all-eight-roadmap-criteria-accepted",
+    "builder-work-complete-no-further-iterations-needed",
+    "trusted-shell-must-re-dispatch-finalizer-exercising-awaited-seed-path-on-API-35-SQLite",
+    "next-step-trusted-finalizer-exercises-install-launch-golden-path-then-finally-completes-V3-08"
+  ]
+}
