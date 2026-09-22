@@ -86,23 +86,72 @@ fi
 echo "APK: $apk ($(stat -c%s "$apk") bytes)"
 
 # 2. Install on the emulator with retry
-# Each install attempt is bounded by timeout(120) to prevent adb hangs
-# on degraded emulators.  Two attempts (not three) save ~70s of budget.
+# Each install attempt is bounded by timeout(300) to prevent adb hangs
+# on degraded emulators.  The previous 120s bound was too short: the API
+# 35 x86_64 emulator boots in 5-8 min and a 43MB release APK install
+# takes 3-4+ min (observed 208s in run 35650859523).  Runs 35670332996,
+# 35678248910, 35684869621 and 35692317866 all failed with 2x120s
+# install timeouts and empty output while `pm path` later proved the
+# package WAS present — the device-side install completed but the adb
+# client was killed before it returned.  The install is therefore bounded
+# at 300s per attempt, skipped entirely when the package is already
+# present, and falls back to push + pm install via the shell transport.
 echo "Installing APK..."
 echo "APK file: $apk ($(stat -c%s "$apk") bytes, $(sha256sum "$apk" | awk '{print $1}'))"
 INSTALL_ATTEMPTS=0
 MAX_ATTEMPTS=2
 INSTALLED=0
-while [ "$INSTALL_ATTEMPTS" -lt "$MAX_ATTEMPTS" ]; do
+
+# Skip install when the package is already present.  The emulator is
+# booted fresh by the action (snapshots disabled), so the package can
+# only come from a previous install attempt in THIS run — the installed
+# APK is the current build.  The E2E script applies the same check.
+if adb shell pm list packages app.chorescore.v3 2>/dev/null | grep -q app.chorescore.v3; then
+  echo "Package app.chorescore.v3 already installed — skipping install (APK built this run)"
+  INSTALLED=1
+fi
+
+while [ "$INSTALL_ATTEMPTS" -lt "$MAX_ATTEMPTS" ] && [ "$INSTALLED" -ne 1 ]; do
   INSTALL_ATTEMPTS=$((INSTALL_ATTEMPTS + 1))
   echo "  Install attempt ${INSTALL_ATTEMPTS}/${MAX_ATTEMPTS}..."
-  INSTALL_OUTPUT=$(timeout 120 adb install -r "$apk" 2>&1) && INSTALL_EXIT=0 || INSTALL_EXIT=$?
+  # Restart the adb server before the first install attempt: the emulator
+  # start log shows 'Unable to connect to adb daemon on port: 5037' and
+  # the adb sync service (used by `adb install`) can hang on degraded
+  # API 35 x86_64 emulators.  kill-server + start-server fully restarts
+  # the server process; the emulator's adbd re-registers via its
+  # broadcast channel.  This is conditional (install only), NOT an
+  # unconditional restart before the golden path.
+  if [ "$INSTALL_ATTEMPTS" -eq 1 ]; then
+    echo "  Restarting adb server before install..."
+    timeout 10 adb kill-server >/dev/null 2>&1 || true
+    sleep 3
+    timeout 10 adb start-server >/dev/null 2>&1 || true
+    sleep 2
+    timeout 30 adb wait-for-device >/dev/null 2>&1 || true
+    sleep 1
+  fi
+  INSTALL_OUTPUT=$(timeout 300 adb install -r "$apk" 2>&1) && INSTALL_EXIT=0 || INSTALL_EXIT=$?
   echo "  Install exit: $INSTALL_EXIT"
   echo "  Install output: $INSTALL_OUTPUT"
   if [ "$INSTALL_EXIT" -eq 0 ]; then
     echo "  APK installed successfully on attempt ${INSTALL_ATTEMPTS}"
     INSTALLED=1
     break
+  fi
+  # Fallback: push + pm install via the shell transport, which is more
+  # resilient than the sync service on degraded emulators.
+  echo "  adb install failed — trying push + pm install fallback..."
+  if timeout 180 adb push "$apk" /data/local/tmp/chorescore-v3.apk >/dev/null 2>&1; then
+    PM_OUTPUT=$(timeout 300 adb shell pm install -r /data/local/tmp/chorescore-v3.apk 2>&1) && PM_EXIT=0 || PM_EXIT=$?
+    echo "  pm install exit: $PM_EXIT"
+    echo "  pm install output: $PM_OUTPUT"
+    if [ "$PM_EXIT" -eq 0 ]; then
+      echo "  APK installed successfully via push + pm install"
+      INSTALLED=1
+      break
+    fi
+  else
+    echo "  adb push failed too"
   fi
   if [ "$INSTALL_ATTEMPTS" -lt "$MAX_ATTEMPTS" ]; then
     echo "  Install failed, waiting 10s before retry..."

@@ -61,7 +61,13 @@ const startedAt = new Date().toISOString();
 fs.mkdirSync(outputDir, { recursive: true });
 
 const ADB_TIMEOUT_MS = 45_000;
-const ADB_INSTALL_TIMEOUT_MS = 180_000;
+// A 43MB release APK install on the API 35 x86_64 emulator takes 3-4+
+// minutes (observed 208s in run 35650859523).  The previous 180s bound
+// was too short: finalizer runs 35670332996, 35678248910, 35684869621
+// and 35692317866 all failed with install timeouts while `pm path` later
+// proved the package WAS present — the device-side install completed but
+// the adb client was killed before it returned.
+const ADB_INSTALL_TIMEOUT_MS = 300_000;
 let adbReconnectCount = 0;
 
 // ── Dump cache ──────────────────────────────────────────────────
@@ -966,8 +972,26 @@ try {
       );
     }
     console.log(`Installing APK: ${apkPath}`);
-    adb(['install', '-r', apkPath]);
-    console.log('APK installed successfully');
+    // Restart the adb server before install: on degraded API 35 x86_64
+    // emulators the adb sync service (used by `adb install`) can hang
+    // with zero output.  kill-server + start-server fully restarts the
+    // server process and the emulator's adbd re-registers via its
+    // broadcast channel.  This is conditional (install only), not a
+    // blanket restart before the golden path.
+    try { adbReconnect(); } catch (_) {}
+    try {
+      adb(['install', '-r', apkPath]);
+      console.log('APK installed successfully');
+    } catch (installErr) {
+      // Fallback: push + pm install via the shell transport, which is
+      // more resilient than the sync service on degraded emulators.
+      console.log(`adb install failed (${installErr.message?.slice(0, 120) || installErr}) — trying push + pm install fallback...`);
+      const remoteApk = '/data/local/tmp/chorescore-v3.apk';
+      adb(['push', apkPath, remoteApk], { timeoutMs: 180_000 });
+      const pmOutput = shell('pm', 'install', '-r', remoteApk, { timeoutMs: 300_000 });
+      console.log(`pm install output: ${pmOutput.trim()}`);
+      console.log('APK installed successfully via push + pm install');
+    }
   }
 
   // Re-enable network in case a previous test disabled it

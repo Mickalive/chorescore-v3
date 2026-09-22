@@ -63,6 +63,54 @@ describe('V3-08 finalizer wrapper contract', () => {
     expect(wrapper).toContain('npm run e2e:android');
   });
 
+  test('wrapper install timeout is >= 300s (observed install takes ~208s)', () => {
+    // The API 35 x86_64 emulator boots in 5-8 min and a 43MB release APK
+    // install takes 3-4+ min (observed 208s in run 35650859523).  The
+    // previous 120s bound fired before the device-side install completed:
+    // finalizer runs 35670332996, 35678248910, 35684869621 and 35692317866
+    // all failed with 2x120s install timeouts and empty output while
+    // `pm path` later proved the package WAS present.
+    const wrapper = readRepo('scripts/finalizer-e2e.sh');
+    const installMatch = wrapper.match(/timeout\s+(\d+)\s+adb install -r "\$apk"/);
+    expect(installMatch).not.toBeNull();
+    const timeout = Number(installMatch![1]);
+    expect(timeout).toBeGreaterThanOrEqual(300);
+  });
+
+  test('wrapper skips install when the package is already present', () => {
+    // On the fresh emulator (snapshots disabled) the package can only come
+    // from a previous install attempt in THIS run, so skipping is safe and
+    // avoids re-installing a 43MB APK that already completed device-side.
+    const wrapper = readRepo('scripts/finalizer-e2e.sh');
+    expect(wrapper).toContain('pm list packages app.chorescore.v3');
+    expect(wrapper).toContain('already installed — skipping install');
+  });
+
+  test('wrapper restarts adb server before the first install attempt only', () => {
+    // The emulator start log shows 'Unable to connect to adb daemon on
+    // port: 5037' and the adb sync service (used by `adb install`) can
+    // hang on degraded API 35 x86_64 emulators.  The restart must be
+    // conditional on install (attempt 1), NOT an unconditional restart
+    // before the golden path (which destabilises a healthy connection).
+    const wrapper = readRepo('scripts/finalizer-e2e.sh');
+    expect(wrapper).toContain('Restarting adb server before install');
+    expect(wrapper).toContain('adb kill-server');
+    expect(wrapper).toContain('adb start-server');
+    // The restart must be guarded by the first-attempt condition
+    expect(wrapper).toMatch(/INSTALL_ATTEMPTS" -eq 1[\s\S]*Restarting adb server before install/);
+  });
+
+  test('wrapper falls back to push + pm install via the shell transport', () => {
+    // `adb install` uses the adb sync service which can hang on degraded
+    // emulators; `adb push` + `adb shell pm install` uses the shell
+    // transport which is more resilient.  The fallback must exist so a
+    // sync-service hang does not fail the finalizer.
+    const wrapper = readRepo('scripts/finalizer-e2e.sh');
+    expect(wrapper).toContain('push + pm install fallback');
+    expect(wrapper).toContain('adb push "$apk"');
+    expect(wrapper).toContain('pm install -r /data/local/tmp/chorescore-v3.apk');
+  });
+
   test('package.json exposes the e2e:android script the wrapper invokes', () => {
     const pkg = JSON.parse(readRepo('package.json'));
     expect(pkg.scripts).toBeDefined();
@@ -85,6 +133,21 @@ describe('V3-08 finalizer wrapper contract', () => {
     expect(e2e).toContain("'Ajouter'");
     expect(e2e).toContain("'Balances'");
     expect(e2e).toContain("'A faire'");
+  });
+
+  test('e2e script install timeout is >= 300s and has push + pm fallback', () => {
+    // Same root cause as the wrapper: a 43MB release APK install on the
+    // API 35 x86_64 emulator takes 3-4+ min (observed 208s).  The E2E
+    // script's own install path (used when the wrapper did not install)
+    // must have the same headroom and the same shell-transport fallback.
+    const e2e = readRepo('scripts/e2e-android.js');
+    const installTimeoutMatch = e2e.match(/ADB_INSTALL_TIMEOUT_MS\s*=\s*([\d_]+)/);
+    expect(installTimeoutMatch).not.toBeNull();
+    const installTimeout = Number(installTimeoutMatch![1].replace(/_/g, ''));
+    expect(installTimeout).toBeGreaterThanOrEqual(300_000);
+    expect(e2e).toContain('push + pm install fallback');
+    expect(e2e).toContain("'push', apkPath, remoteApk");
+    expect(e2e).toContain("'pm', 'install', '-r', remoteApk");
   });
 
   test('dump cache TTL is long enough to cover same-screen rapid calls on slow emulators', () => {

@@ -1,0 +1,45 @@
+{
+  "schemaVersion": 1,
+  "cycle": "35697944777",
+  "role": "builder",
+  "decision": "accept",
+  "summary": "ACCEPT V3-08 repair cycle 35697944777. Objective: REPAIR trusted finalizer failure from Actions run 35692317866 (Android API 35 APK install/E2E blocker) while preserving V3-01..V3-07. Candidate delta is exactly 3 files: scripts/finalizer-e2e.sh (+57/-7), scripts/e2e-android.js (+30/-7, ADB_INSTALL_TIMEOUT_MS 180s→300s with push+pm fallback and conditional adb server restart) and __tests__/domain/v3-08-finalizer-wrapper.test.ts (+63). Root cause: 43 MB release APK install on API 35 x86_64 takes 3-4+ min (observed 208s in 35650859523) while previous timeout was 120s in wrapper and 180s in e2e; runs 35670332996/35678248910/35684869621/35692317866 all failed with 2x120s timeouts and empty output while pm path later proved package WAS present — device-side install completed but adb client was killed. Fix raises both timeouts to 300s, skips install when pm list packages already shows app.chorescore.v3 (fresh emulator snapshot-disabled so package can only be from this run), restarts adb server conditionally before first install attempt to recover degraded sync service (Unable to connect to adb daemon), and falls back to adb push + pm install via shell transport resilient to sync-service hang. Product code byte-identical to pristine: src/, app/, governance, docs byte-identical; no ledger/sync/analytics/privacy/theme/chrono/premium change. Trusted verification exit 0: typecheck clean, 459 tests/22 suites, privacy 71 pass, cost 21 pass, expo export android OK, prebuild OK, gradlew :app:assembleDebug BUILD SUCCESSFUL 20m41s. Independent checks: bash -n and node --check OK, 29 finalizer-wrapper contract tests pass. No mustFix remains.",
+  "checks": [
+    "trusted-verification-exit-0: reports/audits/TRUSTED_35697944777.md exit 0 — typecheck clean, 459 tests/22 suites pass, privacy:check 71 pass (privacy release contract PASS), cost:check 21 pass, expo export android OK (3.2MB entry-7f355a...), expo prebuild OK, gradlew :app:assembleDebug BUILD SUCCESSFUL in 20m41s",
+    "delta-scope: git diff HEAD --stat = 3 files (__tests__/domain/v3-08-finalizer-wrapper.test.ts +63, scripts/e2e-android.js +30/-7, scripts/finalizer-e2e.sh +57/-7), git status shows only those 3 modified plus untracked TRUSTED log; diff -rq vs /home/runner/work/_temp/accepted-pristine shows src/ and app/ identical, only scripts differ — minimal targeted repair",
+    "root-cause-verified: 43 MB APK install observed 208s in run 35650859523; previous 120s (wrapper) and 180s (e2e) bounds fired before device-side install completed; finalizer runs 35670332996, 35678248910, 35684869621, 35692317866 all showed 2x120s empty-output failures while pm path proved package present — raising to 300s gives 92s headroom over observed 208s",
+    "install-skip-safe: wrapper checks adb shell pm list packages app.chorescore.v3 and skips install when present; safe because emulator boots fresh with snapshots disabled — package can only be from previous attempt in THIS run, so installed APK is current build; e2e applies same check",
+    "adb-server-restart-guarded: restart (kill-server/start-server/wait-for-device) is conditional on INSTALL_ATTEMPTS==1 and inside install path, not unconditional before golden path; test guards with regex INSTALL_ATTEMPTS -eq 1 ... Restarting adb server before install; avoids destabilising healthy connection before golden path",
+    "fallback-shell-transport: both wrapper and e2e implement push + pm install fallback (adb push to /data/local/tmp/chorescore-v3.apk + adb shell pm install -r) when adb install times out; uses shell transport more resilient than sync service on degraded API 35 emulators; wrapper bounds push 180s / pm 300s, e2e bounds push 180s / pm 300s",
+    "contract-tests: npx jest __tests__/domain/v3-08-finalizer-wrapper.test.ts — 29/29 pass including new 5 tests: wrapper timeout >=300s, skip-when-present, conditional adb restart, push+pm fallback, e2e timeout >=300s with fallback; bash -n scripts/finalizer-e2e.sh OK; node --check scripts/e2e-android.js OK",
+    "product-code-untouched: diff -rq vs pristine shows src/, app/, governance, directives, docs/workflows byte-identical; no ledger contribution/expense/settlement, no sync delta-only/N+1/listener, no analytics privacy, no theme/chrono/premium change — V3-01..V3-07 preserved",
+    "regression-gates: trusted verification ran full suite 459 tests green (incl materialized balances, cost gates v3-03/04/05/08, v3-07 analytics privacy 71, v3-06 sync), cost gate 21 green (50k→≤5 reads, tab switch 0 reads, sync 3 deltas incremental, writes bounded, 10k identical labels →1 classification), privacy gate PASS — no V3-08 cost regression",
+    "V3-08-readiness: wrapper still single-line script: bash scripts/finalizer-e2e.sh guard passes (not script: |), verifies adb connection via get-state, locates APK under android/app/build/outputs/apk/release, fails loudly on empty APK, echoes UI dump XML for diagnostics — preserves prior Demarrer 1260s/grace/FORCE_STOP recovery instrumentation"
+  ],
+  "findings": [
+    {
+      "path": "release (trusted finalizer run 35692317866)",
+      "problem": "Exact failed release logs (step stdout, logcat, UI dumps, result.json) from Actions run 35692317866 are not retrievable without admin rights; repair rationale is based on documented install-duration evidence (208s observed vs 120s bound) and pm-path proof that package was present despite timeout, consistent with prior cycles.",
+      "evidence": "directives/TASKS.json objective cites run 35692317866; pristine tree /home/runner/work/_temp/accepted-pristine shows prior wrapper timeout 120s which is <208s observed; TRUSTED_35697944777.md shows this cycle's build succeeded with new 300s bound; no artifact from 35692317866 present in workspace.",
+      "mustFix": false,
+      "requiredFix": "None for acceptance. Next trusted finalizer dispatch exercises the 300s + fallback path on real API 35 emulator; wrapper diagnostic echo (UI dump XML, logcat, pm path) will surface exact output if blocker persists.",
+      "verification": "Trusted verification exit 0 demonstrates build/install logic syntactically and contractually correct; independent timing math 300>208 verified; 29 contract tests pass."
+    },
+    {
+      "path": "scripts/finalizer-e2e.sh (skip-install optimisation)",
+      "problem": "Skipping install when pm list packages already shows package could mask a stale APK if emulator reused across jobs, but finalizer emulator is booted fresh with snapshots disabled (reactivecircus/android-emulator-runner@v2 default), so staleness cannot occur in this context. Documented as safe in comments and tests.",
+      "evidence": "scripts/finalizer-e2e.sh lines 105-112: pm list packages check → INSTALLED=1 → while loop skipped; comment notes snapshots disabled so package only from this run.",
+      "mustFix": false,
+      "requiredFix": "None for acceptance. Optional hardening for reuse outside finalizer could add versionCode check, but out of scope and would add complexity without benefit in current workflow.",
+      "verification": "Contract test 'wrapper skips install when the package is already present' verifies presence of pm list packages check and 'already installed — skipping install' message; e2e-android.js applies identical logic."
+    },
+    {
+      "path": "scripts/e2e-android.js (adb server restart inside install path)",
+      "problem": "Calling adbReconnect() (kill-server/start-server) inside the install path adds 6-7s overhead to the first install attempt; on a healthy emulator this is unnecessary but not harmful. Guarded to attempt 1 only, so second attempt and golden path are not delayed.",
+      "evidence": "scripts/e2e-android.js lines 975-981: try { adbReconnect(); } before adb install, same as wrapper lines 124-132 conditional on INSTALL_ATTEMPTS -eq 1.",
+      "mustFix": false,
+      "requiredFix": "None — conditional placement is correct per contract test 'wrapper restarts adb server before the first install attempt only' which rejects unconditional restart before golden path.",
+      "verification": "Contract test matches INSTALL_ATTEMPTS.*Restarting adb server before install; wrapper verifies adb health via get-state before install; trusted verification exit 0."
+    }
+  ]
+}
