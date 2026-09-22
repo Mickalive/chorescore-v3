@@ -4,8 +4,8 @@
   "builder": {
     "enabled": false,
     "criterionId": null,
-    "objective": "V3-08 handed directly to trusted finalizer after Android tab navigation repair.",
-    "scope": "Trusted finalizer only.",
+    "objective": "V3 RC complete.",
+    "scope": "No further Builder work.",
     "acceptance": [],
     "previousCriteriaPreserved": [
       "V3-01: accepted and must not regress",

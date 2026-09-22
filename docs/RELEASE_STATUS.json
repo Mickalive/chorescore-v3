@@ -1,10 +1,10 @@
 {
   "schemaVersion": 1,
   "milestone": "v3-rc",
-  "lastCycle": "35728121751",
+  "lastCycle": "35755780789",
   "activeCriteria": [],
-  "pendingArtifact": "V3-08-RELEASE",
-  "progressSummary": "V3-08 re-armed after fixing Android bottom-tab safe area and robust tab tapping.",
+  "pendingArtifact": null,
+  "progressSummary": "V3 RC complete: trusted finalizer passed product, privacy and cost gates, built the release APK, installed/launched it on Android API 35, passed the automated golden path and verified iOS export readiness.",
   "criteria": [
     {
       "id": "V3-01",
@@ -70,7 +70,7 @@
     },
     {
       "id": "V3-08",
-      "status": "in_progress",
+      "status": "complete",
       "evidence": [
         "audit-accepted-35271021564",
         "apk-path-repair-correct-exposed-waitFor-bug",
@@ -126,7 +126,12 @@
         "audit-accepted-35686566515",
         "audit-accepted-35697944777",
         "audit-accepted-35713232971",
-        "audit-accepted-35728121751"
+        "audit-accepted-35728121751",
+        "finalizer-run-35755780789",
+        "android-release-apk-sha256-89aea90932840586501ccd37b0aaaf7cb89a933f29baa82824728abdac2cfbb7",
+        "android-api35-install-launch-e2e-green",
+        "ios-export-readiness-green",
+        "privacy-and-cost-gates-green"
       ]
     }
   ],
