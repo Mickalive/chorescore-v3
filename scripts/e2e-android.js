@@ -361,14 +361,25 @@ function typeInto(label, value) {
 function back() { shell('input', 'keyevent', 'KEYCODE_BACK'); sleep(500); }
 
 /**
- * Dismiss a transient Android System UI ANR overlay that can cover the app on
- * heavily loaded GitHub API 35 emulators. This is an emulator/system failure,
- * not an app screen. Choose "Wait" so System UI recovers without killing it.
+ * Dismiss a transient Android ANR overlay that can cover the app on
+ * heavily loaded GitHub API 35 emulators.  Handles BOTH:
+ *   - System UI ANR ("System UI isn't responding") — emulator/system failure
+ *   - App-specific ANR ("ChoreScore isn't responding") — cold-start transient
  *
- * Returns true only when the specific System UI ANR dialog was detected and
- * dismissed. App-specific ANR dialogs are deliberately not swallowed.
+ * On degraded API 35 x86_64 emulators under React Native cold-start load,
+ * the app process can ANR during Hermes init / SQLite schema creation /
+ * demo fixture seeding.  The ANR dialog covers the entire app, so
+ * waitFor() can never find the target label until the dialog is dismissed.
+ * For SystemUI ANRs, we tap "Wait" so the system recovers.
+ * For app ANRs, we tap "Wait" and then force-stop + relaunch because
+ * the app's main thread is likely blocked and won't recover within the
+ * 5-second Wait grace.  Without the force-stop, the dialog reappears
+ * immediately, creating a Wait→ANR→Wait loop that burns the entire
+ * 900 s Demarrer timeout.
+ *
+ * Returns true when ANY ANR dialog was detected and dismissed.
  */
-function dismissSystemUiAnrOverlay() {
+function dismissAnrOverlay() {
   let dump;
   try {
     dump = dumpUi();
@@ -376,14 +387,16 @@ function dismissSystemUiAnrOverlay() {
     return false;
   }
 
-  const systemUiAnr = dump.nodes.find((n) => {
+  const anrTitle = dump.nodes.find((n) => {
     const text = n.text || n['content-desc'] || '';
     const resourceId = n['resource-id'] || '';
-    return resourceId === 'android:id/alertTitle' && text === "System UI isn't responding";
+    return resourceId === 'android:id/alertTitle' && text.includes("isn't responding");
   });
-  if (!systemUiAnr) return false;
+  if (!anrTitle) return false;
 
-  console.log('  SYSTEM UI ANR overlay detected — choosing "Wait" and retrying app UI');
+  const isAppAnr = !(anrTitle.text || '').includes('System UI');
+  console.log(`  ANR overlay detected (${isAppAnr ? 'app' : 'SystemUI'}: "${anrTitle.text}") — dismissing`);
+
   const waitNode = dump.nodes.find(
     (n) => (n['resource-id'] || '') === 'android:id/aerr_wait' || (n.text || '') === 'Wait'
   );
@@ -397,6 +410,21 @@ function dismissSystemUiAnrOverlay() {
     try { back(); } catch (_) {}
   }
   _dumpCache = null;
+
+  // For app ANRs: force-stop and relaunch.  The app's main thread is
+  // likely blocked and won't recover within the 5-second Wait grace.
+  // Without force-stop the ANR dialog reappears immediately, creating
+  // a loop that burns the entire 900s timeout.
+  if (isAppAnr) {
+    console.log('  App ANR — force-stopping and relaunching to clear blocked main thread');
+    globalThis._lastForceStopTime = Date.now();
+    globalThis._appLaunchTime = Date.now();
+    try { shell('am', 'force-stop', packageName); } catch (_) {}
+    sleep(1000);
+    try { shell('monkey', '-p', packageName, '-c', 'android.intent.category.LAUNCHER', '1'); } catch (_) {}
+    sleep(15000); // Give the relaunched app time to initialize
+  }
+
   sleep(2000);
   return true;
 }
@@ -568,12 +596,9 @@ function waitFor(label, timeoutMs = 10000, { graceMs = 0 } = {}) {
         // proceed with normal wait (dump failures will trigger reconnect).
       }
     }
-    // GitHub's API 35 emulator can surface a transient "System UI isn't
-    // responding" dialog while the ChoreScore process is healthy. That dialog
-    // completely covers the app, so waiting for an app label can never
-    // succeed until it is dismissed. Handle only the System UI overlay here;
-    // app-specific ANRs remain real failures and are not hidden.
-    if (dismissSystemUiAnrOverlay()) {
+    // Dismiss transient ANR overlays that cover the app on degraded emulators.
+    // Handles both SystemUI ANR and app-specific ANR during cold start.
+    if (dismissAnrOverlay()) {
       consecutiveEmptyMatchCount = 0;
       consecutiveDumpFails = 0;
       previousDumpFailures = dumpFailures;

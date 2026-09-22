@@ -259,6 +259,30 @@ describe('V3-08 finalizer wrapper contract', () => {
     expect(e2e).toMatch(/APP CRASHED[\s\S]*consecutiveEmptyMatchCount\s*=\s*0/);
   });
 
+  test('dismissAnrOverlay handles both SystemUI and app-specific ANR dialogs', () => {
+    // CRITICAL CONTRACT: On degraded API 35 x86_64 emulators under React
+    // Native cold-start load, the app process can ANR during Hermes init /
+    // SQLite schema creation / demo fixture seeding.  The ANR dialog covers
+    // the entire app so waitFor() can never find the target label until the
+    // dialog is dismissed.  For SystemUI ANRs we just tap Wait; for app
+    // ANRs we force-stop + relaunch because the main thread is likely
+    // blocked and won't recover within the 5-second Wait grace.
+    const e2e = readRepo('scripts/e2e-android.js');
+    // dismissAnrOverlay must exist as a function
+    expect(e2e).toContain('function dismissAnrOverlay(');
+    // Must detect ANY ANR dialog (title contains "isn't responding")
+    expect(e2e).toMatch(/dismissAnrOverlay[\s\S]*isn't responding/);
+    // Must distinguish app ANR from SystemUI ANR
+    expect(e2e).toMatch(/dismissAnrOverlay[\s\S]*isAppAnr/);
+    // App ANR path must force-stop and relaunch
+    expect(e2e).toMatch(/App ANR[\s\S]*force-stop/);
+    expect(e2e).toMatch(/App ANR[\s\S]*monkey/);
+    // App ANR path must reset app launch time for fresh grace period
+    expect(e2e).toMatch(/App ANR[\s\S]*globalThis\._appLaunchTime\s*=\s*Date\.now\(\)/);
+    // SystemUI ANR path must NOT force-stop (just tap Wait)
+    expect(e2e).toMatch(/dismissAnrOverlay[\s\S]*SystemUI/);
+  });
+
   test('dumpUi() returns fromCache flag and findNodes() exposes it', () => {
     // The stuck-app detector must increment consecutiveEmptyMatchCount only
     // on REAL dumps (cache misses), not on cache hits.  This requires dumpUi()
