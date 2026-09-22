@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "cycle": "35664826402",
+  "decision": "stop",
+  "reason": "Audit decision: accept. V3-08 diagnostic repair accepted. The candidate takes the explicitly sanctioned diagnostic branch of the required fix from cycle 35660497212: periodic logcat/dumpsys/pidof snapshots every 120s during the Demarrer waitFor (not only at timeout), a 30s cold-start snapshot capturing Hermes/SQLite/ReactNative init, and WARMUP visible-elements logging. All diagnostics are read-only adb calls, bounded (8-10s timeouts, 120s cadence), try/catch wrapped, and echoed to stdout so the evidence survives in GitHub Actions step logs. The delta is exactly one file: scripts/e2e-android.js (+99/-0). The pristine navigation is preserved byte-for-byte (app/index.tsx: setCurrentHouseholdId(id) + router.push('/add')). Safe wrapper improvements from the accepted WIP baseline (finalizer-e2e.sh) are untouched. No product code changed: src/ and __tests__/ byte-identical to pristine. Trusted verification exit 0: 453 tests/22 suites, privacy 71, cost 21, expo export android, prebuild, assembleDebug BUILD SUCCESSFUL in 19m59s. Two non-must-fix findings (cold-start snapshot skipped if pidof throws at 30s; mid-wait logcat could trigger reconnect) are optional hardening refinements, not blockers. V3-01 through V3-07 invariants preserved with zero regression. The Builder has no further work on V3-08. The trusted shell must re-dispatch the trusted finalizer to exercise the Android API 35 install/launch/golden-path step with the new diagnostics in place. If the Demarrer blocker persists, the periodic snapshots will pinpoint the exact failure point. Once the finalizer passes, V3-08 transitions to complete and the V3 release is finalized.",
+  "progressEvidence": [
+    "audit-accepted-35664826402-V3-08-diagnostic-repair-accepted",
+    "periodic-mid-wait-diagnostics-every-120s-pidof-logcat-dumpsys-dump-cache",
+    "cold-start-diagnostic-snapshot-30s-after-launch-Hermes-SQLite-ReactNative",
+    "warmup-visible-elements-logging-earliest-screen-state-in-step-logs",
+    "delta-confined-to-scripts-e2e-android-js-plus-99-minus-0-no-product-code",
+    "pristine-navigation-preserved-byte-for-byte-router-push-add-setCurrentHouseholdId",
+    "safe-wrapper-WIP-retained-finalizer-e2e-sh-untouched",
+    "trusted-verification-exit-0-453-tests-privacy-71-cost-21-BUILD-SUCCESSFUL",
+    "independent-typecheck-pass-453-tests-v3-08-suites-58-58",
+    "src-and-tests-byte-identical-to-pristine-zero-regression",
+    "V3-01-through-V3-07-invariants-preserved-zero-regression",
+    "two-non-must-fix-findings-optional-hardening-not-blockers",
+    "builder-work-complete-trusted-finalizer-must-re-dispatch",
+    "next-step-trusted-shell-dispatch-finalizer-with-diagnostics-in-place"
+  ]
+}
