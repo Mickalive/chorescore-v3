@@ -20,8 +20,8 @@ export default function TabsLayout() {
           backgroundColor: colors.surface,
           borderTopColor: colors.divider,
           borderTopWidth: 1,
-          height: 60,
-          paddingBottom: 8,
+          // Let React Navigation include the Android bottom safe-area inset.
+          // A fixed height pushed labels underneath the system navigation bar.
           paddingTop: 4,
         },
         tabBarLabelStyle: {
