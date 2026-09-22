@@ -86,7 +86,7 @@ export class SyncRecordingContributionRepository implements ContributionEntryRep
     private syncState: SyncStateRepository,
   ) {}
 
-  seed(items: ContributionEntry[]): void { this.inner.seed(items); }
+  async seed(items: ContributionEntry[]): Promise<void> { await this.inner.seed(items); }
   getByHousehold(householdId: string): Promise<ContributionEntry[]> { return this.inner.getByHousehold(householdId); }
   getByHouseholdPaginated(householdId: string, query?: PaginatedQuery): Promise<PaginatedResult<ContributionEntry>> { return this.inner.getByHouseholdPaginated(householdId, query); }
   getById(id: string): Promise<ContributionEntry | null> { return this.inner.getById(id); }
@@ -133,7 +133,7 @@ export class SyncRecordingExpenseRepository implements ExpenseEntryRepository {
     private syncState: SyncStateRepository,
   ) {}
 
-  seed(items: ExpenseEntry[]): void { this.inner.seed(items); }
+  async seed(items: ExpenseEntry[]): Promise<void> { await this.inner.seed(items); }
   getByHousehold(householdId: string): Promise<ExpenseEntry[]> { return this.inner.getByHousehold(householdId); }
   getByHouseholdPaginated(householdId: string, query?: PaginatedQuery): Promise<PaginatedResult<ExpenseEntry>> { return this.inner.getByHouseholdPaginated(householdId, query); }
   getById(id: string): Promise<ExpenseEntry | null> { return this.inner.getById(id); }
@@ -180,7 +180,7 @@ export class SyncRecordingTodoRepository implements TodoRepository {
     private syncState: SyncStateRepository,
   ) {}
 
-  seed(items: TodoItem[]): void { this.inner.seed(items); }
+  async seed(items: TodoItem[]): Promise<void> { await this.inner.seed(items); }
   getByHousehold(householdId: string): Promise<TodoItem[]> { return this.inner.getByHousehold(householdId); }
   getById(id: string): Promise<TodoItem | null> { return this.inner.getById(id); }
 
@@ -226,7 +226,7 @@ export class SyncRecordingSettlementRepository implements SettlementRepository {
     private syncState: SyncStateRepository,
   ) {}
 
-  seed(items: CrossLedgerSettlement[]): void { this.inner.seed(items); }
+  async seed(items: CrossLedgerSettlement[]): Promise<void> { await this.inner.seed(items); }
   getByHousehold(householdId: string): Promise<CrossLedgerSettlement[]> { return this.inner.getByHousehold(householdId); }
   getByHouseholdPaginated(householdId: string, query?: PaginatedQuery): Promise<PaginatedResult<CrossLedgerSettlement>> { return this.inner.getByHouseholdPaginated(householdId, query); }
   getById(id: string): Promise<CrossLedgerSettlement | null> { return this.inner.getById(id); }
@@ -267,7 +267,7 @@ export class SyncRecordingPersistentTaskRepository implements PersistentTaskRepo
     private syncState: SyncStateRepository,
   ) {}
 
-  seed(items: PersistentTask[]): void { this.inner.seed(items); }
+  async seed(items: PersistentTask[]): Promise<void> { await this.inner.seed(items); }
   getByHousehold(householdId: string): Promise<PersistentTask[]> { return this.inner.getByHousehold(householdId); }
   getById(id: string): Promise<PersistentTask | null> { return this.inner.getById(id); }
 
@@ -307,7 +307,7 @@ export class SyncRecordingMemberRepository implements MemberRepository {
     private syncState: SyncStateRepository,
   ) {}
 
-  seed(items: Member[]): void { this.inner.seed(items); }
+  async seed(items: Member[]): Promise<void> { await this.inner.seed(items); }
   getByHousehold(householdId: string): Promise<Member[]> { return this.inner.getByHousehold(householdId); }
   getById(id: string): Promise<Member | null> { return this.inner.getById(id); }
 
@@ -339,7 +339,7 @@ export class SyncRecordingMembershipRepository implements MembershipRepository {
     private syncState: SyncStateRepository,
   ) {}
 
-  seed(items: Membership[]): void { this.inner.seed(items); }
+  async seed(items: Membership[]): Promise<void> { await this.inner.seed(items); }
   getByUser(userId: string): Promise<Membership[]> { return this.inner.getByUser(userId); }
   getByHousehold(householdId: string): Promise<Membership[]> { return this.inner.getByHousehold(householdId); }
   getByUserAndHousehold(userId: string, householdId: string): Promise<Membership | null> { return this.inner.getByUserAndHousehold(userId, householdId); }
@@ -378,7 +378,7 @@ export class SyncRecordingHouseholdRepository implements HouseholdRepository {
     private syncState: SyncStateRepository,
   ) {}
 
-  seed(items: Household[]): void { this.inner.seed(items); }
+  async seed(items: Household[]): Promise<void> { await this.inner.seed(items); }
   getAll(): Promise<Household[]> { return this.inner.getAll(); }
   getById(id: string): Promise<Household | null> { return this.inner.getById(id); }
 
