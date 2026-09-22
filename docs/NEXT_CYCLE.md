@@ -1,32 +1,19 @@
-# Next Cycle — 35654272376
+# Next Cycle — 35672300447
 
 ## Decision: continue
 
-V3-08 audit decision is **reject**. The candidate changed `router.push('/add')` to `router.push('/(tabs)')` in `app/index.tsx`, hypothesizing the `/add` route broke the golden path. Independent verification with the exact Expo Router 57.0.22 resolution pipeline **disproved** this: `/add` resolves correctly to `__root → (tabs) → add`; `/(tabs)` resolves to `+not-found` (Unmatched Route screen). The candidate change would make the golden path fail deterministically. The rejected delta is discarded — no WIP retained. The trusted finalizer emulator-step failure (17+ consecutive) remains unaddressed.
+V3-08 audit decision is **accept**. The candidate generalizes ANR overlay handling in `scripts/e2e-android.js`: `dismissSystemUiAnrOverlay()` becomes `dismissAnrOverlay()`, detecting ANY `android:id/alertTitle` whose text includes `"isn't responding"`. SystemUI ANRs are dismissed with Wait only (unchanged). App-specific ANRs (`"ChoreScore isn't responding"`) are dismissed with Wait + force-stop + relaunch via monkey, resetting `_lastForceStopTime` and `_appLaunchTime`, breaking the Wait→ANR→Wait loop that burned the 900s Demarrer timeout on degraded API 35 emulators. Kill-loop guards verified. Delta is exactly 2 files; no product code changed. Trusted verification exit 0: 454 tests/22 suites, privacy 71, cost 21, BUILD SUCCESSFUL (21m 27s).
 
-## Must-fix findings
+## What the Builder did
 
-### Finding 1 — `app/index.tsx`: `router.push('/(tabs)')` breaks navigation (DISCARDED)
+Generalized ANR detection and added app-specific ANR recovery in the E2E test script. Added a contract test for the new behavior. All product code untouched. Builder work on V3-08 is complete.
 
-The candidate line is harmful and has been rejected. The correct state is the pristine baseline with `router.push('/add')` and `setCurrentHouseholdId(id)`. No action needed — the reject discard restores the correct state.
+## What the trusted shell must do
 
-### Finding 2 — the actual trusted finalizer blocker is not repaired
-
-The `/add` route was never the cause of the finalizer failure. Run 35650859523 failed at step "Android API 35 install, launch and golden path" after 20m59s with all gates and the x86_64 build passing. This is the 17th+ consecutive emulator-step failure. The concrete blocker (emulator boot, APK install, cold start, sign-in, dump fragility, app crash/ANR, or System UI overlay) remains unidentified.
-
-## What the next Builder must do
-
-1. **DO NOT change `router.push('/add')`** — it is correct and verified. Any navigation change is a regression.
-2. **Investigate the actual emulator failure** using available evidence:
-   - Diagnostics artifact (id 10663681034, 25.5MB) uploaded by the finalizer — read step-7 logs (`logcat-wait-*.txt`, `dumpsys-wait-*.txt`, `result.json`, UI dump XML) if accessible.
-   - If logs are inaccessible (403/401), apply empirical analysis: the step budget (1259s) fits the script envelope only if boot/install are fast; the global cold-start grace (450s) from cycle 35626262217 should protect `waitFor` calls; the most likely remaining failure points are emulator boot time exceeding the step budget, APK install issues, or dump fragility on API 35 x86_64.
-3. **Repair the concrete blocker** — approaches may include:
-   - Reducing emulator cold-start overhead (pre-warm, snapshot, or KVM tuning)
-   - Extending the step budget or restructuring the finalizer workflow
-   - Fixing dump fragility (adb reconnect, dump timeout, fallback dump methods)
-   - Addressing app crash/ANR if evidence points to a runtime issue
-4. **Preserve V3-01 through V3-07** and all accepted invariants.
-5. **Full trusted verification must exit 0** (typecheck, 453 tests, privacy 71, cost 21, expo export, prebuild, BUILD SUCCESSFUL).
+1. **Dispatch the trusted finalizer** to exercise the Android API 35 install/launch/golden-path with the new ANR handling in place.
+2. The finalizer will run the E2E script on a real API 35 x86_64 emulator. If the app-specific ANR dialog appears during cold start, the new `dismissAnrOverlay()` will detect it, force-stop + relaunch, and continue — instead of burning the full 900s timeout.
+3. If the finalizer passes all gates (product, privacy, cost, APK build, install/launch, golden path), **V3-08 transitions to `complete`** and the V3 release is finalized.
+4. If the finalizer still fails, the mid-wait diagnostics (periodic logcat/dumpsys/pidof snapshots every 120s, cold-start snapshot at 30s, WARMUP visible-elements logging) will pinpoint the exact failure point for the next repair cycle.
 
 ## All criteria status
 
@@ -39,8 +26,8 @@ The `/add` route was never the cause of the finalizer failure. Run 35650859523 f
 | V3-05 | complete |
 | V3-06 | complete |
 | V3-07 | complete |
-| V3-08 | in_progress — audit reject, 1 mustFix (actual emulator blocker unidentified) pending fix |
+| V3-08 | in_progress — audit accepted, finalizer dispatch pending |
 
 ## Factory status
 
-Builder is enabled. The next cycle targets V3-08 repair of the actual emulator/E2E blocker. The rejected navigation delta is discarded; the pristine baseline with `router.push('/add')` is the starting point.
+Builder is enabled but has no more work on V3-08. The trusted shell owns the finalizer dispatch. If the finalizer passes, V3-08 is complete and the release is finalized. If it fails, the next Builder cycle will address the specific failure identified by the diagnostics.

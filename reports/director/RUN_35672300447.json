@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "cycle": "35672300447",
+  "decision": "stop",
+  "reason": "Audit decision: accept. V3-08 repair cycle accepted. The candidate generalizes ANR overlay handling in scripts/e2e-android.js: dismissSystemUiAnrOverlay() becomes dismissAnrOverlay(), detecting ANY android:id/alertTitle whose text includes 'isn't responding'. SystemUI ANRs are dismissed with Wait only (unchanged). App-specific ANRs ('ChoreScore isn't responding') are dismissed with Wait + force-stop + relaunch via monkey, resetting _lastForceStopTime and _appLaunchTime, breaking the Wait→ANR→Wait loop that burned the 900s Demarrer timeout on degraded API 35 emulators. Kill-loop guards verified (FORCE_STOP_RECOVERY_MS 300s, COLD_START_GRACE_MS 450s). Delta is exactly 2 files: scripts/e2e-android.js (+57/-16) and __tests__/domain/v3-08-finalizer-wrapper.test.ts (+24). All product code untouched — src/, app/, governance, directives byte-identical to pristine. Trusted verification exit 0: 454 tests/22 suites, privacy 71, cost 21, expo export, prebuild, BUILD SUCCESSFUL (21m 27s). The open finding (trusted finalizer failure from run 35670332996) is addressed by this repair but not yet verified by a real emulator E2E run. The trusted shell must dispatch the finalizer to exercise the Android API 35 install/launch/golden-path with the new ANR handling. If it passes, V3-08 transitions to complete and the V3 release is finalized.",
+  "progressEvidence": [
+    "audit-accepted-35672300447-V3-08-ANR-overlay-repair",
+    "dismissAnrOverlay-generalizes-SystemUI-and-app-ANR-handling",
+    "app-ANR-force-stop-relaunch-breaks-Wait-ANR-Wait-loop",
+    "kill-loop-guards-verified-FORCE_STOP_RECOVERY_MS-300s-COLD_START_GRACE_MS-450s",
+    "delta-confined-to-scripts-e2e-android-js-and-v3-08-finalizer-wrapper-test",
+    "no-product-code-changed-src-app-governance-byte-identical-to-pristine",
+    "pristine-navigation-preserved-router-push-add-setCurrentHouseholdId",
+    "trusted-verification-exit-0-454-tests-22-suites-privacy-71-cost-21",
+    "expo-export-prebuild-assembleDebug-BUILD-SUCCESSFUL-21m27s",
+    "contract-test-asserts-ANR-detection-app-vs-SystemUI-force-stop-behavior",
+    "V3-01-through-V3-07-invariants-preserved-zero-regression",
+    "builder-work-complete-trusted-finalizer-must-be-dispatched"
+  ]
+}
