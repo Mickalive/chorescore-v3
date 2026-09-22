@@ -2,8 +2,6 @@ name: ChoreScore V3 Finalizer
 
 on:
   workflow_dispatch:
-  push:
-    branches: [main]
   schedule:
     # Safety net only. Normal release handoff is an explicit workflow_dispatch
     # from the factory; do not spam long Android emulator jobs every 10 minutes.
