@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "cycle": "35697944777",
+  "decision": "stop",
+  "reason": "Audit decision: accept. V3-08 repair accepted. The candidate fixes the trusted finalizer Android API 35 APK install/E2E blocker from Actions run 35692317866. Root cause: a 43 MB release APK install on API 35 x86_64 takes 3-4+ minutes (observed 208s in run 35650859523) while the previous bounds were 120s in the wrapper and 180s in the e2e script; runs 35670332996, 35678248910, 35684869621 and 35692317866 all failed with 2x120s empty-output timeouts while the pm path later proved the package WAS present — the device-side install completed but the adb client was killed first. The fix raises both timeouts to 300s (92s headroom over the observed 208s), skips install when `pm list packages` already shows app.chorescore.v3 (safe: the finalizer emulator boots fresh with snapshots disabled, so the package can only come from this run), restarts the adb server conditionally before the first install attempt only to recover a degraded sync service (Unable to connect to adb daemon), and falls back to `adb push` + `pm install` via shell transport, which is resilient to sync-service hangs (push 180s / pm 300s bounds in both wrapper and e2e). The delta is confined to exactly three files: scripts/finalizer-e2e.sh (+57/-7), scripts/e2e-android.js (+30/-7) and __tests__/domain/v3-08-finalizer-wrapper.test.ts (+63). No product code changed: src/, app/, governance, directives, docs and workflows are byte-identical to the pristine accepted tree — no ledger, sync, analytics, privacy, theme, chrono or premium change, so V3-01 through V3-07 remain preserved. Trusted verification exit 0: typecheck clean, 459 tests/22 suites pass, privacy 71 pass, cost 21 pass (all V3-08 cost regression gates green), expo export android OK, prebuild OK, gradlew :app:assembleDebug BUILD SUCCESSFUL in 20m41s. Independent checks: bash -n and node --check OK, 29 finalizer-wrapper contract tests pass including the five new ones (timeout >=300s, skip-when-present, conditional adb restart, push+pm fallback, e2e timeout >=300s with fallback). All three audit findings are non-mustFix; no mustFix remains. All eight roadmap criteria V3-01 through V3-08 are accepted by the Auditor. The Builder has no further work. The trusted shell must re-dispatch the trusted finalizer to exercise the real API 35 install/launch/golden-path step with the 300s timeout and push+pm fallback path. If the finalizer passes product, privacy, cost, APK build, install/launch and golden-path evidence, the trusted shell marks V3-08 complete and finalizes the V3 release — final V3-08 completion belongs only to the trusted release finalizer.",
+  "progressEvidence": [
+    "audit-accepted-35697944777-V3-08-repair-accepted",
+    "adb-install-timeout-raised-120s-to-300s-in-wrapper-and-e2e",
+    "root-cause-verified-43MB-apk-install-208s-observed-vs-120s-old-bound",
+    "four-finalizer-runs-failed-with-2x120s-timeouts-while-pm-proved-package-present",
+    "push-pm-fallback-added-wrapper-and-e2e-shell-transport-resilient-to-sync-hang",
+    "conditional-adb-server-restart-before-first-install-attempt-only",
+    "install-skipped-when-pm-list-packages-shows-app-chorescore-v3-snapshot-disabled-safe",
+    "delta-confined-to-3-files-scripts-and-contract-test-no-product-code",
+    "product-code-byte-identical-to-pristine-v3-01-through-V3-07-preserved",
+    "trusted-verification-exit-0-459-tests-privacy-71-cost-21-BUILD-SUCCESSFUL-20m41s",
+    "29-finalizer-wrapper-contract-tests-pass-including-5-new-oness",
+    "bash-n-and-node-check-OK",
+    "no-mustFix-remains-all-3-findings-non-mustFix",
+    "V3-01-through-V3-08-all-eight-roadmap-criteria-accepted",
+    "builder-work-complete-no-further-iterations-needed",
+    "trusted-shell-must-re-dispatch-finalizer-exercising-300s-and-fallback-path",
+    "next-step-trusted-finalizer-exercises-API-35-install-launch-golden-path-then-finally-completes-V3-08"
+  ]
+}
