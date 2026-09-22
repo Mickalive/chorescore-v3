@@ -338,6 +338,19 @@ function tapLabel(label, options = {}) {
   return node;
 }
 
+function tapTab(label) {
+  const dump = dumpUi();
+  const tab = dump.nodes.find((n) =>
+    n.clickable === 'true' &&
+    (n['content-desc'] || '').includes(label)
+  );
+  if (tab) {
+    tapNode(tab, 700);
+    return tab;
+  }
+  return tapLabel(label, { exact: true, waitMs: 700 });
+}
+
 function inputKeyText(value) {
   const keyFor = (ch) => {
     if (/^[a-z]$/.test(ch)) return `KEYCODE_${ch.toUpperCase()}`;
@@ -1079,7 +1092,7 @@ try {
 
   // 5. Switch to Balances tab
   console.log('Switching to Balances tab...');
-  tapLabel('Balances', { exact: true });
+  tapTab('Balances');
   // 300s: single dump takes 30-60s on slow emulators; crash-relaunch adds 240s.
   waitFor('Alex', 300000);
   waitFor('Sam', 300000);
@@ -1092,14 +1105,14 @@ try {
 
   // 7. Switch to A faire tab
   console.log('Switching to A faire tab...');
-  tapLabel('A faire', { exact: true });
+  tapTab('A faire');
   console.log('Waiting for demo todo "Sortir les poubelles"...');
   // 300s: single dump takes 30-60s on slow emulators; crash-relaunch adds 240s.
   waitFor('Sortir les poubelles', 300000);
   screenshot('07-todos');
 
   // 8. Switch back to Ajouter to verify tab switching doesn't reload
-  tapLabel('Ajouter', { exact: true });
+  tapTab('Ajouter');
   // 300s: single dump takes 30-60s on slow emulators; crash-relaunch adds 240s.
   waitFor('Vaisselle du soir', 300000);
   screenshot('08-back-to-add');
