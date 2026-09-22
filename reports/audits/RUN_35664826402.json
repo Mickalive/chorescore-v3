@@ -1,0 +1,39 @@
+{
+  "schemaVersion": 1,
+  "cycle": "35664826402",
+  "role": "builder",
+  "decision": "accept",
+  "summary": "ACCEPT V3-08 repair cycle 35664826402. The candidate takes the explicitly sanctioned diagnostic branch of the required fix: 'Investigate the app cold-start / demo sign-in / initial render path ... and/or add mid-wait diagnostics to scripts/e2e-android.js (periodic logcat/dumpsys during the Demarrer wait, not only at timeout) so the next cycle can capture the exact failure point if it persists.' The delta (exactly scripts/e2e-android.js, +99/-0) adds: (1) periodic mid-wait diagnostics every 120s inside waitFor() — app process pidof, filtered logcat (Hermes/SQLite/ReactNative/FATAL/ANR/crash/Exception/Error), dumpsys activity top-activity, and dump-cache state — so the Demarrer 900s wait now emits evidence every 2 minutes instead of only at timeout (which may be AFTER recovery/relaunch, masking the original failure); (2) a cold-start diagnostic snapshot 30s after launch (pidof + dumpsys + init logcat) during the critical Hermes/SQLite window; (3) WARMUP visible-elements logging from the warm-up uiautomator dump so the earliest screen state is in the step logs. All diagnostics are read-only adb calls wrapped in try/catch with bounded timeouts (8-10s) and bounded frequency (120s), consistent with existing script patterns; node --check passes and every referenced variable resolves. The pristine navigation is preserved byte-for-byte (app/index.tsx openHousehold = setCurrentHouseholdId(id) + router.push('/add')); the safe wrapper improvements from the accepted WIP baseline (finalizer-e2e.sh) are untouched; no product/domain/analytics/persistence code changed. Trusted verification exit code 0 (typecheck, 453 tests/22 suites, privacy 71, cost 21, expo export, prebuild, gradlew assembleDebug BUILD SUCCESSFUL) and independent checks reproduce it (tsc --noEmit exit 0; V3-08 suites 58/58 pass; src/ and __tests__/ byte-identical to pristine). No must-fix remains within this cycle's scope: the E2E emulator step cannot run in this environment (no emulator; trusted verification covers typecheck/tests/privacy/cost/export/prebuild/native build), and the required fix explicitly sanctions the diagnostics branch so the next trusted finalizer dispatch can capture the exact failure point if the Demarrer blocker persists.",
+  "checks": [
+    "trusted-verification-exit-0: TRUSTED_35664826402.md reports exit code 0 — npm run check (typecheck + 453 tests/22 suites), privacy:check (71 tests), cost:check (21 tests), expo export android, expo prebuild, gradlew :app:assembleDebug BUILD SUCCESSFUL in 19m59s",
+    "delta-scope: git diff HEAD = exactly scripts/e2e-android.js (+99/-0); git status shows only the staged script change plus the untracked trusted verification log; .opencode/ is gitignored",
+    "pristine-navigation: app/index.tsx byte-identical to /home/runner/work/_temp/accepted-pristine — openHousehold keeps setCurrentHouseholdId(id) + router.push('/add'); 'Demarrer (demo)' button present on the sign-in screen (substring-matched by waitFor('Demarrer'))",
+    "wrapper-preserved: scripts/finalizer-e2e.sh identical to pristine (safe wrapper improvements from the accepted WIP baseline untouched)",
+    "product-code-untouched: src/ and __tests__/ byte-identical to pristine (diff -rq); no ledger, sync, analytics, privacy, theme, chrono, premium/paywall, invitation or cost behavior modified",
+    "syntax: node --check scripts/e2e-android.js OK",
+    "variable-resolution: all references in the added diagnostics resolve — shell/adb/parseNodesFromXml (defined), packageName (line 33), dumpFailures (161), _dumpCache/_dumpCacheTime (79-80), waitStart (431), consecutiveEmptyMatchCount (454)",
+    "diagnostics-safety: all added adb calls are read-only (pidof, logcat -d, dumpsys activity activities), wrapped in try/catch, bounded timeouts (8-10s, retries 1 for dumpsys), bounded frequency (DIAGNOSTIC_INTERVAL_MS=120s), and consistent with existing script patterns (app-alive pidof check every 30s, timeout logcat/dumpsys capture)",
+    "independent-typecheck: npx tsc --noEmit exit 0",
+    "independent-tests: npx jest on the three V3-08 suites (e2e-golden-path, finalizer-wrapper, cost-gates-v3-08) — 58/58 pass",
+    "objective-coverage: the required fix's 'and/or' branch is satisfied — periodic logcat/dumpsys during the Demarrer wait (every 120s), not only at timeout; plus a 30s cold-start snapshot and WARMUP visible-elements logging; evidence is echoed to stdout so it survives in step logs even when the artifact directory is not uploaded",
+    "regression-scan: no V3-01..V3-07 invariant touched; all 453 tests + 71 privacy + 21 cost gates pass in the trusted run and are reproduced independently"
+  ],
+  "findings": [
+    {
+      "path": "scripts/e2e-android.js (cold-start snapshot, launch())",
+      "problem": "The 30s cold-start diagnostic snapshot is skipped entirely if the first pidof call throws (app process dead at 30s — pidof exits 1 and execFileSync throws), so a crash during the earliest Hermes window produces no COLD-START [30s] log line. This is a minor diagnostic gap, not a functional defect: the waitFor app-alive check (every 30s) and the timeout diagnostics (pidof + logcat + dumpsys + UI dump) still capture the crash evidence.",
+      "evidence": "launch() wraps the whole snapshot in try/catch (_) {}; shell('pidof', packageName) throws on exit 1 (no process), skipping the dumpsys/logcat capture; the existing app-alive check in waitFor handles err.status === 1 explicitly and relaunches.",
+      "mustFix": false,
+      "requiredFix": "None required for acceptance. Optional hardening for a future cycle: split the pidof check from the dumpsys/logcat capture so a dead process still logs 'COLD-START [30s]: app process pid=NOT FOUND' and captures logcat for the crash reason.",
+      "verification": "The waitFor app-alive check and timeout diagnostics already capture crash evidence; the Demarrer wait diagnostics (every 120s) will show pid=NOT FOUND if the app dies mid-wait."
+    },
+    {
+      "path": "scripts/e2e-android.js (mid-wait logcat diagnostic)",
+      "problem": "The mid-wait logcat call uses adb(['logcat', '-d', '-t', '60'], { timeoutMs: 10_000 }) with the default retries=3 and allowReconnect=true, so a logcat timeout could trigger adbReconnect (kill-server + start-server, ~10s) inside a wait loop. This is consistent with existing patterns (the app-alive pidof check and the timeout logcat capture use the same defaults) and bounded (10s timeout, 120s cadence), so it does not materially threaten the Demarrer 900s window.",
+      "evidence": "adb() default retries=3 with allowReconnect=true; the same pattern already exists at line 532 (app-alive pidof) and line 663 (timeout logcat); adbReconnect is the script's established recovery mechanism for degraded transport.",
+      "mustFix": false,
+      "requiredFix": "None required for acceptance. Optional refinement: pass { retries: 1, allowReconnect: false } to the diagnostic logcat/dumpsys calls so diagnostics can never trigger a reconnect.",
+      "verification": "Diagnostics are read-only and bounded; the wait deadline is wall-clock based, so at most ~10s per 120s window is consumed in the worst case."
+    }
+  ]
+}

@@ -454,6 +454,8 @@ function waitFor(label, timeoutMs = 10000, { graceMs = 0 } = {}) {
   let consecutiveEmptyMatchCount = 0;
   const STUCK_APP_THRESHOLD = 8; // ~8 × 30-60 s = 4-8 min before recovery
   let lastAppCheck = 0;
+  let lastDiagnosticSnapshot = 0;
+  const DIAGNOSTIC_INTERVAL_MS = 120_000; // Capture diagnostics every 120s
   // Track when the last force-stop occurred (shared across the entire golden
   // path via the outer scope, so a crash-detector relaunch in one waitFor
   // also suppresses stuck detection in subsequent waitFor calls).
@@ -467,6 +469,59 @@ function waitFor(label, timeoutMs = 10000, { graceMs = 0 } = {}) {
   if (typeof globalThis._appLaunchTime === 'undefined') globalThis._appLaunchTime = Date.now();
   const globalGraceElapsed = (Date.now() - globalThis._appLaunchTime) >= COLD_START_GRACE_MS;
   while (Date.now() < until) {
+    // ── Periodic mid-wait diagnostics ────────────────────────────
+    // Every DIAGNOSTIC_INTERVAL_MS, capture logcat + dumpsys activity
+    // + app process state so the EXACT stall point is visible in step
+    // logs even if the wait succeeds later or times out.  This is the
+    // primary diagnostic for the Demarrer timeout: without it, we only
+    // see a single snapshot at timeout (which may be AFTER recovery or
+    // relaunch, masking the original failure).
+    const nowDiag = Date.now();
+    if (nowDiag - lastDiagnosticSnapshot > DIAGNOSTIC_INTERVAL_MS) {
+      lastDiagnosticSnapshot = nowDiag;
+      const elapsed = Math.round((nowDiag - waitStart) / 1000);
+      console.log(`  DIAGNOSTIC [${label}]: ${elapsed}s elapsed, looking for "${label}"`);
+      // App process state
+      try {
+        const pid = shell('pidof', packageName).trim();
+        console.log(`  DIAGNOSTIC: app process pid=${pid || 'NOT FOUND'}`);
+      } catch (_) {
+        console.log('  DIAGNOSTIC: could not check app process');
+      }
+      // Logcat (last 60 lines — Hermes init, SQLite, React Native rendering)
+      try {
+        const logcat = adb(['logcat', '-d', '-t', '60'], { timeoutMs: 10_000 });
+        const logLines = logcat.split('\n').filter(l =>
+          l.includes('ChoreScore') || l.includes('ReactNative') || l.includes('Hermes') ||
+          l.includes('expo') || l.includes('SQLite') || l.includes('expo-sqlite') ||
+          l.includes('app.chorescore') || l.includes('FATAL') || l.includes('ANR') ||
+          l.includes('SystemUI') || l.includes('dying') || l.includes('killed') ||
+          l.includes('crash') || l.includes('Exception') || l.includes('Error')
+        );
+        if (logLines.length > 0) {
+          console.log(`  DIAGNOSTIC: relevant logcat (${logLines.length} lines):`);
+          logLines.slice(-20).forEach(l => console.log(`    ${l}`));
+        } else {
+          console.log('  DIAGNOSTIC: no relevant logcat lines found');
+        }
+      } catch (_) {
+        console.log('  DIAGNOSTIC: could not capture logcat');
+      }
+      // Dumpsys activity (what's actually on screen)
+      try {
+        const topActivity = adb(['shell', 'dumpsys', 'activity', 'activities'], { timeoutMs: 10_000, retries: 1 });
+        const resumed = topActivity.split('\n').filter(l =>
+          l.includes('mResumed') || l.includes('mFocused') || l.includes('ACTIVITY')
+        ).slice(0, 8);
+        if (resumed.length > 0) {
+          console.log(`  DIAGNOSTIC: top activity: ${resumed.join(' | ')}`);
+        }
+      } catch (_) {
+        console.log('  DIAGNOSTIC: could not capture dumpsys activity');
+      }
+      // Dump cache state
+      console.log(`  DIAGNOSTIC: dumpFailures=${dumpFailures}, dumpCacheAge=${_dumpCache ? Math.round((Date.now() - _dumpCacheTime) / 1000) + 's' : 'none'}, consecutiveEmpty=${consecutiveEmptyMatchCount}`);
+    }
     // App-alive check every 30s: if the app crashed mid-golden-path,
     // relaunch it immediately instead of burning 600 s on empty dumps.
     // This check is cheap (pidof = 1 adb shell command, < 2 s).
@@ -714,6 +769,39 @@ function launch() {
   // Avoid 60s here because the Demarrer window is the real deadline, not
   // this initial sleep.
   sleep(30000);
+  // ── Cold-start diagnostic snapshot (30s after launch) ──────────
+  // Capture the app's state during the critical Hermes init window.
+  // On slow API 35 x86_64 emulators, this is where the app may be:
+  //   - Still loading (Chargement...) if SQLite init is slow
+  //   - On the sign-in screen if init completed quickly
+  //   - Dead if it crashed during Hermes bootstrap
+  // This snapshot is cheap (~2s) and provides the earliest evidence
+  // of what the app is doing after launch.
+  try {
+    const pid30 = shell('pidof', packageName).trim();
+    console.log(`  COLD-START [30s]: app process pid=${pid30 || 'NOT FOUND'}`);
+    if (pid30) {
+      try {
+        const topAct = adb(['shell', 'dumpsys', 'activity', 'activities'], { timeoutMs: 8_000, retries: 1 });
+        const resumed = topAct.split('\n').filter(l => l.includes('mResumed') || l.includes('mFocused')).slice(0, 3);
+        if (resumed.length > 0) console.log(`  COLD-START [30s]: ${resumed.join(' | ')}`);
+      } catch (_) {}
+      // Capture first logcat lines for Hermes/SQLite init diagnosis
+      try {
+        const logcat30 = adb(['logcat', '-d', '-t', '30'], { timeoutMs: 8_000 });
+        const initLines = logcat30.split('\n').filter(l =>
+          l.includes('Hermes') || l.includes('SQLite') || l.includes('expo-sqlite') ||
+          l.includes('ReactNative') || l.includes('ChoreScore') || l.includes('FATAL') ||
+          l.includes('ANR') || l.includes('app.chorescore')
+        );
+        if (initLines.length > 0) {
+          console.log(`  COLD-START [30s]: init logcat (${initLines.length} lines):`);
+          initLines.slice(-10).forEach(l => console.log(`    ${l}`));
+        }
+      } catch (_) {}
+    }
+  } catch (_) {}
+
   // Ensure adb transport is healthy after the cold-start phase.
   // Do NOT call adbReconnect() (kill-server + start-server) here — it
   // disrupts the adb connection right when the uiautomator server needs
@@ -796,6 +884,17 @@ function launch() {
     if (warmupXml && warmupXml.includes('<node')) {
       const warmupNodes = parseNodesFromXml(warmupXml);
       console.log(`  uiautomator server ready — warm-up dump successful (${warmupNodes.length} nodes)`);
+      // Log what screen we're on before the golden path begins — this is the
+      // EARLIEST evidence of whether the app reached the sign-in screen.
+      const warmupLabels = warmupNodes
+        .filter(n => n.text || n['content-desc'])
+        .map(n => `text="${n.text || ''}" desc="${n['content-desc'] || ''}"`)
+        .slice(0, 15);
+      if (warmupLabels.length > 0) {
+        console.log(`  WARMUP: visible elements: ${warmupLabels.join(' | ')}`);
+      } else {
+        console.log('  WARMUP: no text/content-desc nodes found — app may still be loading');
+      }
       // Cache the warm-up dump WITH parsed nodes so the first findNodes()
       // in waitFor() can match elements immediately instead of spinning
       // on an empty cache for 30s until the TTL expires.
