@@ -327,14 +327,14 @@ describe('V3-08 finalizer wrapper contract', () => {
     expect(graceMatch).not.toBeNull();
     const graceMs = Number(graceMatch![1].replace(/_/g, ''));
     expect(graceMs).toBeGreaterThanOrEqual(240_000); // At least the documented cold start
-    expect(graceMs).toBeLessThanOrEqual(900_000);   // Not more than the Demarrer timeout
+    expect(graceMs).toBeLessThanOrEqual(1260_000);   // Not more than the Demarrer timeout
     // waitFor must accept a graceMs option
     expect(e2e).toContain('{ graceMs = 0 }');
     // The Demarrer waitFor must pass COLD_START_GRACE_MS
-    // 1080s timeout provides headroom for stuck-detector recovery on
-    // degraded API 35 x86_64 emulators (worst case: 450s grace + 480s
-    // stuck detection = 930s, leaving 150s for force-stop + relaunch).
-    expect(e2e).toContain("waitFor('Demarrer', 1080000, { graceMs: COLD_START_GRACE_MS })");
+    // 1260s timeout provides recovery headroom: worst case 930s (stuck
+    // detection) + 17s (force-stop + monkey) + 240s (cold start) +
+    // 60s (dump to detect Demarrer) = 1247s < 1260s (73s headroom).
+    expect(e2e).toContain("waitFor('Demarrer', 1260000, { graceMs: COLD_START_GRACE_MS })");
     // During grace period, the stuck detector must NOT increment the counter
     expect(e2e).toContain('elapsedMs < graceMs');
     // After grace period, the counter must increment normally
