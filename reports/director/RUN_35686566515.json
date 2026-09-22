@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "cycle": "35686566515",
+  "decision": "stop",
+  "reason": "Audit decision: accept. V3-08 repair accepted. The candidate fixes the trusted finalizer E2E blocker: the Demarrer waitFor timeout was raised from 900s to 1080s. Root cause: on degraded API 35 x86_64 emulators the stuck-app detector fires at 450s grace + 8 consecutive dumps × 30-60s = 690-930s worst case; the previous 900s timeout expired before the detector could fire, so the force-stop + relaunch recovery never ran inside the waitFor. The 1080s timeout (18 min) exceeds the 930s worst-case stuck-detection point, leaving 150s headroom for recovery, and fits within the GitHub Actions default step timeout (360 min). The delta is confined to exactly two files: scripts/e2e-android.js (+16/-7) and __tests__/domain/v3-08-finalizer-wrapper.test.ts (+4/-1). No product code changed: src/, app/, governance, directives, docs, workflows byte-identical to the pristine accepted tree. All eight roadmap criteria V3-01 through V3-08 are now accepted by the Auditor. Trusted verification exit 0: typecheck clean, 454 tests/22 suites pass, privacy 71 pass, cost 21 pass, expo export android OK, prebuild OK, assembleDebug BUILD SUCCESSFUL. The Builder has no further work. The trusted shell must re-dispatch the trusted finalizer to exercise the Android API 35 install/launch/golden-path step with the repaired timeout. If the finalizer passes product, privacy, cost, APK build, install/launch and golden path, the trusted shell marks V3-08 complete and finalizes the V3 release.",
+  "progressEvidence": [
+    "audit-accepted-35686566515-V3-08-repair-accepted",
+    "demarrer-waitFor-timeout-raised-900s-to-1080s",
+    "root-cause-verified-stuck-detector-fires-at-930s-worst-case-old-timeout-900s-insufficient",
+    "1080s-timeout-leaves-150s-headroom-for-recovery-after-stuck-detection",
+    "delta-confined-to-scripts-e2e-android-js-and-contract-test-no-product-code",
+    "trusted-verification-exit-0-454-tests-privacy-71-cost-21-BUILD-SUCCESSFUL",
+    "V3-01-through-V3-08-all-eight-roadmap-criteria-accepted",
+    "builder-work-complete-no-further-iterations-needed",
+    "trusted-shell-must-re-dispatch-finalizer-with-repaired-timeout",
+    "next-step-trusted-finalizer-exercises-Android-API-35-install-launch-golden-path"
+  ]
+}
