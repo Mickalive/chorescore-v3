@@ -109,7 +109,7 @@ describe('V4-01 Todo kind — planning', () => {
     expect(result.contributionEntry.label).toBe('Sortir les poubelles');
     expect(result.contributionEntry.value).toBe(15);
     expect(result.contributionEntry.unit).toBe('minutes');
-    expect(result.expenseEntry).toBeUndefined();
+    expect('expenseEntry' in result).toBe(false);
     expect(result.updatedTodo.status).toBe('completed');
     expect(result.updatedTodo.kind).toBe('task');
   });
@@ -134,7 +134,7 @@ describe('V4-01 Todo kind — planning', () => {
     expect(result.expenseEntry.title).toBe('Courses du samedi');
     // The todo note is carried onto the entry (already stored data, verbatim).
     expect(result.expenseEntry.note).toBe('Aldi, 14 septembre');
-    expect(result.contributionEntry).toBeUndefined();
+    expect('contributionEntry' in result).toBe(false);
     expect(result.updatedTodo.kind).toBe('expense');
     expect(result.updatedTodo.status).toBe('completed');
   });
@@ -342,7 +342,7 @@ describe('V4-01 Todo completion — task path with V4-01 entry fields', () => {
     expect(entry.categoryLabelSnapshot).toBeUndefined();
 
     const balances = calculateContributionBalances(
-      [entry as { id: string }],
+      [{ ...entry, id: 'c-plan' }],
       'minutes',
       [],
       ['a', 'b']

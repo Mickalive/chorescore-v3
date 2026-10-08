@@ -60,13 +60,20 @@ export interface Member {
 
 export type MemberIdentityKind = 'named' | 'linked';
 
+/**
+ * Minimal identity shape accepted by the member-kind helpers. `undefined` is
+ * tolerated (and classified as named) so a partially-built member can be
+ * passed without an unsafe cast; the implementation already treats it as named.
+ */
+export type MemberIdentityRef = { userId: string | null | undefined };
+
 /** Named member: created from a name only, not yet linked to an account. */
-export function isNamedMember(member: Pick<Member, 'userId'>): boolean {
+export function isNamedMember(member: MemberIdentityRef): boolean {
   return memberIdentityKind(member) === 'named';
 }
 
 /** Linked member: tied to an authenticated account. */
-export function isLinkedMember(member: Pick<Member, 'userId'>): boolean {
+export function isLinkedMember(member: MemberIdentityRef): boolean {
   return memberIdentityKind(member) === 'linked';
 }
 
@@ -75,7 +82,7 @@ export function isLinkedMember(member: Pick<Member, 'userId'>): boolean {
  * a named member must never be treated as an account, and two different
  * names must never collapse into one identity.
  */
-export function memberIdentityKind(member: Pick<Member, 'userId'>): MemberIdentityKind {
+export function memberIdentityKind(member: MemberIdentityRef): MemberIdentityKind {
   return member.userId === null || member.userId === undefined || member.userId === ''
     ? 'named'
     : 'linked';

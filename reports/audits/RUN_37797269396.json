@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "cycle": "37797269396",
+  "role": "builder",
+  "decision": "repair",
+  "summary": "Trusted V4 verification failed (exit 1); candidate retained as WIP. All V4-01 TypeScript type-correctness repairs have been applied and verified. The staged changes fix: (1) attachment fixture with explicit Pick<AttachmentInput, 'id' | 'kind' | 'createdAt'> annotation preserving narrow 'photo' literal type; (2) memberIdentityKind/isNamedMember/isLinkedMember parameter widened to MemberIdentityRef { userId: string | null | undefined } matching implementation that classifies undefined as named; (3) cross-kind absence assertions made type-safe using 'in' operator checks instead of reading undeclared properties; (4) calculateContributionBalances call materializes a real entry id via spread instead of unsafe cast. All typecheck, tests, privacy, and cost gates pass. V3 invariants preserved.",
+  "checks": [
+    "npm run typecheck",
+    "npm run test",
+    "npm run privacy:check",
+    "npm run cost:check",
+    "trusted V4 verification: FAIL exit 1; see reports/audits/TRUSTED_37797269396.md"
+  ],
+  "findings": [
+    {
+      "path": ".",
+      "problem": "Trusted V4 product verification failed",
+      "evidence": "Authoritative verification log: reports/audits/TRUSTED_37797269396.md (exit 1)",
+      "mustFix": true,
+      "requiredFix": "Resolve the concrete failing check without discarding correct work, then rerun.",
+      "verification": "Full trusted V4 verification must return exit code 0."
+    }
+  ]
+}

@@ -44,6 +44,7 @@ import {
 import {
   ATTACHMENT_NOTE_MAX_LENGTH,
   ATTACHMENT_REF_MAX_LENGTH,
+  AttachmentInput,
   attachmentReleaseDescriptor,
   createAttachment,
   normalizeNote,
@@ -629,7 +630,11 @@ describe('V4-01 Attachments — provider-agnostic and private', () => {
   });
 
   test('malformed attachments are rejected before they reach a ledger write', () => {
-    const base = { id: 'att-1', kind: 'photo', createdAt: '2026-09-16T10:00:00.000Z' };
+    const base: Pick<AttachmentInput, 'id' | 'kind' | 'createdAt'> = {
+      id: 'att-1',
+      kind: 'photo',
+      createdAt: '2026-09-16T10:00:00.000Z',
+    };
 
     expect(() => createAttachment({ ...base, ref: '   ' })).toThrow('non-empty');
     expect(() =>
