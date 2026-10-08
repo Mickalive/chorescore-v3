@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "cycle": "37797269396",
+  "decision": "continue",
+  "reason": "Audit decision: repair on V4-01 with a real delta kept as WIP baseline. The prior cycle's mustFix findings are genuinely resolved: trusted verification (reports/audits/TRUSTED_37797269396.md) now runs `npm run typecheck` clean (0 tsc errors, the previous 9 errors in `__tests__/domain/v4-01-domain.test.ts` and `__tests__/domain/v4-01-todo-atomic.test.ts` are gone), the full jest suite passes (526 tests / 25 suites, both repaired V4-01 suites PASS), `privacy:check` passes (static contract OK + 71 focused privacy tests), and `cost:check` passes (all 10 cost-regression gates). However trusted verification still FAILS with exit 1, and the log pinpoints the concrete cause: the Expo alignment step reports the expected-version mismatches for six packages (expo@57.0.24 expected ~57.0.27; expo-constants@57.0.19 expected ~57.0.21; expo-linking@57.0.10 expected ~57.0.12; expo-router@57.0.22 expected ~57.0.25; expo-sharing@57.0.21 expected ~57.0.22; expo-sqlite@57.0.3 expected ~57.0.4) and ends with 'Found outdated dependencies', immediately before 'Trusted verification exit code: 1'. Acceptance is therefore forbidden (a mustFix finding remains and the full trusted verification is not exit 0), but reconstruction is forbidden too: the candidate is coherent, all code-level gates are green, and the required repair is a dependency-alignment step only (`npx expo install --fix` or installing exactly the six expected versions), followed by re-running `npm run check` and re-audit. No product behaviour change, no test weakening, no new scope. V4-01 stays the active criterion; no V4-02 work starts until trusted verification is exit 0 and no mustFix remains.",
+  "progressEvidence": [
+    "audit-37797269396-repair-V4-01-delta-kept-as-WIP-baseline-no-reconstruction",
+    "trusted-verification-FAILED-exit-1-TRUSTED_37797269396-improved-from-prior-exit-2",
+    "prior-mustFix-resolved-npm-run-typecheck-clean-0-tsc-errors-previously-9",
+    "prior-mustFix-resolved-v4-01-domain-test-ts-attachment-fixture-narrow-photo-literal-and-memberIdentityKind-widened-typecheck-passes",
+    "prior-mustFix-resolved-v4-01-todo-atomic-test-ts-in-operator-cross-kind-absence-assertions-and-materialised-entry-id-typecheck-passes",
+    "trusted-jest-PASS-526-tests-25-suites-including-both-repaired-V4-01-domain-and-V4-01-todo-atomic-suites",
+    "trusted-privacy-check-PASS-static-contract-OK-plus-71-focused-privacy-tests",
+    "trusted-cost-check-PASS-all-10-cost-regression-gates-including-50k-bounded-reads-tab-switch-0-reloads-delta-sync-classification-cache",
+    "sole-remaining-failing-gate-expo-alignment-step-reported-6-outdated-packages-expected-versions",
+    "expo-outdated-packages-expo-57.0.24-to-~57.0.27-expo-constants-57.0.19-to-~57.0.21-expo-linking-57.0.10-to-~57.0.12",
+    "expo-outdated-packages-expo-router-57.0.22-to-~57.0.25-expo-sharing-57.0.21-to-~57.0.22-expo-sqlite-57.0.3-to-~57.0.4",
+    "trusted-log-ends-Found-outdated-dependencies-then-Trusted-verification-exit-code-1",
+    "builder-report-RUN_37797269396-confirms-all-four-type-level-repairs-applied-and-locally-verified",
+    "invariants-preserved-zero-sum-contribution-and-money-per-currency-delta-equals-full-replay",
+    "named-vs-linked-member-distinct-with-widened-identity-type-no-history-rewrite",
+    "todo-task-expense-completion-atomic-one-entry-per-kind-rollback-retry-still-green",
+    "no-chrono-premium-paywall-demo-no-cross-ledger-implicit-compensation",
+    "next-task-narrow-expo-dependency-alignment-then-npm-run-check-and-re-audit-until-trusted-exit-0",
+    "trusted-shell-normalizes-criterion-status-and-open-findings-V4-09-handoff-remains-finalizer-owned"
+  ]
+}

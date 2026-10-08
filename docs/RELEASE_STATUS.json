@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "milestone": "v4-rc",
-  "lastCycle": "37782502124",
+  "lastCycle": "37797269396",
   "activeCriteria": [
     "V4-01"
   ],
@@ -56,25 +56,9 @@
   ],
   "openFindings": [
     {
-      "path": "__tests__/domain/v4-01-domain.test.ts",
-      "problem": "Typecheck fails with 5 TypeScript errors, so `npm run check` (typecheck && test) exits 2 and the acceptance bullet 'typecheck/tests verts' fails. Line 264 passes `{ userId: undefined }` to `memberIdentityKind`, whose parameter type is `Pick<Member, 'userId'>` = `string | null` (undefined not assignable). Lines 634, 636, 641 and 642 build attachment literals from a `base` object whose `kind` property widens to `string`, which is not assignable to `AttachmentInput.kind: \"photo\"`.",
-      "evidence": "TRUSTED_37782502124.md and independent `npx tsc --noEmit`: `v4-01-domain.test.ts(264,33): error TS2322: Type 'undefined' is not assignable to type 'string | null'`; `(634,35)/(636,24)/(641,35)/(642,35): error TS2345 ... Types of property 'kind' are incompatible. Type 'string' is not assignable to type '\"photo\"'`. The suite itself passes at runtime (`npx jest __tests__/domain/v4-01-domain.test.ts` → PASS), so this is purely a type-level defect in the new test file; `src/` produces no tsc errors.",
-      "mustFix": true,
-      "requiredFix": "Keep the assertions but make them type-correct: annotate the attachment fixture as `const base: Pick<AttachmentInput, 'id' | 'kind' | 'createdAt'> = { id: 'att-1', kind: 'photo', createdAt: ... }` (or use `kind: 'photo' as const`) so the literal keeps its narrow type; for line 264 either widen the accepted parameter of `memberIdentityKind`/`isNamedMember`/`isLinkedMember` to `string | null | undefined` (the implementation already classifies undefined as named) or construct the argument as a value typed `Pick<Member, 'userId'>` without an out-of-type `undefined`. No product behaviour change is required. Re-run `npm run check` until exit 0.",
-      "verification": "`npx tsc --noEmit` reports 0 errors in this file and `npx jest __tests__/domain/v4-01-domain.test.ts` stays green (all existing assertions preserved)."
-    },
-    {
-      "path": "__tests__/domain/v4-01-todo-atomic.test.ts",
-      "problem": "Typecheck fails with 4 TypeScript errors in the new atomic Todo suite. Line 112 reads `result.expenseEntry` on the object returned by the `CompletionInput` overload (`TaskCompletionOutput`, which has no `expenseEntry`); line 137 reads `result.contributionEntry` on `ExpenseCompletionOutput` (which has no `contributionEntry`). Line 345 casts `Omit<ContributionEntry, 'id'>` to `{ id: string }`, which neither overlaps nor carries the required ledger fields (TS2740 + TS2352).",
-      "evidence": "TRUSTED_37782502124.md and independent `npx tsc --noEmit`: `v4-01-todo-atomic.test.ts(112,19): error TS2339: Property 'expenseEntry' does not exist on type 'TaskCompletionOutput'`; `(137,19): Property 'contributionEntry' does not exist on type 'ExpenseCompletionOutput'`; `(345,8): error TS2740 ... missing ... householdId, label, performedByMemberId, beneficiaryMemberIds ...` and `error TS2352: Conversion of type 'Omit<ContributionEntry, \"id\">' to type '{ id: string; }' ...`. Runtime suite passes (`PASS __tests__/domain/v4-01-todo-atomic.test.ts`), so the atomicity/zero-sum behaviour itself is sound; only the types are wrong.",
-      "mustFix": true,
-      "requiredFix": "Make the cross-kind absence assertions type-safe without weakening them: assert with an in-check or a narrow cast, e.g. `expect('expenseEntry' in result).toBe(false)` / `expect((result as { expenseEntry?: unknown }).expenseEntry).toBeUndefined()` (and symmetrically for `contributionEntry`), instead of reading a property that the resolved overload type does not declare. For line 345, materialise a real entry id rather than an unsafe cast, e.g. `calculateContributionBalances([{ ...entry, id: 'c-plan' }], 'minutes', [], ['a', 'b'])`, or cast through `unknown` to `ContributionEntry`. Re-run `npm run check` until exit 0.",
-      "verification": "`npx tsc --noEmit` reports 0 errors in this file while the runtime assertions (one-entry-per-completion, rollback/retry, zero-sum per kind) remain executed and green."
-    },
-    {
       "path": ".",
       "problem": "Trusted V4 product verification failed",
-      "evidence": "Authoritative verification log: reports/audits/TRUSTED_37782502124.md (exit 2)",
+      "evidence": "Authoritative verification log: reports/audits/TRUSTED_37797269396.md (exit 1)",
       "mustFix": true,
       "requiredFix": "Resolve the concrete failing check without discarding correct work, then rerun.",
       "verification": "Full trusted V4 verification must return exit code 0."
@@ -83,7 +67,7 @@
   "factoryHealth": {
     "stalled": false,
     "consecutiveNoProgress": 0,
-    "lastProductSha": "5e74f35c78c327cebfa435061ad74528663097ba",
+    "lastProductSha": "8e0d93133ec936b528994e742683af60617b3c4d",
     "reason": null
   }
 }
