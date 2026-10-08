@@ -1,21 +1,24 @@
 {
   "schemaVersion": 1,
   "milestone": "v4-rc",
-  "lastCycle": "37797269396",
+  "lastCycle": "37819892012",
   "activeCriteria": [
-    "V4-01"
+    "V4-02"
   ],
   "pendingArtifact": null,
-  "progressSummary": "Audited V4-01 requires targeted repair; safe WIP retained and autonomous loop continues.",
+  "progressSummary": "V4-01 complete after repeated independent ACCEPT with trusted verification green; V4-02 active.",
   "criteria": [
     {
       "id": "V4-01",
-      "status": "in_progress",
-      "evidence": []
+      "status": "complete",
+      "evidence": [
+        "audit-accepted-37819892012",
+        "trusted-verification-526-tests-privacy-71-cost-21-android-build-green"
+      ]
     },
     {
       "id": "V4-02",
-      "status": "pending",
+      "status": "in_progress",
       "evidence": []
     },
     {
@@ -54,16 +57,7 @@
       "evidence": []
     }
   ],
-  "openFindings": [
-    {
-      "path": ".",
-      "problem": "Trusted V4 product verification failed",
-      "evidence": "Authoritative verification log: reports/audits/TRUSTED_37797269396.md (exit 1)",
-      "mustFix": true,
-      "requiredFix": "Resolve the concrete failing check without discarding correct work, then rerun.",
-      "verification": "Full trusted V4 verification must return exit code 0."
-    }
-  ],
+  "openFindings": [],
   "factoryHealth": {
     "stalled": false,
     "consecutiveNoProgress": 0,
