@@ -1,21 +1,23 @@
 {
   "schemaVersion": 1,
-  "milestone": "v3-rc",
+  "milestone": "v4-rc",
   "builder": {
-    "enabled": false,
-    "criterionId": null,
-    "objective": "V3 RC complete.",
-    "scope": "No further Builder work.",
-    "acceptance": [],
+    "enabled": true,
+    "criterionId": "V4-01",
+    "objective": "Implement V4-01 — Domaine V4 et migration sûre. Étendre le domaine V3 avec catégories libres, membres nommés/non liés, ratio de catégorie par défaut snapshoté, attachments note/photo, Todo kind task|expense et vocabulaire Task côté présentation sans casser les ledgers existants.",
+    "scope": "Work only on V4-01 and directly necessary migrations. Preserve the validated V3 RC baseline and every V3 invariant.",
+    "acceptance": [
+      "typecheck/tests verts",
+      "invariants V3 préservés",
+      "Category sans seed obligatoire",
+      "named member distinct de linked identity",
+      "task split custom exact et snapshot du ratio de catégorie",
+      "attachments provider-agnostic",
+      "Todo task|expense atomique",
+      "aucune réinterprétation historique"
+    ],
     "previousCriteriaPreserved": [
-      "V3-01: accepted and must not regress",
-      "V3-02: accepted and must not regress",
-      "V3-03: accepted and must not regress",
-      "V3-04: accepted and must not regress",
-      "V3-05: accepted and must not regress",
-      "V3-06: accepted and must not regress",
-      "V3-07: accepted and must not regress",
-      "V3-08: audit accepted, pending finalizer handoff — E2E blocker must be repaired first"
+      "V3 RC: validated baseline; must not regress"
     ]
   }
 }
