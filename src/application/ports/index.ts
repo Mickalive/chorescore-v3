@@ -159,6 +159,43 @@ export interface InvitationResult {
   membershipId?: string;
 }
 
+// ── Attachment Port (V4-01) ────────────────────────────────────
+
+/**
+ * Photo attachments behind an honest port.
+ *
+ * The domain only receives an opaque `ref` from this adapter, so no provider
+ * type (camera roll, cloud file id, media library) ever enters the ledger.
+ * When no provider is configured on the current build the adapter reports
+ * `isAvailable() === false` and `pickPhoto()` resolves null — the UI then
+ * hides the action instead of faking a photo.
+ */
+export interface AttachmentGateway {
+  isAvailable(): boolean;
+  /** User picked a photo, or cancelled / provider unavailable (null). */
+  pickPhoto(): Promise<AttachmentSource | null>;
+  /** Persist a picked source and return its opaque reference. */
+  save(source: AttachmentSource, householdId: string): Promise<AttachmentHandle>;
+  /** Remove the stored payload behind a reference. */
+  remove(handle: AttachmentHandle): Promise<void>;
+}
+
+export interface AttachmentSource {
+  localUri: string;
+  mimeType?: string;
+  byteSize?: number;
+  width?: number;
+  height?: number;
+}
+
+export interface AttachmentHandle {
+  ref: string;
+  mimeType?: string;
+  byteSize?: number;
+  width?: number;
+  height?: number;
+}
+
 // ── Permissions ────────────────────────────────────────────────
 
 export type MemberPermissionLevel = 'OWNER' | 'ADMIN' | 'MEMBER';

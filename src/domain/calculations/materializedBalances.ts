@@ -15,6 +15,7 @@
 
 import { ContributionEntry, ContributionUnit, ExpenseEntry, CrossLedgerSettlement } from '../entities';
 import { calculateContributionBalances, balancesToArray, sumContributionBalances, contributionLedgerIsZeroSum } from './contributionLedger';
+import { allocateEntryShares } from './taskSplit';
 import { calculateFinancialBalancesByCurrency, financialBalancesToArray, financialLedgerIsZeroSum } from './expenseLedger';
 import { filterByPeriod, Period, periodBoundary } from './periods';
 
@@ -119,13 +120,19 @@ export function deltaUpdateContribution(
   const next = new Map(current);
   const sign = type === 'add' ? 1 : -1;
 
+  // Shares come from the entry's own snapshoted split (equal for V3 entries),
+  // so a custom split delta always matches the full ledger replay.
+  const shares = allocateEntryShares(entry);
+
   // Performer gets credit (or loses it on removal)
   next.set(entry.performedByMemberId, (next.get(entry.performedByMemberId) ?? 0) + sign * entry.value);
 
-  // Each beneficiary bears a share of the cost
-  const share = entry.value / entry.beneficiaryMemberIds.length;
-  for (const beneficiaryId of entry.beneficiaryMemberIds) {
-    next.set(beneficiaryId, (next.get(beneficiaryId) ?? 0) - sign * share);
+  // Each beneficiary bears its allocated share of the cost
+  for (const beneficiaryShare of shares) {
+    next.set(
+      beneficiaryShare.memberId,
+      (next.get(beneficiaryShare.memberId) ?? 0) - sign * beneficiaryShare.share
+    );
   }
 
   return next;

@@ -38,6 +38,7 @@ import {
   MembershipRepository,
   HouseholdRepository,
   MemberRepository,
+  CategoryRepository,
   ContributionEntryRepository,
   PersistentTaskRepository,
   TodoRepository,
@@ -53,6 +54,7 @@ import {
   InMemoryMembershipRepository,
   InMemoryHouseholdRepository,
   InMemoryMemberRepository,
+  InMemoryCategoryRepository,
   InMemoryContributionEntryRepository,
   InMemoryPersistentTaskRepository,
   InMemoryTodoRepository,
@@ -79,6 +81,12 @@ export interface AllRepositories {
   memberships: MembershipRepository;
   households: HouseholdRepository;
   members: MemberRepository;
+  /**
+   * V4-01: user-created categories. Deliberately NOT part of the sync
+   * collection list yet (that lands with the V4-07 sync criterion) and never
+   * seeded: a household starts with zero categories.
+   */
+  categories: CategoryRepository;
   contributions: ContributionEntryRepository;
   tasks: PersistentTaskRepository;
   todos: TodoRepository;
@@ -318,6 +326,7 @@ function createInMemoryRepositories(): AllRepositories {
   const membershipRepo = new InMemoryMembershipRepository();
   const householdRepo = new InMemoryHouseholdRepository();
   const memberRepo = new InMemoryMemberRepository();
+  const categoryRepo = new InMemoryCategoryRepository();
   const contributionRepo = new InMemoryContributionEntryRepository();
   const taskRepo = new InMemoryPersistentTaskRepository();
   const todoRepo = new InMemoryTodoRepository();
@@ -346,6 +355,7 @@ function createInMemoryRepositories(): AllRepositories {
     memberships: syncMemberships,
     households: syncHouseholds,
     members: syncMembers,
+    categories: categoryRepo,
     contributions: syncContributions,
     tasks: syncTasks,
     todos: syncTodos,
@@ -363,6 +373,7 @@ function createInMemoryRepositories(): AllRepositories {
       const settlementSnap = settlementRepo.snapshot();
       const taskSnap = taskRepo.snapshot();
       const memberSnap = memberRepo.snapshot();
+      const categorySnap = categoryRepo.snapshot();
       const membershipSnap = membershipRepo.snapshot();
       const householdSnap = householdRepo.snapshot();
       // Snapshot base sync state (cursors + records)
@@ -377,6 +388,7 @@ function createInMemoryRepositories(): AllRepositories {
         settlementRepo.restoreFromSnapshot(settlementSnap);
         taskRepo.restoreFromSnapshot(taskSnap);
         memberRepo.restoreFromSnapshot(memberSnap);
+        categoryRepo.restoreFromSnapshot(categorySnap);
         membershipRepo.restoreFromSnapshot(membershipSnap);
         householdRepo.restoreFromSnapshot(householdSnap);
         baseSyncState.restoreCursors(syncCursorsSnap);
@@ -402,6 +414,7 @@ async function createSqliteRepositories(): Promise<AllRepositories | null> {
       SqliteMembershipRepository,
       SqliteHouseholdRepository,
       SqliteMemberRepository,
+      SqliteCategoryRepository,
       SqliteContributionEntryRepository,
       SqlitePersistentTaskRepository,
       SqliteTodoRepository,
@@ -446,6 +459,8 @@ async function createSqliteRepositories(): Promise<AllRepositories | null> {
       memberships: syncMemberships,
       households: syncHouseholds,
       members: syncMembers,
+      // Categories are local-only for now (V4-07 owns the sync extension).
+      categories: new SqliteCategoryRepository(),
       contributions: syncContributions,
       tasks: syncTasks,
       todos: syncTodos,

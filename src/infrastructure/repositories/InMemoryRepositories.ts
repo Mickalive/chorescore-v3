@@ -17,6 +17,7 @@ import {
   CrossLedgerSettlement,
   Invitation,
   InvitationStatus,
+  Category,
   SyncCursor,
   SyncRecord,
   SyncCollection,
@@ -26,6 +27,8 @@ import {
   MembershipRepository,
   HouseholdRepository,
   MemberRepository,
+  CategoryRepository,
+  CategoryUpdate,
   ContributionEntryRepository,
   PersistentTaskRepository,
   TodoRepository,
@@ -226,6 +229,93 @@ export class InMemoryMemberRepository implements MemberRepository {
     };
     this.items.set(member.id, { ...member });
     return member;
+  }
+}
+
+// ── V4-01: InMemory Category Repository ────────────────────────
+
+export class InMemoryCategoryRepository implements CategoryRepository {
+  private items = new Map<string, Category>();
+
+  /** Snapshot internal state for transactional rollback. */
+  snapshot(): Map<string, Category> {
+    return new Map(
+      Array.from(this.items.entries()).map(([k, v]) => [
+        k,
+        { ...v, defaultTaskRatio: v.defaultTaskRatio ? v.defaultTaskRatio.map((w) => ({ ...w })) : null },
+      ]),
+    );
+  }
+
+  /** Restore from a snapshot taken before a transaction. */
+  restoreFromSnapshot(snap: Map<string, Category>): void {
+    this.items = new Map(snap);
+  }
+
+  seed(categories: Category[]): void {
+    for (const c of categories) {
+      this.items.set(c.id, {
+        ...c,
+        // Copy the ratio so a caller cannot mutate a stored category through
+        // the array it passed in (snapshot safety).
+        defaultTaskRatio: c.defaultTaskRatio ? c.defaultTaskRatio.map((w) => ({ ...w })) : null,
+      });
+    }
+  }
+
+  async getByHousehold(householdId: string): Promise<Category[]> {
+    // Same ordering as the SQLite adapter (createdAt ASC) so both stores
+    // behave identically for the UI and for tests.
+    return Array.from(this.items.values())
+      .filter((c) => c.householdId === householdId)
+      .sort((a, b) => (a.createdAt < b.createdAt ? -1 : a.createdAt > b.createdAt ? 1 : 0));
+  }
+
+  async getById(id: string): Promise<Category | null> {
+    return this.items.get(id) ?? null;
+  }
+
+  async create(data: Omit<Category, 'id' | 'createdAt' | 'updatedAt'>): Promise<Category> {
+    const now = new Date().toISOString();
+    const created: Category = {
+      ...data,
+      defaultTaskRatio: data.defaultTaskRatio
+        ? data.defaultTaskRatio.map((w) => ({ ...w }))
+        : null,
+      id: generateId('category'),
+      createdAt: now,
+      updatedAt: now,
+    };
+    this.items.set(created.id, created);
+    return created;
+  }
+
+  async update(id: string, data: CategoryUpdate): Promise<Category> {
+    const existing = this.items.get(id);
+    if (!existing) throw new Error(`Category ${id} not found`);
+    // Only name/defaultTaskRatio are writable (CategoryUpdate), and an
+    // explicitly undefined value means "leave unchanged". Identity, tenancy
+    // and provenance always come from the stored row — identical to the
+    // SQLite adapter.
+    const nextName = data.name !== undefined ? data.name : existing.name;
+    const nextRatio =
+      data.defaultTaskRatio !== undefined ? data.defaultTaskRatio : existing.defaultTaskRatio;
+    const updated: Category = {
+      ...existing,
+      name: nextName,
+      defaultTaskRatio: nextRatio ? nextRatio.map((w) => ({ ...w })) : null,
+      id: existing.id,
+      householdId: existing.householdId,
+      createdAt: existing.createdAt,
+      updatedAt: new Date().toISOString(),
+    };
+    this.items.set(id, updated);
+    return updated;
+  }
+
+  async delete(id: string): Promise<void> {
+    // Ledger entries referencing this id are intentionally untouched.
+    this.items.delete(id);
   }
 }
 

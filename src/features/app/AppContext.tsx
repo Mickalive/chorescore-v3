@@ -22,13 +22,14 @@ import { LocalCalendarAdapter } from '../../infrastructure/local/LocalCalendarAd
 import { LocalSecureStorageAdapter } from '../../infrastructure/local/LocalSecureStorageAdapter';
 import { LocalSyncAdapter } from '../../infrastructure/local/LocalSyncAdapter';
 import { LocalResearchAnalyticsAdapter } from '../../infrastructure/local/LocalResearchAnalyticsAdapter';
+import { LocalAttachmentAdapter } from '../../infrastructure/local/LocalAttachmentAdapter';
 import {
   createRepositories,
   createInMemoryRepositories,
   AllRepositories,
 } from '../../infrastructure/repositories/RepositoryFactory';
 import { createScopedRepositories } from '../../infrastructure/repositories/ScopedRepositoryFacade';
-import { AuthUser } from '../../application/ports';
+import { AuthUser, AttachmentGateway } from '../../application/ports';
 import { Household, Member } from '../../domain/entities';
 import {
   ensureDemoFixture,
@@ -74,6 +75,8 @@ interface AppState {
     share: LocalSystemShareAdapter;
     notifications: LocalNotificationAdapter;
     calendar: LocalCalendarAdapter;
+    /** V4-01: photo attachments behind an honest port (no provider faked). */
+    attachments: AttachmentGateway;
   };
 }
 
@@ -136,6 +139,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     secureStorage: new LocalSecureStorageAdapter(),
     sync: new LocalSyncAdapter(),
     analytics: new LocalResearchAnalyticsAdapter(),
+    // V4-01: honest adapter — reports unavailable until a real photo
+    // provider is configured; the UI then hides the photo action instead of
+    // faking a pick.
+    attachments: new LocalAttachmentAdapter(),
   });
 
   // ── Data-change signal (pub/sub) ──────────────────────────────
@@ -258,6 +265,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       share: servicesRef.current.share,
       notifications: servicesRef.current.notifications,
       calendar: servicesRef.current.calendar,
+      attachments: servicesRef.current.attachments,
     },
   };
 

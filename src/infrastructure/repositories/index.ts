@@ -16,6 +16,7 @@ import {
   ExpenseEntry,
   CrossLedgerSettlement,
   Invitation,
+  Category,
   SyncCursor,
   SyncRecord,
   SyncCollection,
@@ -60,6 +61,32 @@ export interface MemberRepository extends SeedableRepository<Member> {
   getByHousehold(householdId: string): Promise<Member[]>;
   getById(id: string): Promise<Member | null>;
   create(data: Omit<Member, 'id' | 'joinedAt'>): Promise<Member>;
+}
+
+// ── V4-01: Category Repository ─────────────────────────────────
+
+/**
+ * Only `name` and `defaultTaskRatio` are editable: identity (`id`), tenancy
+ * (`householdId`) and provenance (`createdAt`) are immutable, so every
+ * adapter behaves identically and a category can never be moved between
+ * groups behind the ledger's back.
+ */
+export type CategoryUpdate = Partial<Pick<Category, 'name' | 'defaultTaskRatio'>>;
+
+/**
+ * User-created categories. No product path ever seeds a taxonomy: a
+ * household starts with zero categories and only stores what its members
+ * typed. (The `seed` member exists purely as test/fixture plumbing, the same
+ * as every other repository — nothing in the app calls it.) Deleting a
+ * category never touches ledger entries (they keep their categoryId +
+ * creation-time label snapshot).
+ */
+export interface CategoryRepository extends SeedableRepository<Category> {
+  getByHousehold(householdId: string): Promise<Category[]>;
+  getById(id: string): Promise<Category | null>;
+  create(data: Omit<Category, 'id' | 'createdAt' | 'updatedAt'>): Promise<Category>;
+  update(id: string, data: CategoryUpdate): Promise<Category>;
+  delete(id: string): Promise<void>;
 }
 
 export interface PaginatedResult<T> {

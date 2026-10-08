@@ -10,6 +10,7 @@ import {
   validateContributionMemberIds,
 } from './validation';
 import { validateCrossLedgerSettlement } from './crossLedgerSettlement';
+import { allocateEntryShares } from './taskSplit';
 
 const EPSILON = 1e-9;
 
@@ -47,10 +48,13 @@ export function calculateContributionBalances(
     if (entry.unit !== unit) continue;
     validateContribution(entry);
 
+    // Resolve the split BEFORE mutating balances so an invalid custom split
+    // throws instead of leaving a half-applied entry. V3 entries (no split
+    // fields) keep the exact original equal-split arithmetic.
+    const shares = allocateEntryShares(entry);
     add(balances, entry.performedByMemberId, entry.value);
-    const share = entry.value / entry.beneficiaryMemberIds.length;
-    for (const beneficiaryId of entry.beneficiaryMemberIds) {
-      add(balances, beneficiaryId, -share);
+    for (const beneficiaryShare of shares) {
+      add(balances, beneficiaryShare.memberId, -beneficiaryShare.share);
     }
   }
 

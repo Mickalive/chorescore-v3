@@ -1,0 +1,68 @@
+{
+  "schemaVersion": 1,
+  "cycle": "37782502124",
+  "role": "builder",
+  "decision": "repair",
+  "summary": "Trusted V4 verification failed (exit 2); candidate retained as WIP. V4-01 candidate is coherent but cannot be accepted: trusted verification FAILED (exit 2, TRUSTED_37782502124.md) because `npm run typecheck` reports 9 TypeScript errors in the two newly added test files, so the mandatory acceptance bullet 'typecheck/tests verts' is not met. Independent checks confirm the product source typechecks cleanly, all 526 jest tests pass at runtime (including 89 in the three V4-01 suites) and the static privacy contract passes, but the test files must be type-corrected (AttachmentInput literal kind, memberIdentityKind undefined argument, overload output shape assertions, Omit<ContributionEntry,'id'> cast) before V4-01 can be accepted. No mathematical, privacy, architecture or V3-regression defect was found: zero-sum contribution/money invariants hold with the new snapshoted custom split, delta and replay balances match, categories are never seeded, named vs linked members stay distinct, attachments stay provider-agnostic and operational-only, Todo task|expense completion is atomic per kind, and history is never reinterpreted. Decision: repair — keep the candidate as WIP baseline and fix the type-level test defects only.",
+  "checks": [
+    "trusted_verification_failed_exit_2_TRUSTED_37782502124",
+    "independent_typecheck_reproduced_9_errors_in_new_tests_only",
+    "independent_jest_run_526_tests_25_suites_pass",
+    "v4_01_suites_pass_89_tests_domain_todo_atomic_repositories",
+    "static_privacy_contract_pass_exit_0",
+    "product_source_typechecks_clean_no_ts_error_in_src",
+    "zero_sum_contribution_ledger_preserved_for_equal_and_custom_splits",
+    "delta_materialized_balances_equal_full_ledger_replay_custom_and_v3_entries",
+    "exact_integer_minor_units_money_ledger_zero_sum_per_currency_unchanged",
+    "minutes_points_units_kept_per_entry_no_historical_reinterpretation",
+    "category_repository_never_seeded_demo_fixture_contains_no_category",
+    "category_ratio_snapshot_on_entry_survives_category_edit_and_delete",
+    "custom_split_missing_weight_fails_before_any_write",
+    "named_member_vs_linked_identity_distinct_null_roundtrip_sqlite_and_inmemory",
+    "member_userId_encoding_empty_string_mapping_is_additive_no_history_rewrite",
+    "attachments_provider_agnostic_opaque_ref_honest_unavailable_adapter",
+    "notes_category_snapshot_categoryId_attachments_blocked_in_analytics_plane",
+    "todo_kind_task_expense_completion_atomic_rollback_and_retry_one_entry",
+    "v3_todo_without_kind_still_behaves_as_task",
+    "no_cross_currency_netting_no_cross_ledger_compensation_change",
+    "no_premium_paywall_subscription_demo_chrono_strings_introduced",
+    "additive_sqlite_column_migration_only_no_drop_no_rename",
+    "scoped_category_repository_enforces_household_membership",
+    "no_control_files_modified_governance_docs_prompts_untouched",
+    "trusted V4 verification: FAIL exit 2; see reports/audits/TRUSTED_37782502124.md"
+  ],
+  "findings": [
+    {
+      "path": "__tests__/domain/v4-01-domain.test.ts",
+      "problem": "Typecheck fails with 5 TypeScript errors, so `npm run check` (typecheck && test) exits 2 and the acceptance bullet 'typecheck/tests verts' fails. Line 264 passes `{ userId: undefined }` to `memberIdentityKind`, whose parameter type is `Pick<Member, 'userId'>` = `string | null` (undefined not assignable). Lines 634, 636, 641 and 642 build attachment literals from a `base` object whose `kind` property widens to `string`, which is not assignable to `AttachmentInput.kind: \"photo\"`.",
+      "evidence": "TRUSTED_37782502124.md and independent `npx tsc --noEmit`: `v4-01-domain.test.ts(264,33): error TS2322: Type 'undefined' is not assignable to type 'string | null'`; `(634,35)/(636,24)/(641,35)/(642,35): error TS2345 ... Types of property 'kind' are incompatible. Type 'string' is not assignable to type '\"photo\"'`. The suite itself passes at runtime (`npx jest __tests__/domain/v4-01-domain.test.ts` → PASS), so this is purely a type-level defect in the new test file; `src/` produces no tsc errors.",
+      "mustFix": true,
+      "requiredFix": "Keep the assertions but make them type-correct: annotate the attachment fixture as `const base: Pick<AttachmentInput, 'id' | 'kind' | 'createdAt'> = { id: 'att-1', kind: 'photo', createdAt: ... }` (or use `kind: 'photo' as const`) so the literal keeps its narrow type; for line 264 either widen the accepted parameter of `memberIdentityKind`/`isNamedMember`/`isLinkedMember` to `string | null | undefined` (the implementation already classifies undefined as named) or construct the argument as a value typed `Pick<Member, 'userId'>` without an out-of-type `undefined`. No product behaviour change is required. Re-run `npm run check` until exit 0.",
+      "verification": "`npx tsc --noEmit` reports 0 errors in this file and `npx jest __tests__/domain/v4-01-domain.test.ts` stays green (all existing assertions preserved)."
+    },
+    {
+      "path": "__tests__/domain/v4-01-todo-atomic.test.ts",
+      "problem": "Typecheck fails with 4 TypeScript errors in the new atomic Todo suite. Line 112 reads `result.expenseEntry` on the object returned by the `CompletionInput` overload (`TaskCompletionOutput`, which has no `expenseEntry`); line 137 reads `result.contributionEntry` on `ExpenseCompletionOutput` (which has no `contributionEntry`). Line 345 casts `Omit<ContributionEntry, 'id'>` to `{ id: string }`, which neither overlaps nor carries the required ledger fields (TS2740 + TS2352).",
+      "evidence": "TRUSTED_37782502124.md and independent `npx tsc --noEmit`: `v4-01-todo-atomic.test.ts(112,19): error TS2339: Property 'expenseEntry' does not exist on type 'TaskCompletionOutput'`; `(137,19): Property 'contributionEntry' does not exist on type 'ExpenseCompletionOutput'`; `(345,8): error TS2740 ... missing ... householdId, label, performedByMemberId, beneficiaryMemberIds ...` and `error TS2352: Conversion of type 'Omit<ContributionEntry, \"id\">' to type '{ id: string; }' ...`. Runtime suite passes (`PASS __tests__/domain/v4-01-todo-atomic.test.ts`), so the atomicity/zero-sum behaviour itself is sound; only the types are wrong.",
+      "mustFix": true,
+      "requiredFix": "Make the cross-kind absence assertions type-safe without weakening them: assert with an in-check or a narrow cast, e.g. `expect('expenseEntry' in result).toBe(false)` / `expect((result as { expenseEntry?: unknown }).expenseEntry).toBeUndefined()` (and symmetrically for `contributionEntry`), instead of reading a property that the resolved overload type does not declare. For line 345, materialise a real entry id rather than an unsafe cast, e.g. `calculateContributionBalances([{ ...entry, id: 'c-plan' }], 'minutes', [], ['a', 'b'])`, or cast through `unknown` to `ContributionEntry`. Re-run `npm run check` until exit 0.",
+      "verification": "`npx tsc --noEmit` reports 0 errors in this file while the runtime assertions (one-entry-per-completion, rollback/retry, zero-sum per kind) remain executed and green."
+    },
+    {
+      "path": "src/infrastructure/repositories/RepositoryFactory.ts",
+      "problem": "Informational, non-blocking for V4-01: the new `categories` repository is wired local-only and deliberately excluded from the sync-wrapped repositories (`categories: categoryRepo` / `categories: new SqliteCategoryRepository()` with the comment 'V4-07 owns the sync extension'). Categories therefore do not yet participate in delta-only multi-device sync.",
+      "evidence": "RepositoryFactory.ts lines adding `categories` outside the `withSync` wrappers and the AllRepositories doc comment 'Deliberately NOT part of the sync collection list yet (that lands with the V4-07 sync criterion)'; docs/ROADMAP.md V4-07 acceptance explicitly covers 'delta-only préservé' extended to categories, notes/photos and todo-expense.",
+      "mustFix": false,
+      "requiredFix": "No action inside V4-01. The V4-07 criterion must extend the delta-only sync (cursor/revision/tombstone, no full scans) to `categories` and the new note/attachment/todo-expense fields, with bounded-write and no-N+1 cost tests, before release.",
+      "verification": "Tracked by the V4-07 acceptance list in governance/RELEASE_DEFINITION.json and docs/ROADMAP.md; V4-01 scope (domain + safe migration) is otherwise complete and local-first."
+    },
+    {
+      "path": ".",
+      "problem": "Trusted V4 product verification failed",
+      "evidence": "Authoritative verification log: reports/audits/TRUSTED_37782502124.md (exit 2)",
+      "mustFix": true,
+      "requiredFix": "Resolve the concrete failing check without discarding correct work, then rerun.",
+      "verification": "Full trusted V4 verification must return exit code 0."
+    }
+  ]
+}

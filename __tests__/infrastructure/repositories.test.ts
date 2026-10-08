@@ -33,6 +33,7 @@ import {
   SqliteMembershipRepository,
   SqliteHouseholdRepository,
   SqliteMemberRepository,
+  SqliteCategoryRepository,
   SqliteContributionEntryRepository,
   SqlitePersistentTaskRepository,
   SqliteTodoRepository,
@@ -845,6 +846,7 @@ describe('V3-02 demo fixture consistency', () => {
       memberships: new SqliteMembershipRepository(),
       households: new SqliteHouseholdRepository(),
       members: new SqliteMemberRepository(),
+      categories: new SqliteCategoryRepository(),
       contributions: new SqliteContributionEntryRepository(),
       tasks: new SqlitePersistentTaskRepository(),
       todos: new SqliteTodoRepository(),
@@ -1073,6 +1075,7 @@ describe('V3-06 REPAIR Finding #5: SQLite sync pipeline with factory wiring', ()
       memberships: syncMemberships,
       households: syncHouseholds,
       members: new SqliteMemberRepository() as any,
+      categories: new SqliteCategoryRepository() as any,
       contributions: syncContributions,
       tasks: rawTasks as any,
       todos: rawTodos as any,
@@ -1152,5 +1155,318 @@ describe('V3-06 REPAIR Finding #5: SQLite sync pipeline with factory wiring', ()
     const pushedLocal = pushedRecords.find((r: any) => r.id === local.id);
     expect(pushedLocal).toBeDefined();
     expect(JSON.parse(pushedLocal!.payload!).label).toBe('Local via factory');
+  });
+});
+
+// ── V4-01 SQLite round-trip ────────────────────────────────────
+
+describe('V4-01 SQLite round-trip (mocked expo-sqlite driver)', () => {
+  test('a named member round-trips as null while a linked member keeps its user id', async () => {
+    const repo = new SqliteMemberRepository();
+
+    const marie = await repo.create({ householdId: 'h-v4', name: 'Marie', userId: null });
+    const alex = await repo.create({ householdId: 'h-v4', name: 'Alex', userId: 'user-alex' });
+
+    // The NOT NULL column stores '' for a named member — never a fake id.
+    expect(marie.userId).toBeNull();
+    expect(alex.userId).toBe('user-alex');
+
+    const stored = await repo.getByHousehold('h-v4');
+    expect(stored).toHaveLength(2);
+    const storedMarie = stored.find((m) => m.name === 'Marie')!;
+    const storedAlex = stored.find((m) => m.name === 'Alex')!;
+    expect(storedMarie.userId).toBeNull();
+    expect(storedAlex.userId).toBe('user-alex');
+    expect(storedMarie.id).not.toBe(storedAlex.id);
+
+    // getById keeps the same distinction.
+    expect((await repo.getById(marie.id))?.userId).toBeNull();
+    expect((await repo.getById(alex.id))?.userId).toBe('user-alex');
+  });
+
+  test('category create/update/delete round-trip with immutable tenancy', async () => {
+    const repo = new SqliteCategoryRepository();
+
+    // A fresh household has no categories.
+    expect(await repo.getByHousehold('h-cat')).toHaveLength(0);
+
+    const created = await repo.create({
+      householdId: 'h-cat',
+      name: 'Ménage',
+      defaultTaskRatio: [
+        { memberId: 'm-a', weight: 1 },
+        { memberId: 'm-b', weight: 3 },
+      ],
+    });
+    expect(created.id).toBeTruthy();
+
+    const fetched = await repo.getById(created.id);
+    expect(fetched?.name).toBe('Ménage');
+    expect(fetched?.householdId).toBe('h-cat');
+    expect(fetched?.defaultTaskRatio).toEqual([
+      { memberId: 'm-a', weight: 1 },
+      { memberId: 'm-b', weight: 3 },
+    ]);
+
+    // A rogue payload cannot move the category to another household or
+    // rewrite its identity/provenance: CategoryUpdate only carries writable
+    // fields, and the repository pins the rest.
+    const rogue = {
+      name: 'Propreté',
+      householdId: 'h-attacker',
+      id: 'category-forged',
+      createdAt: '1999-01-01T00:00:00.000Z',
+    } as unknown as Parameters<typeof repo.update>[1];
+    const updated = await repo.update(created.id, rogue);
+    expect(updated.name).toBe('Propreté');
+    expect(updated.householdId).toBe('h-cat');
+    expect(updated.id).toBe(created.id);
+    expect(updated.createdAt).toBe(created.createdAt);
+
+    // An omitted field means "leave unchanged".
+    const ratioOnly = await repo.update(created.id, { defaultTaskRatio: null });
+    expect(ratioOnly.name).toBe('Propreté');
+    expect(ratioOnly.defaultTaskRatio).toBeNull();
+
+    // Ordering is stable (createdAt ASC).
+    await repo.create({ householdId: 'h-cat', name: 'Courses', defaultTaskRatio: null });
+    expect((await repo.getByHousehold('h-cat')).map((c) => c.name)).toEqual([
+      'Propreté',
+      'Courses',
+    ]);
+
+    // Deleting the category never touches ledger rows referencing it.
+    await repo.delete(created.id);
+    expect(await repo.getById(created.id)).toBeNull();
+    expect(await repo.getByHousehold('h-cat')).toHaveLength(1);
+
+    // Unknown id is an explicit error, not a silent no-op.
+    await expect(repo.update('missing-category', { name: 'X' })).rejects.toThrow('not found');
+  });
+
+  test('contribution entry round-trips split, note, attachments and category snapshot', async () => {
+    const repo = new SqliteContributionEntryRepository();
+
+    const created = await repo.create({
+      householdId: 'h-v4',
+      label: 'Aspirateur salon',
+      performedByMemberId: 'm-a',
+      beneficiaryMemberIds: ['m-a', 'm-b', 'm-c'],
+      value: 100,
+      unit: 'minutes',
+      persistentTaskId: null,
+      occurredAt: '2026-09-16T12:00:00.000Z',
+      createdBy: 'user-a',
+      categoryId: 'cat-1',
+      categoryLabelSnapshot: 'Ménage',
+      note: '  sous le canapé  ',
+      attachments: [
+        {
+          id: 'att-1',
+          kind: 'photo',
+          ref: 'file:///cache/photo-1.jpg',
+          mimeType: 'image/jpeg',
+          byteSize: 2048,
+          createdAt: '2026-09-16T12:00:00.000Z',
+        },
+      ],
+      splitMode: 'custom',
+      splitWeights: [
+        { memberId: 'm-a', weight: 1 },
+        { memberId: 'm-b', weight: 3 },
+        { memberId: 'm-c', weight: 6 },
+      ],
+      splitSource: 'category-default',
+    });
+
+    const fetched = await repo.getById(created.id);
+    expect(fetched?.categoryId).toBe('cat-1');
+    expect(fetched?.categoryLabelSnapshot).toBe('Ménage');
+    expect(fetched?.note).toBe('  sous le canapé  ');
+    expect(fetched?.attachments).toEqual([
+      {
+        id: 'att-1',
+        kind: 'photo',
+        ref: 'file:///cache/photo-1.jpg',
+        mimeType: 'image/jpeg',
+        byteSize: 2048,
+        createdAt: '2026-09-16T12:00:00.000Z',
+      },
+    ]);
+    expect(fetched?.splitMode).toBe('custom');
+    expect(fetched?.splitWeights).toEqual([
+      { memberId: 'm-a', weight: 1 },
+      { memberId: 'm-b', weight: 3 },
+      { memberId: 'm-c', weight: 6 },
+    ]);
+    expect(fetched?.splitSource).toBe('category-default');
+
+    // The snapshoted ratio survives an update of other fields.
+    const updated = await repo.update(created.id, { note: 'refait' });
+    expect(updated.note).toBe('refait');
+    expect(updated.splitWeights).toEqual(fetched?.splitWeights);
+    expect(updated.categoryLabelSnapshot).toBe('Ménage');
+
+    // Household listing returns the same row (ordered by occurredAt DESC).
+    const listed = await repo.getByHousehold('h-v4');
+    expect(listed).toHaveLength(1);
+    expect(listed[0].splitWeights).toHaveLength(3);
+  });
+
+  test('a V3-shaped contribution entry round-trips with no V4 fields present', async () => {
+    const repo = new SqliteContributionEntryRepository();
+
+    const created = await repo.create({
+      householdId: 'h-v4',
+      label: 'Vaisselle',
+      performedByMemberId: 'm-a',
+      beneficiaryMemberIds: ['m-a', 'm-b'],
+      value: 15,
+      unit: 'minutes',
+      persistentTaskId: null,
+      occurredAt: '2026-09-16T12:00:00.000Z',
+      createdBy: 'user-a',
+    });
+
+    const fetched = (await repo.getById(created.id))!;
+    // Absent stays absent — the validated V3 entry shape is byte-for-byte
+    // reproducible, so no history is reinterpreted by the V4 columns.
+    expect(fetched.categoryId).toBeUndefined();
+    expect(fetched.categoryLabelSnapshot).toBeUndefined();
+    expect(fetched.note).toBeUndefined();
+    expect(fetched.attachments).toBeUndefined();
+    expect(fetched.splitMode).toBeUndefined();
+    expect(fetched.splitWeights).toBeUndefined();
+    expect(fetched.splitSource).toBeUndefined();
+    // No V4-01 column materializes on a V3 row (the decoder may still set
+    // pre-existing optional keys such as `modifiedBy` to undefined).
+    const v4Keys = [
+      'categoryId',
+      'categoryLabelSnapshot',
+      'note',
+      'attachments',
+      'splitMode',
+      'splitWeights',
+      'splitSource',
+    ];
+    for (const key of v4Keys) {
+      expect(Object.keys(fetched)).not.toContain(key);
+    }
+    // And the validated V3 arithmetic still replays identically on the row.
+    expect(fetched.value).toBe(created.value);
+    expect(fetched.beneficiaryMemberIds).toEqual(created.beneficiaryMemberIds);
+  });
+
+  test('an expense-kind todo round-trips with kind and expense payload', async () => {
+    const repo = new SqliteTodoRepository();
+
+    const expense = await repo.create({
+      householdId: 'h-v4',
+      title: 'Courses du samedi',
+      assigneeMemberId: 'm-a',
+      beneficiaryMemberIds: ['m-a', 'm-b', 'm-c'],
+      dueAt: null,
+      reminderAt: null,
+      notes: 'Aldi',
+      persistentTaskId: null,
+      status: 'todo',
+      kind: 'expense',
+      categoryId: 'cat-courses',
+      expenseAmountMinor: 4500,
+      expenseCurrency: 'CHF',
+    });
+
+    const fetched = await repo.getById(expense.id);
+    expect(fetched?.kind).toBe('expense');
+    expect(fetched?.categoryId).toBe('cat-courses');
+    expect(fetched?.expenseAmountMinor).toBe(4500);
+    expect(fetched?.expenseCurrency).toBe('CHF');
+
+    // Completion writes through the update path without losing the kind.
+    const completed = await repo.update(expense.id, {
+      status: 'completed',
+      completedAt: '2026-09-16T13:00:00.000Z',
+    });
+    expect(completed.status).toBe('completed');
+    expect(completed.kind).toBe('expense');
+    expect(completed.expenseAmountMinor).toBe(4500);
+    expect((await repo.getById(expense.id))?.kind).toBe('expense');
+
+    // A V3 todo without kind stays kind-less on read (meaning 'task').
+    const legacy = await repo.create({
+      householdId: 'h-v4',
+      title: 'Sortir les poubelles',
+      assigneeMemberId: 'm-a',
+      beneficiaryMemberIds: ['m-a', 'm-b'],
+      dueAt: null,
+      reminderAt: null,
+      notes: '',
+      persistentTaskId: null,
+      status: 'todo',
+    });
+    const legacyFetched = await repo.getById(legacy.id);
+    expect(legacyFetched?.kind).toBeUndefined();
+    expect(legacyFetched?.expenseAmountMinor).toBeUndefined();
+    expect(legacyFetched?.expenseCurrency).toBeUndefined();
+  });
+
+  test('an expense entry round-trips category snapshot, note and attachments', async () => {
+    const repo = new SqliteExpenseEntryRepository();
+
+    const created = await repo.create({
+      householdId: 'h-v4',
+      title: 'Courses Migros',
+      amountMinor: 4250,
+      currency: 'CHF',
+      paidByMemberId: 'm-a',
+      participantMemberIds: ['m-a', 'm-b'],
+      splitMode: 'equal',
+      occurredAt: '2026-09-16T12:00:00.000Z',
+      createdBy: 'user-a',
+      categoryId: 'cat-courses',
+      categoryLabelSnapshot: 'Courses',
+      note: 'ticket sur photo',
+      attachments: [
+        {
+          id: 'att-2',
+          kind: 'photo',
+          ref: 'content://media/external/images/42',
+          createdAt: '2026-09-16T12:00:00.000Z',
+        },
+      ],
+    });
+
+    const fetched = (await repo.getById(created.id))!;
+    expect(fetched.categoryId).toBe('cat-courses');
+    expect(fetched.categoryLabelSnapshot).toBe('Courses');
+    expect(fetched.note).toBe('ticket sur photo');
+    expect(fetched.attachments).toEqual([
+      {
+        id: 'att-2',
+        kind: 'photo',
+        ref: 'content://media/external/images/42',
+        createdAt: '2026-09-16T12:00:00.000Z',
+      },
+    ]);
+    expect(fetched.amountMinor).toBe(4250);
+    expect(fetched.currency).toBe('CHF');
+
+    // V3-shaped expense: optional fields absent.
+    const plain = await repo.create({
+      householdId: 'h-v4',
+      title: 'Taxi',
+      amountMinor: 1800,
+      currency: 'EUR',
+      paidByMemberId: 'm-b',
+      participantMemberIds: ['m-a', 'm-b'],
+      splitMode: 'equal',
+      occurredAt: '2026-09-16T13:00:00.000Z',
+      createdBy: 'user-a',
+    });
+    const plainFetched = (await repo.getById(plain.id))!;
+    expect(plainFetched.categoryId).toBeUndefined();
+    expect(plainFetched.categoryLabelSnapshot).toBeUndefined();
+    expect(plainFetched.note).toBeUndefined();
+    expect(plainFetched.attachments).toBeUndefined();
   });
 });

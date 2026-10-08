@@ -27,6 +27,7 @@ import {
   PersistentTask,
   Household,
   Member,
+  Category,
   MembershipRole,
   Invitation,
   SyncCursor,
@@ -41,6 +42,8 @@ import {
   PersistentTaskRepository,
   HouseholdRepository,
   MemberRepository,
+  CategoryRepository,
+  CategoryUpdate,
   MembershipRepository,
   InvitationRepository,
   SyncStateRepository,
@@ -76,6 +79,7 @@ export function createScopedRepositories(
     settlements: new ScopedSettlementRepository(repos.settlements, callerUserId, repos.memberships),
     households: new ScopedHouseholdRepository(repos.households, callerUserId, repos.memberships),
     members: new ScopedMemberRepository(repos.members, callerUserId, repos.memberships),
+    categories: new ScopedCategoryRepository(repos.categories, callerUserId, repos.memberships),
     memberships: new ScopedMembershipRepository(repos.memberships, callerUserId),
     tasks: new ScopedPersistentTaskRepository(repos.tasks, callerUserId, repos.memberships),
     invitations: new ScopedInvitationRepository(repos.invitations, callerUserId, repos.memberships),
@@ -466,6 +470,62 @@ export class ScopedMemberRepository implements MemberRepository {
   async create(data: Omit<Member, 'id' | 'joinedAt'>): Promise<Member> {
     await this.checkMembership(data.householdId);
     return this.inner.create(data);
+  }
+}
+
+/**
+ * Authorization-enforcing facade for the category repository.
+ *
+ * Categories are household content, not ledger rows: membership is the only
+ * gate (same level as persistent tasks), so a member can create/rename/delete
+ * their group's categories. A delete only removes the category row — ledger
+ * entries keep their categoryId and creation-time label snapshot.
+ */
+export class ScopedCategoryRepository implements CategoryRepository {
+  constructor(
+    private inner: CategoryRepository,
+    private callerUserId: string,
+    private membershipRepo: MembershipRepository,
+  ) {}
+
+  private async checkMembership(householdId: string): Promise<void> {
+    const memberships = await this.membershipRepo.getByHousehold(householdId);
+    requireHouseholdMembership(this.callerUserId, householdId, memberships);
+  }
+
+  seed(items: Category[]): Promise<void> | void { return this.inner.seed(items); }
+
+  async getByHousehold(householdId: string): Promise<Category[]> {
+    await this.checkMembership(householdId);
+    return this.inner.getByHousehold(householdId);
+  }
+
+  async getById(id: string): Promise<Category | null> {
+    const category = await this.inner.getById(id);
+    if (category) {
+      await this.checkMembership(category.householdId);
+    }
+    return category;
+  }
+
+  async create(data: Omit<Category, 'id' | 'createdAt' | 'updatedAt'>): Promise<Category> {
+    await this.checkMembership(data.householdId);
+    return this.inner.create(data);
+  }
+
+  async update(id: string, data: CategoryUpdate): Promise<Category> {
+    const existing = await this.inner.getById(id);
+    if (!existing) throw new Error(`Category ${id} not found`);
+    await this.checkMembership(existing.householdId);
+    return this.inner.update(id, data);
+  }
+
+  async delete(id: string): Promise<void> {
+    const existing = await this.inner.getById(id);
+    if (existing) {
+      await this.checkMembership(existing.householdId);
+    }
+    return this.inner.delete(id);
   }
 }
 

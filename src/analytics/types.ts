@@ -356,6 +356,7 @@ export interface PipelineCheckpoint {
  *
  * Free text:
  *   label, title, notes, name, displayName, householdName, memberName
+ *   V4-01: note (task/expense free note), categoryLabelSnapshot
  *
  * Precise location:
  *   latitude, longitude, address, zipCode
@@ -365,4 +366,9 @@ export interface PipelineCheckpoint {
  *
  * Join keys:
  *   Any field that could be used to join back to the operational store
+ *   V4-01: categoryId (user-created category store)
+ *
+ * Attachments (V4-01):
+ *   attachments, attachmentRefs, photoRefs — photos and their references
+ *   never leave the operational store
  */

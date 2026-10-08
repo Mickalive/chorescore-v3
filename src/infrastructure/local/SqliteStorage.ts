@@ -14,6 +14,7 @@ export async function getDatabase(): Promise<SQLite.SQLiteDatabase> {
   if (db) return db;
   db = await SQLite.openDatabaseAsync('chorescore.db');
   await initializeSchema(db);
+  await applyV4ColumnMigrations(db);
   return db;
 }
 
@@ -52,6 +53,8 @@ async function initializeSchema(database: SQLite.SQLiteDatabase): Promise<void> 
       id TEXT PRIMARY KEY,
       householdId TEXT NOT NULL,
       name TEXT NOT NULL,
+      -- V4-01: '' encodes a named member (no account yet) so the NOT NULL
+      -- constraint of existing installs stays intact after migration.
       userId TEXT NOT NULL,
       joinedAt TEXT NOT NULL
     );
@@ -67,7 +70,15 @@ async function initializeSchema(database: SQLite.SQLiteDatabase): Promise<void> 
       persistentTaskId TEXT,
       occurredAt TEXT NOT NULL,
       createdBy TEXT NOT NULL,
-      modifiedBy TEXT
+      modifiedBy TEXT,
+      -- V4-01: optional category / attachments / snapshoted custom split
+      categoryId TEXT,
+      categoryLabelSnapshot TEXT,
+      note TEXT,
+      attachmentsJson TEXT,
+      splitMode TEXT,
+      splitWeightsJson TEXT,
+      splitSource TEXT
     );
 
     CREATE TABLE IF NOT EXISTS persistent_tasks (
@@ -92,7 +103,13 @@ async function initializeSchema(database: SQLite.SQLiteDatabase): Promise<void> 
       persistentTaskId TEXT,
       status TEXT NOT NULL DEFAULT 'todo',
       createdAt TEXT NOT NULL,
-      completedAt TEXT
+      completedAt TEXT,
+      -- V4-01: 'task' (default) or 'expense'; a todo completion writes exactly
+      -- one entry of the matching kind.
+      kind TEXT,
+      categoryId TEXT,
+      expenseAmountMinor INTEGER,
+      expenseCurrency TEXT
     );
 
     CREATE TABLE IF NOT EXISTS expense_entries (
@@ -109,8 +126,24 @@ async function initializeSchema(database: SQLite.SQLiteDatabase): Promise<void> 
       category TEXT,
       occurredAt TEXT NOT NULL,
       createdBy TEXT NOT NULL,
-      modifiedBy TEXT
+      modifiedBy TEXT,
+      -- V4-01: optional user-created category / attachments
+      categoryId TEXT,
+      categoryLabelSnapshot TEXT,
+      attachmentsJson TEXT
     );
+
+    -- V4-01: user-created categories. NO seeded taxonomy: a household starts
+    -- with zero rows here and only stores names its members typed.
+    CREATE TABLE IF NOT EXISTS categories (
+      id TEXT PRIMARY KEY,
+      householdId TEXT NOT NULL,
+      name TEXT NOT NULL,
+      defaultTaskRatioJson TEXT,
+      createdAt TEXT NOT NULL,
+      updatedAt TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_categories_household ON categories(householdId);
 
     CREATE TABLE IF NOT EXISTS settlements (
       id TEXT PRIMARY KEY,
@@ -178,6 +211,82 @@ async function initializeSchema(database: SQLite.SQLiteDatabase): Promise<void> 
     );
     CREATE INDEX IF NOT EXISTS idx_sync_records_dirty ON sync_records(householdId, collection, revision);
   `);
+}
+
+/**
+ * V4-01 guarded column migration.
+ *
+ * `CREATE TABLE IF NOT EXISTS` cannot add columns to a table created by an
+ * existing V3 install, so every V4 column is also declared here and added
+ * with `ALTER TABLE ... ADD COLUMN` when (and only when) it is missing.
+ *
+ * Safety rules:
+ *   - a column that already exists is never touched (idempotent);
+ *   - a driver that cannot answer `PRAGMA table_info` (some test doubles,
+ *     a locked/corrupt store) makes the whole step a no-op instead of
+ *     failing startup: a fresh install already has the full column set from
+ *     `initializeSchema`, and no history is ever rewritten by a skip;
+ *   - only additive, nullable/defaulted columns are listed: no rename, no
+ *     drop, no reinterpretation of existing values.
+ */
+export interface ColumnMigration {
+  table: string;
+  column: string;
+  ddl: string;
+}
+
+export const V4_COLUMN_MIGRATIONS: ColumnMigration[] = [
+  // contribution_entries: category / attachments / snapshoted custom split
+  { table: 'contribution_entries', column: 'categoryId', ddl: 'TEXT' },
+  { table: 'contribution_entries', column: 'categoryLabelSnapshot', ddl: 'TEXT' },
+  { table: 'contribution_entries', column: 'note', ddl: 'TEXT' },
+  { table: 'contribution_entries', column: 'attachmentsJson', ddl: 'TEXT' },
+  { table: 'contribution_entries', column: 'splitMode', ddl: 'TEXT' },
+  { table: 'contribution_entries', column: 'splitWeightsJson', ddl: 'TEXT' },
+  { table: 'contribution_entries', column: 'splitSource', ddl: 'TEXT' },
+  // expense_entries: category + attachments
+  { table: 'expense_entries', column: 'categoryId', ddl: 'TEXT' },
+  { table: 'expense_entries', column: 'categoryLabelSnapshot', ddl: 'TEXT' },
+  { table: 'expense_entries', column: 'attachmentsJson', ddl: 'TEXT' },
+  // todo_items: kind + expense payload
+  { table: 'todo_items', column: 'kind', ddl: 'TEXT' },
+  { table: 'todo_items', column: 'categoryId', ddl: 'TEXT' },
+  { table: 'todo_items', column: 'expenseAmountMinor', ddl: 'INTEGER' },
+  { table: 'todo_items', column: 'expenseCurrency', ddl: 'TEXT' },
+];
+
+type ColumnInfoRow = { name?: unknown };
+
+/**
+ * Apply the additive V4 column migrations. Exposed for tests.
+ * Returns the number of columns actually added (0 on a fresh install or
+ * when the driver cannot introspect the schema).
+ */
+export async function applyV4ColumnMigrations(
+  database: SQLite.SQLiteDatabase,
+  migrations: ColumnMigration[] = V4_COLUMN_MIGRATIONS,
+): Promise<number> {
+  let added = 0;
+  for (const migration of migrations) {
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(migration.table)) continue;
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(migration.column)) continue;
+    try {
+      const info = await database.getAllAsync<ColumnInfoRow>(
+        `PRAGMA table_info(${migration.table})`
+      );
+      if (!Array.isArray(info)) continue;
+      if (info.some((column) => column?.name === migration.column)) continue;
+      await database.execAsync(
+        `ALTER TABLE ${migration.table} ADD COLUMN ${migration.column} ${migration.ddl}`
+      );
+      added += 1;
+    } catch {
+      // Introspection unsupported or the statement is not permitted here:
+      // skip this column rather than block startup. Fresh installs already
+      // have the full schema, and nothing in history is reinterpreted.
+    }
+  }
+  return added;
 }
 
 /**

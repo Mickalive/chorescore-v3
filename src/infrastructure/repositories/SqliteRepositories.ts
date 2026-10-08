@@ -11,6 +11,8 @@ import {
   Membership,
   Household,
   Member,
+  Category,
+  Attachment,
   ContributionEntry,
   PersistentTask,
   TodoItem,
@@ -19,6 +21,7 @@ import {
   ContributionMoneyRate,
   Invitation,
   InvitationStatus,
+  TaskSplitWeight,
   SyncCursor,
   SyncRecord,
   SyncCollection,
@@ -28,6 +31,8 @@ import {
   MembershipRepository,
   HouseholdRepository,
   MemberRepository,
+  CategoryRepository,
+  CategoryUpdate,
   ContributionEntryRepository,
   PersistentTaskRepository,
   TodoRepository,
@@ -44,6 +49,23 @@ let idCounter = 0;
 function generateId(prefix: string): string {
   idCounter += 1;
   return `${prefix}-${idCounter}-${Date.now()}`;
+}
+
+/**
+ * V4-01 — named vs linked members.
+ *
+ * The `members` table historically has `userId TEXT NOT NULL`, so a V3 install
+ * cannot receive a NULL column without a table rebuild. A named member (a name
+ * typed at group creation, no account yet) is therefore stored as `''` and read
+ * back as `null`; a linked member keeps its real user id untouched. The domain
+ * never sees the encoding: `memberIdentityKind` only ever sees `null | userId`.
+ */
+function encodeMemberUserId(userId: string | null | undefined): string {
+  return userId ?? '';
+}
+
+function decodeMemberUserId(userId: string | null | undefined): string | null {
+  return userId === null || userId === undefined || userId === '' ? null : userId;
 }
 
 // ── User Repository ────────────────────────────────────────────
@@ -306,7 +328,7 @@ export class SqliteMemberRepository implements MemberRepository {
     for (const m of members) {
       await db.runAsync(
         'INSERT OR REPLACE INTO members (id, householdId, name, userId, joinedAt) VALUES (?, ?, ?, ?, ?)',
-        [m.id, m.householdId, m.name, m.userId, m.joinedAt]
+        [m.id, m.householdId, m.name, encodeMemberUserId(m.userId), m.joinedAt]
       );
     }
   }
@@ -321,7 +343,7 @@ export class SqliteMemberRepository implements MemberRepository {
       id: r.id,
       householdId: r.householdId,
       name: r.name,
-      userId: r.userId,
+      userId: decodeMemberUserId(r.userId),
       joinedAt: r.joinedAt,
     }));
   }
@@ -333,7 +355,13 @@ export class SqliteMemberRepository implements MemberRepository {
       [id]
     );
     if (!row) return null;
-    return { id: row.id, householdId: row.householdId, name: row.name, userId: row.userId, joinedAt: row.joinedAt };
+    return {
+      id: row.id,
+      householdId: row.householdId,
+      name: row.name,
+      userId: decodeMemberUserId(row.userId),
+      joinedAt: row.joinedAt,
+    };
   }
 
   async create(data: Omit<Member, 'id' | 'joinedAt'>): Promise<Member> {
@@ -345,34 +373,190 @@ export class SqliteMemberRepository implements MemberRepository {
     };
     await db.runAsync(
       'INSERT INTO members (id, householdId, name, userId, joinedAt) VALUES (?, ?, ?, ?, ?)',
-      [member.id, member.householdId, member.name, member.userId, member.joinedAt]
+      [member.id, member.householdId, member.name, encodeMemberUserId(member.userId), member.joinedAt]
     );
     return member;
   }
 }
 
+// ── V4-01: Category Repository ─────────────────────────────────
+
+/**
+ * User-created categories, stored in the local SQLite store.
+ *
+ * There is deliberately no seed path wired into the product flow and no
+ * default rows: a household starts with zero categories. Deleting a category
+ * only removes the row — ledger entries keep their `categoryId` plus the label
+ * snapshot captured at creation, so history is never rewritten.
+ */
+export class SqliteCategoryRepository implements CategoryRepository {
+  async seed(categories: Category[]): Promise<void> {
+    const db = await getDatabase();
+    for (const category of categories) {
+      await db.runAsync(
+        'INSERT OR REPLACE INTO categories (id, householdId, name, defaultTaskRatioJson, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, ?)',
+        [
+          category.id,
+          category.householdId,
+          category.name,
+          category.defaultTaskRatio ? toJsonArray(category.defaultTaskRatio) : null,
+          category.createdAt,
+          category.updatedAt,
+        ]
+      );
+    }
+  }
+
+  async getByHousehold(householdId: string): Promise<Category[]> {
+    const db = await getDatabase();
+    const rows = await db.getAllAsync<CategoryRow>(
+      'SELECT * FROM categories WHERE householdId = ? ORDER BY createdAt ASC',
+      [householdId]
+    );
+    return rows.map(categoryFromRow);
+  }
+
+  async getById(id: string): Promise<Category | null> {
+    const db = await getDatabase();
+    const row = await db.getFirstAsync<CategoryRow>('SELECT * FROM categories WHERE id = ?', [id]);
+    return row ? categoryFromRow(row) : null;
+  }
+
+  async create(data: Omit<Category, 'id' | 'createdAt' | 'updatedAt'>): Promise<Category> {
+    const db = await getDatabase();
+    const now = new Date().toISOString();
+    const created: Category = {
+      ...data,
+      id: generateId('category'),
+      createdAt: now,
+      updatedAt: now,
+    };
+    await db.runAsync(
+      'INSERT INTO categories (id, householdId, name, defaultTaskRatioJson, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, ?)',
+      [
+        created.id,
+        created.householdId,
+        created.name,
+        created.defaultTaskRatio ? toJsonArray(created.defaultTaskRatio) : null,
+        created.createdAt,
+        created.updatedAt,
+      ]
+    );
+    return created;
+  }
+
+  async update(id: string, data: CategoryUpdate): Promise<Category> {
+    const existing = await this.getById(id);
+    if (!existing) throw new Error(`Category ${id} not found`);
+    // Only name/defaultTaskRatio are writable (CategoryUpdate); an explicitly
+    // undefined value means "leave unchanged". Identity, tenancy and
+    // provenance are never writable.
+    const nextName = data.name !== undefined ? data.name : existing.name;
+    const nextRatio =
+      data.defaultTaskRatio !== undefined ? data.defaultTaskRatio : existing.defaultTaskRatio;
+    const updated: Category = {
+      ...existing,
+      name: nextName,
+      defaultTaskRatio: nextRatio ?? null,
+      id: existing.id,
+      householdId: existing.householdId,
+      createdAt: existing.createdAt,
+      updatedAt: new Date().toISOString(),
+    };
+    const db = await getDatabase();
+    await db.runAsync(
+      'UPDATE categories SET name = ?, defaultTaskRatioJson = ?, updatedAt = ? WHERE id = ?',
+      [
+        updated.name,
+        updated.defaultTaskRatio ? toJsonArray(updated.defaultTaskRatio) : null,
+        updated.updatedAt,
+        id,
+      ]
+    );
+    return updated;
+  }
+
+  async delete(id: string): Promise<void> {
+    const db = await getDatabase();
+    // Ledger entries referencing this id are intentionally untouched.
+    await db.runAsync('DELETE FROM categories WHERE id = ?', [id]);
+  }
+}
+
+interface CategoryRow {
+  id: string;
+  householdId: string;
+  name: string;
+  defaultTaskRatioJson: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+function categoryFromRow(row: CategoryRow): Category {
+  return {
+    id: row.id,
+    householdId: row.householdId,
+    name: row.name,
+    defaultTaskRatio: row.defaultTaskRatioJson
+      ? parseJsonArray(row.defaultTaskRatioJson)
+      : null,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+  };
+}
+
 // ── Contribution Entry Repository ──────────────────────────────
+
+/**
+ * V4-01 column list shared by seed/create/update so a contribution can never
+ * be written with a subset of its fields (which would silently drop the
+ * category snapshot, the split ratio or the attachments on replay).
+ */
+const CONTRIBUTION_COLUMNS =
+  'id, householdId, label, performedByMemberId, beneficiaryMemberIds, value, unit, persistentTaskId, occurredAt, createdBy, modifiedBy, ' +
+  'categoryId, categoryLabelSnapshot, note, attachmentsJson, splitMode, splitWeightsJson, splitSource';
+
+/** One placeholder per column, generated so SQL and params cannot drift apart. */
+const contributionPlaceholders = Array(18).fill('?').join(', ');
+
+const CONTRIBUTION_INSERT_SQL =
+  `INSERT INTO contribution_entries (${CONTRIBUTION_COLUMNS}) VALUES (${contributionPlaceholders})`;
+
+const CONTRIBUTION_UPSERT_SQL =
+  `INSERT OR REPLACE INTO contribution_entries (${CONTRIBUTION_COLUMNS}) VALUES (${contributionPlaceholders})`;
+
+const CONTRIBUTION_UPDATE_SQL =
+  'UPDATE contribution_entries SET label = ?, performedByMemberId = ?, beneficiaryMemberIds = ?, value = ?, unit = ?, persistentTaskId = ?, occurredAt = ?, modifiedBy = ?, ' +
+  'categoryId = ?, categoryLabelSnapshot = ?, note = ?, attachmentsJson = ?, splitMode = ?, splitWeightsJson = ?, splitSource = ? WHERE id = ?';
+
+function contributionParams(entry: ContributionEntry): (string | number | null)[] {
+  return [
+    entry.id,
+    entry.householdId,
+    entry.label,
+    entry.performedByMemberId,
+    toJsonArray(entry.beneficiaryMemberIds),
+    entry.value,
+    entry.unit,
+    entry.persistentTaskId,
+    entry.occurredAt,
+    entry.createdBy,
+    entry.modifiedBy ?? null,
+    entry.categoryId ?? null,
+    entry.categoryLabelSnapshot ?? null,
+    entry.note ?? null,
+    entry.attachments && entry.attachments.length > 0 ? toJsonArray(entry.attachments) : null,
+    entry.splitMode ?? null,
+    entry.splitWeights && entry.splitWeights.length > 0 ? toJsonArray(entry.splitWeights) : null,
+    entry.splitSource ?? null,
+  ];
+}
 
 export class SqliteContributionEntryRepository implements ContributionEntryRepository {
   async seed(entries: ContributionEntry[]): Promise<void> {
     const db = await getDatabase();
     for (const entry of entries) {
-      await db.runAsync(
-        'INSERT OR REPLACE INTO contribution_entries (id, householdId, label, performedByMemberId, beneficiaryMemberIds, value, unit, persistentTaskId, occurredAt, createdBy, modifiedBy) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-        [
-          entry.id,
-          entry.householdId,
-          entry.label,
-          entry.performedByMemberId,
-          toJsonArray(entry.beneficiaryMemberIds),
-          entry.value,
-          entry.unit,
-          entry.persistentTaskId,
-          entry.occurredAt,
-          entry.createdBy,
-          entry.modifiedBy ?? null,
-        ]
-      );
+      await db.runAsync(CONTRIBUTION_UPSERT_SQL, contributionParams(entry));
     }
   }
 
@@ -431,22 +615,7 @@ export class SqliteContributionEntryRepository implements ContributionEntryRepos
       ...entry,
       id: generateId('contribution'),
     };
-    await db.runAsync(
-      'INSERT INTO contribution_entries (id, householdId, label, performedByMemberId, beneficiaryMemberIds, value, unit, persistentTaskId, occurredAt, createdBy, modifiedBy) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-      [
-        created.id,
-        created.householdId,
-        created.label,
-        created.performedByMemberId,
-        toJsonArray(created.beneficiaryMemberIds),
-        created.value,
-        created.unit,
-        created.persistentTaskId,
-        created.occurredAt,
-        created.createdBy,
-        created.modifiedBy ?? null,
-      ]
-    );
+    await db.runAsync(CONTRIBUTION_INSERT_SQL, contributionParams(created));
     return created;
   }
 
@@ -455,20 +624,24 @@ export class SqliteContributionEntryRepository implements ContributionEntryRepos
     if (!existing) throw new Error(`ContributionEntry ${id} not found`);
     const updated = { ...existing, ...data };
     const db = await getDatabase();
-    await db.runAsync(
-      'UPDATE contribution_entries SET label = ?, performedByMemberId = ?, beneficiaryMemberIds = ?, value = ?, unit = ?, persistentTaskId = ?, occurredAt = ?, modifiedBy = ? WHERE id = ?',
-      [
-        updated.label,
-        updated.performedByMemberId,
-        toJsonArray(updated.beneficiaryMemberIds),
-        updated.value,
-        updated.unit,
-        updated.persistentTaskId,
-        updated.occurredAt,
-        updated.modifiedBy ?? null,
-        id,
-      ]
-    );
+    await db.runAsync(CONTRIBUTION_UPDATE_SQL, [
+      updated.label,
+      updated.performedByMemberId,
+      toJsonArray(updated.beneficiaryMemberIds),
+      updated.value,
+      updated.unit,
+      updated.persistentTaskId,
+      updated.occurredAt,
+      updated.modifiedBy ?? null,
+      updated.categoryId ?? null,
+      updated.categoryLabelSnapshot ?? null,
+      updated.note ?? null,
+      updated.attachments && updated.attachments.length > 0 ? toJsonArray(updated.attachments) : null,
+      updated.splitMode ?? null,
+      updated.splitWeights && updated.splitWeights.length > 0 ? toJsonArray(updated.splitWeights) : null,
+      updated.splitSource ?? null,
+      id,
+    ]);
     return updated;
   }
 
@@ -490,10 +663,17 @@ interface ContributionEntryRow {
   occurredAt: string;
   createdBy: string;
   modifiedBy: string | null;
+  categoryId: string | null;
+  categoryLabelSnapshot: string | null;
+  note: string | null;
+  attachmentsJson: string | null;
+  splitMode: string | null;
+  splitWeightsJson: string | null;
+  splitSource: string | null;
 }
 
 function contributionFromRow(row: ContributionEntryRow): ContributionEntry {
-  return {
+  const entry: ContributionEntry = {
     id: row.id,
     householdId: row.householdId,
     label: row.label,
@@ -506,6 +686,26 @@ function contributionFromRow(row: ContributionEntryRow): ContributionEntry {
     createdBy: row.createdBy,
     modifiedBy: row.modifiedBy ?? undefined,
   };
+
+  // V4-01 optional fields: absent stays absent so every V3 entry keeps its
+  // original shape (equal split, no category, no attachments, no note).
+  if (row.categoryId !== null && row.categoryId !== undefined) entry.categoryId = row.categoryId;
+  if (row.categoryLabelSnapshot !== null && row.categoryLabelSnapshot !== undefined) {
+    entry.categoryLabelSnapshot = row.categoryLabelSnapshot;
+  }
+  if (row.note !== null && row.note !== undefined) entry.note = row.note;
+  if (row.attachmentsJson) entry.attachments = parseJsonArray<Attachment>(row.attachmentsJson);
+  if (row.splitMode !== null && row.splitMode !== undefined) {
+    entry.splitMode = row.splitMode as ContributionEntry['splitMode'];
+  }
+  if (row.splitWeightsJson) {
+    entry.splitWeights = parseJsonArray<TaskSplitWeight>(row.splitWeightsJson);
+  }
+  if (row.splitSource !== null && row.splitSource !== undefined) {
+    entry.splitSource = row.splitSource as ContributionEntry['splitSource'];
+  }
+
+  return entry;
 }
 
 // ── Persistent Task Repository ─────────────────────────────────
@@ -602,27 +802,46 @@ function taskFromRow(row: PersistentTaskRow): PersistentTask {
 
 // ── Todo Repository ────────────────────────────────────────────
 
+/** V4-01: kind ('task' | 'expense') + the optional expense payload. */
+const TODO_COLUMNS =
+  'id, householdId, title, assigneeMemberId, beneficiaryMemberIds, dueAt, reminderAt, notes, persistentTaskId, status, createdAt, completedAt, ' +
+  'kind, categoryId, expenseAmountMinor, expenseCurrency';
+
+const todoPlaceholders = Array(16).fill('?').join(', ');
+
+const TODO_INSERT_SQL = `INSERT INTO todo_items (${TODO_COLUMNS}) VALUES (${todoPlaceholders})`;
+const TODO_UPSERT_SQL = `INSERT OR REPLACE INTO todo_items (${TODO_COLUMNS}) VALUES (${todoPlaceholders})`;
+
+const TODO_UPDATE_SQL =
+  'UPDATE todo_items SET title = ?, assigneeMemberId = ?, beneficiaryMemberIds = ?, dueAt = ?, reminderAt = ?, notes = ?, persistentTaskId = ?, status = ?, completedAt = ?, ' +
+  'kind = ?, categoryId = ?, expenseAmountMinor = ?, expenseCurrency = ? WHERE id = ?';
+
+function todoParams(todo: TodoItem): (string | number | null)[] {
+  return [
+    todo.id,
+    todo.householdId,
+    todo.title,
+    todo.assigneeMemberId ?? null,
+    toJsonArray(todo.beneficiaryMemberIds),
+    todo.dueAt ?? null,
+    todo.reminderAt ?? null,
+    todo.notes,
+    todo.persistentTaskId ?? null,
+    todo.status,
+    todo.createdAt,
+    todo.completedAt ?? null,
+    todo.kind ?? null,
+    todo.categoryId ?? null,
+    todo.expenseAmountMinor ?? null,
+    todo.expenseCurrency ?? null,
+  ];
+}
+
 export class SqliteTodoRepository implements TodoRepository {
   async seed(todos: TodoItem[]): Promise<void> {
     const db = await getDatabase();
     for (const todo of todos) {
-      await db.runAsync(
-        'INSERT OR REPLACE INTO todo_items (id, householdId, title, assigneeMemberId, beneficiaryMemberIds, dueAt, reminderAt, notes, persistentTaskId, status, createdAt, completedAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-        [
-          todo.id,
-          todo.householdId,
-          todo.title,
-          todo.assigneeMemberId,
-          toJsonArray(todo.beneficiaryMemberIds),
-          todo.dueAt,
-          todo.reminderAt,
-          todo.notes,
-          todo.persistentTaskId,
-          todo.status,
-          todo.createdAt,
-          todo.completedAt ?? null,
-        ]
-      );
+      await db.runAsync(TODO_UPSERT_SQL, todoParams(todo));
     }
   }
 
@@ -649,23 +868,7 @@ export class SqliteTodoRepository implements TodoRepository {
       id: generateId('todo'),
       createdAt: new Date().toISOString(),
     };
-    await db.runAsync(
-      'INSERT INTO todo_items (id, householdId, title, assigneeMemberId, beneficiaryMemberIds, dueAt, reminderAt, notes, persistentTaskId, status, createdAt, completedAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-      [
-        created.id,
-        created.householdId,
-        created.title,
-        created.assigneeMemberId,
-        toJsonArray(created.beneficiaryMemberIds),
-        created.dueAt,
-        created.reminderAt,
-        created.notes,
-        created.persistentTaskId,
-        created.status,
-        created.createdAt,
-        created.completedAt ?? null,
-      ]
-    );
+    await db.runAsync(TODO_INSERT_SQL, todoParams(created));
     return created;
   }
 
@@ -674,21 +877,22 @@ export class SqliteTodoRepository implements TodoRepository {
     if (!existing) throw new Error(`Todo ${id} not found`);
     const updated = { ...existing, ...data };
     const db = await getDatabase();
-    await db.runAsync(
-      'UPDATE todo_items SET title = ?, assigneeMemberId = ?, beneficiaryMemberIds = ?, dueAt = ?, reminderAt = ?, notes = ?, persistentTaskId = ?, status = ?, completedAt = ? WHERE id = ?',
-      [
-        updated.title,
-        updated.assigneeMemberId,
-        toJsonArray(updated.beneficiaryMemberIds),
-        updated.dueAt,
-        updated.reminderAt,
-        updated.notes,
-        updated.persistentTaskId,
-        updated.status,
-        updated.completedAt ?? null,
-        id,
-      ]
-    );
+    await db.runAsync(TODO_UPDATE_SQL, [
+      updated.title,
+      updated.assigneeMemberId ?? null,
+      toJsonArray(updated.beneficiaryMemberIds),
+      updated.dueAt ?? null,
+      updated.reminderAt ?? null,
+      updated.notes,
+      updated.persistentTaskId ?? null,
+      updated.status,
+      updated.completedAt ?? null,
+      updated.kind ?? null,
+      updated.categoryId ?? null,
+      updated.expenseAmountMinor ?? null,
+      updated.expenseCurrency ?? null,
+      id,
+    ]);
     return updated;
   }
 
@@ -711,10 +915,14 @@ interface TodoRow {
   status: string;
   createdAt: string;
   completedAt: string | null;
+  kind: string | null;
+  categoryId: string | null;
+  expenseAmountMinor: number | null;
+  expenseCurrency: string | null;
 }
 
 function todoFromRow(row: TodoRow): TodoItem {
-  return {
+  const todo: TodoItem = {
     id: row.id,
     householdId: row.householdId,
     title: row.title,
@@ -728,33 +936,63 @@ function todoFromRow(row: TodoRow): TodoItem {
     createdAt: row.createdAt,
     completedAt: row.completedAt ?? undefined,
   };
+
+  // V4-01 optional fields: absent stays absent so V3 todos keep meaning 'task'.
+  if (row.kind !== null && row.kind !== undefined) todo.kind = row.kind as TodoItem['kind'];
+  if (row.categoryId !== null && row.categoryId !== undefined) todo.categoryId = row.categoryId;
+  if (row.expenseAmountMinor !== null && row.expenseAmountMinor !== undefined) {
+    todo.expenseAmountMinor = row.expenseAmountMinor;
+  }
+  if (row.expenseCurrency !== null && row.expenseCurrency !== undefined) {
+    todo.expenseCurrency = row.expenseCurrency;
+  }
+
+  return todo;
 }
 
 // ── Expense Entry Repository ───────────────────────────────────
+
+/** V4-01: user-created category reference + snapshot + attachments. */
+const EXPENSE_COLUMNS =
+  'id, householdId, title, amountMinor, currency, paidByMemberId, participantMemberIds, splitMode, customSharesJson, note, category, occurredAt, createdBy, modifiedBy, ' +
+  'categoryId, categoryLabelSnapshot, attachmentsJson';
+
+const expensePlaceholders = Array(17).fill('?').join(', ');
+
+const EXPENSE_INSERT_SQL = `INSERT INTO expense_entries (${EXPENSE_COLUMNS}) VALUES (${expensePlaceholders})`;
+const EXPENSE_UPSERT_SQL = `INSERT OR REPLACE INTO expense_entries (${EXPENSE_COLUMNS}) VALUES (${expensePlaceholders})`;
+
+const EXPENSE_UPDATE_SQL =
+  'UPDATE expense_entries SET title = ?, amountMinor = ?, currency = ?, paidByMemberId = ?, participantMemberIds = ?, splitMode = ?, customSharesJson = ?, note = ?, category = ?, occurredAt = ?, modifiedBy = ?, ' +
+  'categoryId = ?, categoryLabelSnapshot = ?, attachmentsJson = ? WHERE id = ?';
+
+function expenseParams(entry: ExpenseEntry): (string | number | null)[] {
+  return [
+    entry.id,
+    entry.householdId,
+    entry.title,
+    entry.amountMinor,
+    entry.currency,
+    entry.paidByMemberId,
+    toJsonArray(entry.participantMemberIds),
+    entry.splitMode,
+    entry.customShares ? toJsonArray(entry.customShares) : null,
+    entry.note ?? null,
+    entry.category ?? null,
+    entry.occurredAt,
+    entry.createdBy,
+    entry.modifiedBy ?? null,
+    entry.categoryId ?? null,
+    entry.categoryLabelSnapshot ?? null,
+    entry.attachments && entry.attachments.length > 0 ? toJsonArray(entry.attachments) : null,
+  ];
+}
 
 export class SqliteExpenseEntryRepository implements ExpenseEntryRepository {
   async seed(entries: ExpenseEntry[]): Promise<void> {
     const db = await getDatabase();
     for (const entry of entries) {
-      await db.runAsync(
-        'INSERT OR REPLACE INTO expense_entries (id, householdId, title, amountMinor, currency, paidByMemberId, participantMemberIds, splitMode, customSharesJson, note, category, occurredAt, createdBy, modifiedBy) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-        [
-          entry.id,
-          entry.householdId,
-          entry.title,
-          entry.amountMinor,
-          entry.currency,
-          entry.paidByMemberId,
-          toJsonArray(entry.participantMemberIds),
-          entry.splitMode,
-          entry.customShares ? toJsonArray(entry.customShares) : null,
-          entry.note ?? null,
-          entry.category ?? null,
-          entry.occurredAt,
-          entry.createdBy,
-          entry.modifiedBy ?? null,
-        ]
-      );
+      await db.runAsync(EXPENSE_UPSERT_SQL, expenseParams(entry));
     }
   }
 
@@ -813,25 +1051,7 @@ export class SqliteExpenseEntryRepository implements ExpenseEntryRepository {
       ...entry,
       id: generateId('expense'),
     };
-    await db.runAsync(
-      'INSERT INTO expense_entries (id, householdId, title, amountMinor, currency, paidByMemberId, participantMemberIds, splitMode, customSharesJson, note, category, occurredAt, createdBy, modifiedBy) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-      [
-        created.id,
-        created.householdId,
-        created.title,
-        created.amountMinor,
-        created.currency,
-        created.paidByMemberId,
-        toJsonArray(created.participantMemberIds),
-        created.splitMode,
-        created.customShares ? toJsonArray(created.customShares) : null,
-        created.note ?? null,
-        created.category ?? null,
-        created.occurredAt,
-        created.createdBy,
-        created.modifiedBy ?? null,
-      ]
-    );
+    await db.runAsync(EXPENSE_INSERT_SQL, expenseParams(created));
     return created;
   }
 
@@ -840,23 +1060,23 @@ export class SqliteExpenseEntryRepository implements ExpenseEntryRepository {
     if (!existing) throw new Error(`ExpenseEntry ${id} not found`);
     const updated = { ...existing, ...data };
     const db = await getDatabase();
-    await db.runAsync(
-      'UPDATE expense_entries SET title = ?, amountMinor = ?, currency = ?, paidByMemberId = ?, participantMemberIds = ?, splitMode = ?, customSharesJson = ?, note = ?, category = ?, occurredAt = ?, modifiedBy = ? WHERE id = ?',
-      [
-        updated.title,
-        updated.amountMinor,
-        updated.currency,
-        updated.paidByMemberId,
-        toJsonArray(updated.participantMemberIds),
-        updated.splitMode,
-        updated.customShares ? toJsonArray(updated.customShares) : null,
-        updated.note ?? null,
-        updated.category ?? null,
-        updated.occurredAt,
-        updated.modifiedBy ?? null,
-        id,
-      ]
-    );
+    await db.runAsync(EXPENSE_UPDATE_SQL, [
+      updated.title,
+      updated.amountMinor,
+      updated.currency,
+      updated.paidByMemberId,
+      toJsonArray(updated.participantMemberIds),
+      updated.splitMode,
+      updated.customShares ? toJsonArray(updated.customShares) : null,
+      updated.note ?? null,
+      updated.category ?? null,
+      updated.occurredAt,
+      updated.modifiedBy ?? null,
+      updated.categoryId ?? null,
+      updated.categoryLabelSnapshot ?? null,
+      updated.attachments && updated.attachments.length > 0 ? toJsonArray(updated.attachments) : null,
+      id,
+    ]);
     return updated;
   }
 
@@ -881,10 +1101,13 @@ interface ExpenseEntryRow {
   occurredAt: string;
   createdBy: string;
   modifiedBy: string | null;
+  categoryId: string | null;
+  categoryLabelSnapshot: string | null;
+  attachmentsJson: string | null;
 }
 
 function expenseFromRow(row: ExpenseEntryRow): ExpenseEntry {
-  return {
+  const entry: ExpenseEntry = {
     id: row.id,
     householdId: row.householdId,
     title: row.title,
@@ -900,6 +1123,15 @@ function expenseFromRow(row: ExpenseEntryRow): ExpenseEntry {
     createdBy: row.createdBy,
     modifiedBy: row.modifiedBy ?? undefined,
   };
+
+  // V4-01 optional fields: absent stays absent for every V3 expense.
+  if (row.categoryId !== null && row.categoryId !== undefined) entry.categoryId = row.categoryId;
+  if (row.categoryLabelSnapshot !== null && row.categoryLabelSnapshot !== undefined) {
+    entry.categoryLabelSnapshot = row.categoryLabelSnapshot;
+  }
+  if (row.attachmentsJson) entry.attachments = parseJsonArray<Attachment>(row.attachmentsJson);
+
+  return entry;
 }
 
 // ── Settlement Repository ──────────────────────────────────────

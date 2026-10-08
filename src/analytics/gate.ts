@@ -8,7 +8,8 @@
  *
  * The gate checks at minimum:
  * 1. No operational IDs (userId, householdId, memberId, etc.)
- * 2. No free text (labels, notes, names)
+ * 2. No free text (labels, notes, names, category snapshots) and no
+ *    attachment payloads (V4-01: photos/references never leave the device)
  * 3. Minimum cohort sizes
  * 4. Rare cell suppression
  * 5. Differencing / reconstruction risk
@@ -38,6 +39,7 @@ export interface GateViolation {
   type:
     | 'operational_id_detected'
     | 'free_text_detected'
+    | 'attachment_payload_detected'
     | 'cohort_too_small'
     | 'rare_cell'
     | 'reconstruction_risk'
@@ -72,11 +74,22 @@ const FORBIDDEN_ID_FIELDS = [
   'email', 'phone', 'oauthSubject',
   'ipAddress', 'deviceId', 'advertisingId',
   'name', 'displayName', 'householdName', 'memberName',
+  // V4-01: operational join key toward the user-created category store.
+  'categoryId',
 ];
 
 const FORBIDDEN_TEXT_FIELDS = [
   'label', 'title', 'notes', 'name',
+  // V4-01: free note and the category name captured at creation time.
+  'note', 'categoryLabelSnapshot',
 ];
+
+/**
+ * V4-01: attachment payloads (photo references) are operational data. They
+ * never leave the device, so a single field of this kind in a release
+ * candidate is a critical violation, not a warning.
+ */
+const FORBIDDEN_ATTACHMENT_FIELDS = ['attachments', 'attachmentRefs', 'photoRefs'];
 
 /**
  * PrivacyReleaseGate — validates all external analytics outputs.
@@ -118,6 +131,17 @@ export class PrivacyReleaseGate {
         violations.push({
           type: 'free_text_detected',
           message: `Free text field '${field}' detected in released data`,
+          severity: 'critical',
+          context: `${context}.${field}`,
+        });
+      }
+    }
+
+    for (const field of FORBIDDEN_ATTACHMENT_FIELDS) {
+      if (field in record) {
+        violations.push({
+          type: 'attachment_payload_detected',
+          message: `Attachment payload field '${field}' detected in released data`,
           severity: 'critical',
           context: `${context}.${field}`,
         });

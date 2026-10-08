@@ -128,10 +128,13 @@ export class PrivacyTransformPipeline {
   /**
    * Validate that a data record contains no operational IDs.
    *
-   * NOTE: 'label', 'title', 'notes' are intentionally ALLOWED as input.
-   * They are consumed by the transform functions for taxonomy classification
-   * and are never emitted in output events. The PrivacyReleaseGate and
-   * output event types guarantee no free text reaches external data products.
+   * NOTE: 'label' is intentionally ALLOWED as input: it is consumed by the
+   * transform functions for taxonomy classification and never emitted in
+   * output. Unconsumed free text ('title', 'notes', 'note',
+   * 'categoryLabelSnapshot') and attachment payloads are rejected by the
+   * validators below, because they could otherwise leak through to output.
+   * The PrivacyReleaseGate and output event types provide the final
+   * guarantee that no free text reaches external data products.
    *
    * Only operational IDs (join keys toward the operational store) are
    * forbidden on input because they could leak through to output.
@@ -146,6 +149,8 @@ export class PrivacyTransformPipeline {
       'latitude', 'longitude', 'address', 'zipCode',
       'createdBy', 'modifiedBy', 'performedByMemberId',
       'beneficiaryMemberIds',
+      // V4-01: operational join key toward the user-created category store.
+      'categoryId',
     ];
 
     for (const field of forbiddenFields) {
@@ -162,14 +167,30 @@ export class PrivacyTransformPipeline {
    *
    * NOTE: 'label' is intentionally ALLOWED — it is consumed by transform
    * functions for taxonomy classification and never emitted in output.
-   * 'title' and 'notes' are NOT consumed by any transform and are rejected.
-   * The output event types + PrivacyReleaseGate provide the final guarantee.
+   * 'title', 'notes', 'note' and 'categoryLabelSnapshot' are NOT consumed by
+   * any transform and are rejected. The output event types + PrivacyReleaseGate
+   * provide the final guarantee.
    */
   private validateNoFreeText(data: Record<string, unknown>): string | null {
-    const textFields = ['title', 'notes', 'name', 'displayName'];
+    const textFields = ['title', 'notes', 'note', 'categoryLabelSnapshot', 'name', 'displayName'];
     for (const field of textFields) {
       if (typeof data[field] === 'string' && (data[field] as string).length > 0) {
         return `Free text field '${field}' detected in input data`;
+      }
+    }
+    return null;
+  }
+
+  /**
+   * V4-01: attachment payloads (photo references and their metadata) are
+   * operational-only. They are never consumed by any transform, so they are
+   * rejected on input instead of being allowed to ride along toward output.
+   */
+  private validateNoAttachmentPayload(data: Record<string, unknown>): string | null {
+    const attachmentFields = ['attachments', 'attachmentRefs', 'photoRefs'];
+    for (const field of attachmentFields) {
+      if (field in data) {
+        return `Attachment payload field '${field}' detected in input data`;
       }
     }
     return null;
@@ -185,13 +206,19 @@ export class PrivacyTransformPipeline {
       return { success: false, rejectionReason: idCheck };
     }
 
-    // Stage 2: Validate no free text
-    const textCheck = this.validateNoFreeText(fact.data);
-    if (textCheck) {
-      return { success: false, rejectionReason: textCheck };
-    }
+      // Stage 2: Validate no free text
+      const textCheck = this.validateNoFreeText(fact.data);
+      if (textCheck) {
+        return { success: false, rejectionReason: textCheck };
+      }
 
-    // Stage 3: Transform based on fact type
+      // Stage 2b (V4-01): Validate no attachment payload
+      const attachmentCheck = this.validateNoAttachmentPayload(fact.data);
+      if (attachmentCheck) {
+        return { success: false, rejectionReason: attachmentCheck };
+      }
+
+      // Stage 3: Transform based on fact type
     switch (fact.type) {
       case 'entry_created':
         return this.transformEntryCreated(fact);

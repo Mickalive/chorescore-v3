@@ -84,6 +84,10 @@ if (failures.length === 0) {
     'label', 'title', 'notes', 'name', 'displayName', 'householdName', 'memberName',
     'latitude', 'longitude', 'address', 'zipCode',
     'createdAt', 'occurredAt', 'completedAt',
+    // V4-01: free notes, category snapshots, category join keys and photo
+    // attachment payloads are operational-only and never released.
+    'note', 'categoryLabelSnapshot', 'categoryId',
+    'attachments', 'attachmentRefs', 'photoRefs',
   ];
 
   for (const interfaceName of anonymousInterfaces) {
