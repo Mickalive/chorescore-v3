@@ -1,11 +1,27 @@
-# MAIN PROMPT — ChoreScore V3
+# MAIN PROMPT — ChoreScore V4
 
-Les sources de vérité sont `docs/V3_CONSTITUTION.md` et `docs/V3_BACKEND_FRUGAL.md`. Elles sont additives et doivent être lues intégralement avant toute décision produit ou technique. La seconde impose la stratégie local-first, sync delta-only, backend frugal et data pipeline incrémentale ; elle ne remplace aucune exigence produit de la constitution.
+Les sources canoniques sont :
+- `docs/V4_CONSTITUTION.md`
+- `docs/V4_RELEASE_ENGINEERING.md`
+- `docs/V3_BACKEND_FRUGAL.md`
+- `docs/DATA_PRODUCT_PRIVACY.md` lorsqu'il existe
 
-V3 construit une application unique pour équilibrer ce que les membres d'un groupe paient et ce qu'ils font, avec deux ledgers indépendants par défaut : contribution et argent. La compensation entre eux n'existe que si le groupe l'active explicitement avec son propre taux.
+V4 part de la V3 RC validée. Elle doit préserver les doubles ledgers, les invariants, le local-first, la sync delta-only, les protections privacy/data product et les tests de coût, puis appliquer le nouveau produit V4.
 
-Cette version est 100 % gratuite, sans chrono, sans plans Premium, sans paywall, sans restriction d'archive et sans gamification. Elle migre sélectivement les fondations solides de V2 selon `docs/V2_TO_V3_MIGRATION.md` au lieu de repartir de zéro ou de recopier V2 aveuglément.
+Règles produit majeures :
+- palette chaude V2 exacte, design beaucoup plus soigné ;
+- interface FR + EN, français correctement accentué ;
+- pas de Démo ni email/password dans l'UI normale ; auth sociale Google/Apple/Facebook derrière ports/adapters ;
+- session persistée et retour direct à Groupes après première connexion ;
+- création d'un groupe avec membres nommés ; ajout de membres ultérieur ; invitation par lien après création, jamais bouton Inviter sur la carte groupe ;
+- Contribution devient Tâche dans toute l'UI ;
+- catégories 100 % créées par les utilisateurs, aucune catégorie imposée ;
+- split égal/custom pour tâches et dépenses, ratio de tâche par défaut configurable par catégorie ;
+- note + photo facultatives pour tâche/dépense ;
+- historique/modification/suppression/partage sous Balances ;
+- share sheet native ;
+- À faire peut être Tâche ou Dépense ;
+- Options générales en bas de Groupes avec langue, profil, notifications, privacy, légal, déconnexion ;
+- application toujours 100 % gratuite.
 
-Le backend doit suivre : **Write once. Sync deltas. Read local. Derive incrementally. Classify once. Aggregate later.** Les actions courantes ne doivent pas coûter proportionnellement à l'historique total. Aucun full scan, N+1, listener massif, IA synchrone ou duplication de données n'est acceptable sans justification mesurée.
-
-L'ordre de construction est V3-01 à V3-08 dans `docs/ROADMAP.md`. Le critère actif et ses réparations obligatoires sont dans `directives/TASKS.json`. Ne travaille que sur ce périmètre et préserve tous les critères déjà acceptés.
+Le critère actif est dans `directives/TASKS.json`. Ne travailler que sur lui, préserver tous les critères V4 déjà acceptés et ne jamais régresser les fondations V3.
