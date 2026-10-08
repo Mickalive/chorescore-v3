@@ -4,8 +4,8 @@
   "builder": {
     "enabled": true,
     "criterionId": "V4-02",
-    "objective": "Implement V4-02 — Design chaud V2, i18n et shell V4. Revenir à la palette V2 exacte, installer une UI V4 soignée, safe-area correcte, FR/EN sans chaînes visibles hardcodées, accents français corrects et Options générales accessibles depuis Groupes.",
-    "scope": "Work only on V4-02 and directly necessary migrations. Preserve validated V3 foundations and completed V4-01.",
+    "objective": "REPAIR V4-02: Investigate and fix the trusted verification script/runner so it returns exit code 0 when all product checks pass. The failure appears to be in the verification infrastructure (possibly npm deprecation warnings or expo version warnings being treated as errors), not in the product code.; Resolve the concrete failing check without discarding correct work, then rerun.",
+    "scope": "Repair only audited must-fix findings on the preserved V4 baseline. Use new evidence/strategy rather than merely increasing timeouts.",
     "acceptance": [
       "palette canonique V2",
       "FR et EN complets sur parcours principal",

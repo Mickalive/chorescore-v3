@@ -1,12 +1,12 @@
 {
   "schemaVersion": 1,
   "milestone": "v4-rc",
-  "lastCycle": "37819892012",
+  "lastCycle": "37840884459",
   "activeCriteria": [
     "V4-02"
   ],
   "pendingArtifact": null,
-  "progressSummary": "V4-01 complete after repeated independent ACCEPT with trusted verification green; V4-02 active.",
+  "progressSummary": "Audited V4-02 requires targeted repair; safe WIP retained and autonomous loop continues.",
   "criteria": [
     {
       "id": "V4-01",
@@ -57,11 +57,28 @@
       "evidence": []
     }
   ],
-  "openFindings": [],
+  "openFindings": [
+    {
+      "path": "trusted-verification",
+      "problem": "Trusted verification script exited with code 1 despite all individual verification commands (typecheck, test, privacy:check, cost:check, i18n:check) passing successfully.",
+      "evidence": "TRUSTED_37840884459.md shows all npm check commands PASS, but final line states 'Trusted verification exit code: 1'.",
+      "mustFix": true,
+      "requiredFix": "Investigate and fix the trusted verification script/runner so it returns exit code 0 when all product checks pass. The failure appears to be in the verification infrastructure (possibly npm deprecation warnings or expo version warnings being treated as errors), not in the product code.",
+      "verification": "Re-run trusted verification; it must exit with code 0 while all product checks remain green."
+    },
+    {
+      "path": ".",
+      "problem": "Trusted V4 product verification failed",
+      "evidence": "Authoritative verification log: reports/audits/TRUSTED_37840884459.md (exit 1)",
+      "mustFix": true,
+      "requiredFix": "Resolve the concrete failing check without discarding correct work, then rerun.",
+      "verification": "Full trusted V4 verification must return exit code 0."
+    }
+  ],
   "factoryHealth": {
     "stalled": false,
     "consecutiveNoProgress": 0,
-    "lastProductSha": "8e0d93133ec936b528994e742683af60617b3c4d",
+    "lastProductSha": "93a0edbcdc7274a214b9af8c8592e3a04a1bdec9",
     "reason": null
   }
 }
