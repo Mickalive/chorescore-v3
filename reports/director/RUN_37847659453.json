@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "cycle": "37847659453",
+  "decision": "continue",
+  "reason": "V4-02 accepted. Trusted verification passes (exit 0) with all product checks green and native debug build successful. Next criterion is V4-03 (UI structure: root Groups, 3 tabs Ajouter | Balances | À faire, warm V2 theme, remove Premium visible, preserve V3 foundations).",
+  "progressEvidence": [
+    "Trusted verification exit code 0 (reports/audits/TRUSTED_37847659453.md)",
+    "All checks PASS: typecheck, 537 unit tests, privacy 71, cost 21, i18n 9, expo install/export/prebuild, gradlew :app:assembleDebug BUILD SUCCESSFUL",
+    "Expo dependencies updated to expected SDK 57 versions; expo install --check reports 'Dependencies are up to date'",
+    "Native-sensitive delta verified (android colors.xml, app.json plugins, package-lock.json)",
+    "V4-02 acceptance criteria satisfied: warm V2 palette, FR/EN with correct accents, safe areas, externalized strings, 'Tâche/Task' in UI, General Options on Groups root, social auth only, no demo/email/password/premium/paywall"
+  ]
+}

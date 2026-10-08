@@ -3,21 +3,23 @@
   "milestone": "v4-rc",
   "builder": {
     "enabled": true,
-    "criterionId": "V4-02",
-    "objective": "REPAIR V4-02: Investigate and fix the trusted verification script/runner so it returns exit code 0 when all product checks pass. The failure appears to be in the verification infrastructure (possibly npm deprecation warnings or expo version warnings being treated as errors), not in the product code.; Resolve the concrete failing check without discarding correct work, then rerun.",
-    "scope": "Repair only audited must-fix findings on the preserved V4 baseline. Use new evidence/strategy rather than merely increasing timeouts.",
+    "criterionId": "V4-03",
+    "objective": "Implement V4-03 — Auth sociale, session, groupes et membres. Flux normal avec Google/Apple/Facebook derrière ports, session persistée, arrivée directe Groupes après première connexion, création de groupe avec membres nommés, ajout ultérieur, Options conservé et invitation par lien uniquement après création.",
+    "scope": "Work only on V4-03 and directly necessary migrations/repairs. Preserve validated V3 foundations and every completed V4 criterion.",
     "acceptance": [
-      "palette canonique V2",
-      "FR et EN complets sur parcours principal",
-      "accents français corrects",
-      "aucune chaîne critique hardcodée",
-      "safe areas Android/iOS",
-      "Options générales en bas de Groupes",
-      "aucune UX Premium/Demo/email login"
+      "aucun bouton Démo/email-password normal",
+      "auth adapters honnêtes",
+      "mode E2E secretless invisible",
+      "session persistée vers Groupes",
+      "création groupe avec plusieurs membres",
+      "member count visible",
+      "aucun bouton Inviter sur carte groupe",
+      "ajout membre post-création",
+      "lien invitation + native share"
     ],
     "previousCriteriaPreserved": [
-      "V3 RC: validated baseline; must not regress",
-      "V4-01: accepted and must not regress"
+      "V4-01: accepted and must not regress",
+      "V4-02: accepted and must not regress"
     ]
   }
 }
