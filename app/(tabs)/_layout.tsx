@@ -1,20 +1,22 @@
 /**
- * ChoreScore V3 — Tabs Layout
+ * ChoreScore V4 — Tabs Layout
  *
- * Three exact tabs: Ajouter, Balances, A faire.
- * V3 metallic/graphite design system. No warm V2 aesthetic.
+ * Three exact tabs: Ajouter / Balances / À faire, localized FR/EN.
+ * Bottom safe area is owned by React Navigation's tab bar.
  */
 
 import React from 'react';
 import { Tabs } from 'expo-router';
 import { colors } from '../../src/ui/design-system/theme';
+import { useI18n } from '../../src/i18n';
 
 export default function TabsLayout() {
+  const { t } = useI18n();
   return (
     <Tabs
       screenOptions={{
         headerShown: false,
-        tabBarActiveTintColor: colors.text,
+        tabBarActiveTintColor: colors.primary,
         tabBarInactiveTintColor: colors.textMuted,
         tabBarStyle: {
           backgroundColor: colors.surface,
@@ -34,22 +36,22 @@ export default function TabsLayout() {
       <Tabs.Screen
         name="add"
         options={{
-          title: 'Ajouter',
-          tabBarLabel: 'Ajouter',
+          title: t('tabs.add'),
+          tabBarLabel: t('tabs.add'),
         }}
       />
       <Tabs.Screen
         name="balances"
         options={{
-          title: 'Balances',
-          tabBarLabel: 'Balances',
+          title: t('tabs.balances'),
+          tabBarLabel: t('tabs.balances'),
         }}
       />
       <Tabs.Screen
         name="todos"
         options={{
-          title: 'A faire',
-          tabBarLabel: 'A faire',
+          title: t('tabs.todo'),
+          tabBarLabel: t('tabs.todo'),
         }}
       />
     </Tabs>

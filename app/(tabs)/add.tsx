@@ -1,18 +1,17 @@
 /**
- * ChoreScore V3 — Add Tab
+ * ChoreScore V4 — Add Tab
  *
- * Unified entry point for contributions and expenses.
+ * Unified entry point for tasks and expenses.
  *
- * Contribution: free label, value (minutes or points), performed-by,
- *   beneficiaries, date, PersistentTask shortcuts. No chrono.
+ * Task: free label, value (minutes or points), performed-by, beneficiaries,
+ *   date, PersistentTask shortcuts. No chrono.
  * Expense: title, amount (integer minor units), currency, paid-by,
- *   participants, equal/custom split, date, note, category.
+ *   participants, equal/custom split, date, note, free-text category.
  *
- * History: compact unified list directly below the form with
- *   cursor-based pagination across both repos (separate cursors,
- *   deterministic merge, no duplicates, no hard cap). Mutations are
- *   optimistic and transactional in local SQLite; the local store is
- *   always the source of truth for the UI.
+ * Categories are user-created only: no imposed taxonomy is seeded.
+ *
+ * History: compact unified list directly below the form with cursor-based
+ * pagination across both repos. Mutations are optimistic and transactional.
  */
 
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
@@ -30,6 +29,7 @@ import { Button } from '../../src/ui/components/Button';
 import { Card } from '../../src/ui/components/Card';
 import { colors, spacing, borderRadius } from '../../src/ui/design-system/theme';
 import { useApp } from '../../src/features/app/AppContext';
+import { useI18n } from '../../src/i18n';
 import {
   ContributionEntry,
   ExpenseEntry,
@@ -71,14 +71,6 @@ interface ExpenseFormData {
 
 const DEFAULT_CURRENCY = 'CHF';
 const PAGE_SIZE = 15;
-const EXPENSE_CATEGORIES = [
-  'Alimentation',
-  'Transport',
-  'Logement',
-  'Loisirs',
-  'Sante',
-  'Autre',
-];
 
 // ── Helpers ────────────────────────────────────────────────────
 
@@ -120,6 +112,7 @@ function formatDateTimeShort(d: Date): string {
 // ── Component ──────────────────────────────────────────────────
 
 export default function AddScreen() {
+  const { t } = useI18n();
   const { currentHouseholdId, repos, currentUser, emitDataChange } = useApp();
   const [mode, setMode] = useState<EntryMode>('contribution');
   const [members, setMembers] = useState<Member[]>([]);
@@ -308,8 +301,8 @@ export default function AddScreen() {
   // ── Member name helper ────────────────────────────────────
 
   const memberName = useCallback(
-    (memberId: string) => members.find((m) => m.id === memberId)?.name || 'Inconnu',
-    [members]
+    (memberId: string) => members.find((m) => m.id === memberId)?.name || t('state.unknownMember'),
+    [members, t]
   );
 
   // ── Submit contribution (optimistic) ──────────────────────
@@ -355,7 +348,7 @@ export default function AddScreen() {
         persistentTaskId: null,
       });
     } catch {
-      Alert.alert('Erreur', 'Impossible d\'ajouter la contribution.');
+      Alert.alert(t('state.error'), t('add.errorTask'));
     } finally {
       setIsSubmitting(false);
     }
@@ -426,7 +419,7 @@ export default function AddScreen() {
         occurredAt: todayLocal(),
       });
     } catch {
-      Alert.alert('Erreur', 'Impossible d\'ajouter la depense.');
+      Alert.alert(t('state.error'), t('add.errorExpense'));
     } finally {
       setIsSubmitting(false);
     }
@@ -558,17 +551,17 @@ export default function AddScreen() {
 
       cancelEdit();
     } catch {
-      Alert.alert('Erreur', 'Impossible de modifier cette entree.');
+      Alert.alert(t('state.error'), t('add.errorEdit'));
     }
   };
 
   // ── Delete entry (with error handling) ─────────────────────
 
   const handleDelete = (entry: ActivityEntry) => {
-    Alert.alert('Supprimer', 'Supprimer cette entree ?', [
-      { text: 'Annuler', style: 'cancel' },
+    Alert.alert(t('add.deleteTitle'), t('add.deleteConfirm'), [
+      { text: t('action.cancel'), style: 'cancel' },
       {
-        text: 'Supprimer',
+        text: t('action.delete'),
         style: 'destructive',
         onPress: async () => {
           try {
@@ -592,7 +585,7 @@ export default function AddScreen() {
               }
             }
           } catch {
-            Alert.alert('Erreur', 'Impossible de supprimer cette entree.');
+            Alert.alert(t('state.error'), t('add.errorDelete'));
           }
         },
       },
@@ -605,11 +598,21 @@ export default function AddScreen() {
     let message = '';
     if (entry.type === 'contribution') {
       const e = entry.entry as ContributionEntry;
-      const entryUnitLabel = e.unit === 'minutes' ? 'min' : 'pts';
-      message = `${e.label} - ${e.value} ${entryUnitLabel} par ${memberName(e.performedByMemberId)} (${formatDateShort(e.occurredAt)})`;
+      message = t('share.taskLine', {
+        label: e.label,
+        value: e.value,
+        unit: e.unit === 'minutes' ? t('unit.minutesShort') : t('unit.pointsShort'),
+        member: memberName(e.performedByMemberId),
+        date: formatDateShort(e.occurredAt),
+      });
     } else if (entry.type === 'expense') {
       const e = entry.entry as ExpenseEntry;
-      message = `${e.title} - ${formatAmountMinor(e.amountMinor, e.currency)} paye par ${memberName(e.paidByMemberId)} (${formatDateShort(e.occurredAt)})`;
+      message = t('share.expenseLine', {
+        title: e.title,
+        amount: formatAmountMinor(e.amountMinor, e.currency),
+        member: memberName(e.paidByMemberId),
+        date: formatDateShort(e.occurredAt),
+      });
     }
     if (message) {
       const shareAdapter = new LocalSystemShareAdapter();
@@ -654,12 +657,12 @@ export default function AddScreen() {
 
   // ── Render ─────────────────────────────────────────────────
 
-  const unitLabel = householdUnit === 'minutes' ? 'min' : 'pts';
+  const unitLabel = householdUnit === 'minutes' ? t('unit.minutesShort') : t('unit.pointsShort');
 
   return (
     <ScreenContainer>
       <View style={styles.header}>
-        <Text variant="screenTitle">Ajouter</Text>
+        <Text variant="screenTitle">{t('add.title')}</Text>
       </View>
 
       {/* Mode switch */}
@@ -672,7 +675,7 @@ export default function AddScreen() {
             variant="tabLabel"
             color={mode === 'contribution' ? colors.textOnPrimary : colors.textSecondary}
           >
-            Contribution
+            {t('add.modeTask')}
           </Text>
         </TouchableOpacity>
         <TouchableOpacity
@@ -683,28 +686,28 @@ export default function AddScreen() {
             variant="tabLabel"
             color={mode === 'expense' ? colors.textOnPrimary : colors.textSecondary}
           >
-            Depense
+            {t('add.modeExpense')}
           </Text>
         </TouchableOpacity>
       </View>
 
-      {/* ── Contribution Form ────────────────────────────── */}
+      {/* ── Task Form ────────────────────────────── */}
       {mode === 'contribution' && (
         <Card style={styles.formCard}>
           {editingEntry && editingEntry.type === 'contribution' && (
             <View style={styles.editBanner}>
-              <Text variant="caption" color={colors.primary}>Modification</Text>
-              <Button title="Annuler" variant="ghost" size="small" onPress={cancelEdit} />
+              <Text variant="caption" color={colors.primary}>{t('add.editBanner')}</Text>
+              <Button title={t('action.cancel')} variant="ghost" size="small" onPress={cancelEdit} />
             </View>
           )}
 
           <View style={styles.inputGroup}>
-            <Text variant="caption">Libelle</Text>
+            <Text variant="caption">{t('add.label')}</Text>
             <TextInput
               style={styles.input}
               value={cForm.label}
-              onChangeText={(t) => setCForm((p) => ({ ...p, label: t }))}
-              placeholder="Ex: Vaisselle, Courses..."
+              onChangeText={(value) => setCForm((p) => ({ ...p, label: value }))}
+              placeholder={t('add.labelPlaceholder')}
               placeholderTextColor={colors.textMuted}
             />
           </View>
@@ -712,7 +715,7 @@ export default function AddScreen() {
           {/* PersistentTask shortcuts */}
           {persistentTasks.length > 0 && (
             <View style={styles.inputGroup}>
-              <Text variant="caption">Raccourcis</Text>
+              <Text variant="caption">{t('add.shortcuts')}</Text>
               <View style={styles.memberRow}>
                 {persistentTasks.map((pt) => (
                   <TouchableOpacity
@@ -757,20 +760,20 @@ export default function AddScreen() {
           )}
 
           <View style={styles.inputGroup}>
-            <Text variant="caption">Valeur ({unitLabel})</Text>
+            <Text variant="caption">{t('add.value', { unit: unitLabel })}</Text>
             <TextInput
               style={styles.input}
               value={cForm.value}
-              onChangeText={(t) => setCForm((p) => ({ ...p, value: t }))}
+              onChangeText={(value) => setCForm((p) => ({ ...p, value }))}
               placeholder={householdUnit === 'minutes' ? '15' : '3'}
               placeholderTextColor={colors.textMuted}
               keyboardType="numeric"
             />
           </View>
 
-          {/* Fait par */}
+          {/* Done by */}
           <View style={styles.inputGroup}>
-            <Text variant="caption">Fait par</Text>
+            <Text variant="caption">{t('add.performedBy')}</Text>
             <View style={styles.memberRow}>
               {members.map((m) => (
                 <TouchableOpacity
@@ -796,9 +799,9 @@ export default function AddScreen() {
             </View>
           </View>
 
-          {/* Fait pour */}
+          {/* Done for */}
           <View style={styles.inputGroup}>
-            <Text variant="caption">Fait pour</Text>
+            <Text variant="caption">{t('add.beneficiaries')}</Text>
             <View style={styles.memberRow}>
               {members.map((m) => {
                 const selected = cForm.beneficiaryMemberIds.includes(m.id);
@@ -820,22 +823,22 @@ export default function AddScreen() {
             </View>
           </View>
 
-          {/* Date / Heure */}
+          {/* Date / Time */}
           <View style={styles.inputGroup}>
-            <Text variant="caption">Date / Heure</Text>
+            <Text variant="caption">{t('add.dateTime')}</Text>
             <TouchableOpacity
               style={styles.dateTimeButton}
               onPress={() => {
                 Alert.alert(
-                  'Date / Heure',
+                  t('add.dateTime'),
                   formatDateTimeShort(cForm.occurredAt),
                   [
-                    { text: 'Maintenant', onPress: () => setCForm((p) => ({ ...p, occurredAt: new Date() })) },
-                    { text: 'Il y a 1h', onPress: () => setCForm((p) => ({ ...p, occurredAt: new Date(Date.now() - 3600000) })) },
-                    { text: 'Hier', onPress: () => {
+                    { text: t('add.dateNow'), onPress: () => setCForm((p) => ({ ...p, occurredAt: new Date() })) },
+                    { text: t('add.dateHourAgo'), onPress: () => setCForm((p) => ({ ...p, occurredAt: new Date(Date.now() - 3600000) })) },
+                    { text: t('add.dateYesterday'), onPress: () => {
                       const d = new Date(); d.setDate(d.getDate() - 1); setCForm((p) => ({ ...p, occurredAt: d }));
                     }},
-                    { text: 'Annuler', style: 'cancel' },
+                    { text: t('action.cancel'), style: 'cancel' },
                   ]
                 );
               }}
@@ -845,7 +848,7 @@ export default function AddScreen() {
           </View>
 
           <Button
-            title={editingEntry ? 'Mettre a jour' : 'Ajouter contribution'}
+            title={editingEntry ? t('add.update') : t('add.addTask')}
             variant="primary"
             onPress={editingEntry ? submitEdit : submitContribution}
             disabled={!cForm.label.trim() || !cForm.value || isSubmitting}
@@ -860,29 +863,29 @@ export default function AddScreen() {
         <Card style={styles.formCard}>
           {editingEntry && editingEntry.type === 'expense' && (
             <View style={styles.editBanner}>
-              <Text variant="caption" color={colors.primary}>Modification</Text>
-              <Button title="Annuler" variant="ghost" size="small" onPress={cancelEdit} />
+              <Text variant="caption" color={colors.primary}>{t('add.editBanner')}</Text>
+              <Button title={t('action.cancel')} variant="ghost" size="small" onPress={cancelEdit} />
             </View>
           )}
 
           <View style={styles.inputGroup}>
-            <Text variant="caption">Titre</Text>
+            <Text variant="caption">{t('add.titleLabel')}</Text>
             <TextInput
               style={styles.input}
               value={eForm.title}
-              onChangeText={(t) => setEForm((p) => ({ ...p, title: t }))}
-              placeholder="Ex: Courses Migros..."
+              onChangeText={(value) => setEForm((p) => ({ ...p, title: value }))}
+              placeholder={t('add.titlePlaceholder')}
               placeholderTextColor={colors.textMuted}
             />
           </View>
 
           <View style={styles.inputGroup}>
-            <Text variant="caption">Montant</Text>
+            <Text variant="caption">{t('add.amount')}</Text>
             <View style={styles.amountRow}>
               <TextInput
                 style={[styles.input, styles.amountInput]}
                 value={eForm.amountRaw}
-                onChangeText={(t) => setEForm((p) => ({ ...p, amountRaw: t }))}
+                onChangeText={(value) => setEForm((p) => ({ ...p, amountRaw: value }))}
                 placeholder="42.50"
                 placeholderTextColor={colors.textMuted}
                 keyboardType="decimal-pad"
@@ -890,8 +893,8 @@ export default function AddScreen() {
               <TextInput
                 style={[styles.input, styles.currencyInput]}
                 value={eForm.currency}
-                onChangeText={(t) =>
-                  setEForm((p) => ({ ...p, currency: t.toUpperCase().slice(0, 3) }))
+                onChangeText={(value) =>
+                  setEForm((p) => ({ ...p, currency: value.toUpperCase().slice(0, 3) }))
                 }
                 placeholder="CHF"
                 placeholderTextColor={colors.textMuted}
@@ -901,9 +904,9 @@ export default function AddScreen() {
             </View>
           </View>
 
-          {/* Paye par */}
+          {/* Paid by */}
           <View style={styles.inputGroup}>
-            <Text variant="caption">Paye par</Text>
+            <Text variant="caption">{t('add.paidBy')}</Text>
             <View style={styles.memberRow}>
               {members.map((m) => (
                 <TouchableOpacity
@@ -931,7 +934,7 @@ export default function AddScreen() {
 
           {/* Participants */}
           <View style={styles.inputGroup}>
-            <Text variant="caption">Participants</Text>
+            <Text variant="caption">{t('add.participants')}</Text>
             <View style={styles.memberRow}>
               {members.map((m) => {
                 const selected = eForm.participantMemberIds.includes(m.id);
@@ -955,7 +958,7 @@ export default function AddScreen() {
 
           {/* Split mode */}
           <View style={styles.inputGroup}>
-            <Text variant="caption">Repartition</Text>
+            <Text variant="caption">{t('add.split')}</Text>
             <View style={styles.splitRow}>
               <TouchableOpacity
                 style={[
@@ -970,7 +973,7 @@ export default function AddScreen() {
                     eForm.splitMode === 'equal' ? colors.textOnPrimary : colors.textSecondary
                   }
                 >
-                  Egal
+                  {t('add.splitEqual')}
                 </Text>
               </TouchableOpacity>
               <TouchableOpacity
@@ -986,7 +989,7 @@ export default function AddScreen() {
                     eForm.splitMode === 'custom' ? colors.textOnPrimary : colors.textSecondary
                   }
                 >
-                  Personnalise
+                  {t('add.splitCustom')}
                 </Text>
               </TouchableOpacity>
             </View>
@@ -995,7 +998,7 @@ export default function AddScreen() {
           {/* Custom shares */}
           {eForm.splitMode === 'custom' && (
             <View style={styles.inputGroup}>
-              <Text variant="caption">Parts par personne</Text>
+              <Text variant="caption">{t('add.customShares')}</Text>
               {eForm.participantMemberIds.map((memberId) => (
                 <View key={memberId} style={styles.shareRow}>
                   <Text variant="body" style={styles.shareName}>
@@ -1004,10 +1007,10 @@ export default function AddScreen() {
                   <TextInput
                     style={[styles.input, styles.shareInput]}
                     value={eForm.customShares[memberId] || ''}
-                    onChangeText={(t) =>
+                    onChangeText={(value) =>
                       setEForm((p) => ({
                         ...p,
-                        customShares: { ...p.customShares, [memberId]: t },
+                        customShares: { ...p.customShares, [memberId]: value },
                       }))
                     }
                     placeholder="0.00"
@@ -1019,63 +1022,47 @@ export default function AddScreen() {
             </View>
           )}
 
-          {/* Category */}
+          {/* Category — free text, user-created only */}
           <View style={styles.inputGroup}>
-            <Text variant="caption">Categorie</Text>
-            <View style={styles.memberRow}>
-              {EXPENSE_CATEGORIES.map((cat) => (
-                <TouchableOpacity
-                  key={cat}
-                  style={[
-                    styles.memberChip,
-                    eForm.category === cat && styles.memberChipActive,
-                  ]}
-                  onPress={() =>
-                    setEForm((p) => ({ ...p, category: p.category === cat ? '' : cat }))
-                  }
-                >
-                  <Text
-                    variant="caption"
-                    color={
-                      eForm.category === cat ? colors.textOnPrimary : colors.textSecondary
-                    }
-                  >
-                    {cat}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </View>
+            <Text variant="caption">{t('add.category')}</Text>
+            <TextInput
+              style={styles.input}
+              value={eForm.category}
+              onChangeText={(value) => setEForm((p) => ({ ...p, category: value }))}
+              placeholder={t('add.categoryPlaceholder')}
+              placeholderTextColor={colors.textMuted}
+            />
           </View>
 
           {/* Note */}
           <View style={styles.inputGroup}>
-            <Text variant="caption">Note (optionnel)</Text>
+            <Text variant="caption">{t('add.noteOptional')}</Text>
             <TextInput
               style={styles.input}
               value={eForm.note}
-              onChangeText={(t) => setEForm((p) => ({ ...p, note: t }))}
-              placeholder="Details..."
+              onChangeText={(value) => setEForm((p) => ({ ...p, note: value }))}
+              placeholder={t('add.notePlaceholder')}
               placeholderTextColor={colors.textMuted}
               multiline
             />
           </View>
 
-          {/* Date / Heure */}
+          {/* Date / Time */}
           <View style={styles.inputGroup}>
-            <Text variant="caption">Date / Heure</Text>
+            <Text variant="caption">{t('add.dateTime')}</Text>
             <TouchableOpacity
               style={styles.dateTimeButton}
               onPress={() => {
                 Alert.alert(
-                  'Date / Heure',
+                  t('add.dateTime'),
                   formatDateTimeShort(eForm.occurredAt),
                   [
-                    { text: 'Maintenant', onPress: () => setEForm((p) => ({ ...p, occurredAt: new Date() })) },
-                    { text: 'Il y a 1h', onPress: () => setEForm((p) => ({ ...p, occurredAt: new Date(Date.now() - 3600000) })) },
-                    { text: 'Hier', onPress: () => {
+                    { text: t('add.dateNow'), onPress: () => setEForm((p) => ({ ...p, occurredAt: new Date() })) },
+                    { text: t('add.dateHourAgo'), onPress: () => setEForm((p) => ({ ...p, occurredAt: new Date(Date.now() - 3600000) })) },
+                    { text: t('add.dateYesterday'), onPress: () => {
                       const d = new Date(); d.setDate(d.getDate() - 1); setEForm((p) => ({ ...p, occurredAt: d }));
                     }},
-                    { text: 'Annuler', style: 'cancel' },
+                    { text: t('action.cancel'), style: 'cancel' },
                   ]
                 );
               }}
@@ -1087,12 +1074,15 @@ export default function AddScreen() {
           {/* Custom split sum validation */}
           {eForm.splitMode === 'custom' && !customSplitValidation.valid && (
             <Text variant="caption" color={colors.balanceNegative} style={{ marginBottom: spacing.sm }}>
-              Total parts ({(customSplitValidation.totalShares / 100).toFixed(2)}) != montant ({(customSplitValidation.totalAmount / 100).toFixed(2)})
+              {t('add.customSplitMismatch', {
+                shares: (customSplitValidation.totalShares / 100).toFixed(2),
+                amount: (customSplitValidation.totalAmount / 100).toFixed(2),
+              })}
             </Text>
           )}
 
           <Button
-            title={editingEntry ? 'Mettre a jour' : 'Ajouter depense'}
+            title={editingEntry ? t('add.update') : t('add.addExpense')}
             variant="primary"
             onPress={editingEntry ? submitEdit : submitExpense}
             disabled={!eForm.title.trim() || !eForm.amountRaw || isSubmitting || (eForm.splitMode === 'custom' && !customSplitValidation.valid)}
@@ -1105,7 +1095,7 @@ export default function AddScreen() {
       {/* ── History ─────────────────────────────────────── */}
       <View style={styles.historySection}>
         <View style={styles.historyHeader}>
-          <Text variant="sectionTitle">Activite</Text>
+          <Text variant="sectionTitle">{t('add.activity')}</Text>
           <View style={styles.filterRow}>
             {(['all', 'contribution', 'expense'] as ActivityFilter[]).map((f) => (
               <TouchableOpacity
@@ -1117,7 +1107,11 @@ export default function AddScreen() {
                   variant="caption"
                   color={historyFilter === f ? colors.textOnPrimary : colors.textSecondary}
                 >
-                  {f === 'all' ? 'Tout' : f === 'contribution' ? 'Contrib.' : 'Depenses'}
+                  {f === 'all'
+                    ? t('add.filterAll')
+                    : f === 'contribution'
+                    ? t('add.filterTasks')
+                    : t('add.filterExpenses')}
                 </Text>
               </TouchableOpacity>
             ))}
@@ -1126,7 +1120,7 @@ export default function AddScreen() {
 
         {activityEntries.length === 0 ? (
           <Text variant="body" style={styles.emptyText}>
-            Aucune activite pour l'instant.
+            {t('add.emptyActivity')}
           </Text>
         ) : (
           activityEntries.map((entry) => (
@@ -1142,7 +1136,7 @@ export default function AddScreen() {
                       : colors.textSecondary
                   }
                 >
-                  {entry.type === 'contribution' ? 'C' : entry.type === 'expense' ? 'D' : 'S'}
+                  {entry.type === 'contribution' ? 'T' : entry.type === 'expense' ? 'D' : 'S'}
                 </Text>
               </View>
               <View style={styles.historyInfo}>
@@ -1151,11 +1145,11 @@ export default function AddScreen() {
                     ? (entry.entry as ContributionEntry).label
                     : entry.type === 'expense'
                     ? (entry.entry as ExpenseEntry).title
-                    : 'Compensation'}
+                    : t('add.settlement')}
                 </Text>
                 <Text variant="caption" numberOfLines={1}>
                   {entry.type === 'contribution'
-                    ? `${memberName((entry.entry as ContributionEntry).performedByMemberId)} · ${(entry.entry as ContributionEntry).value} ${(entry.entry as ContributionEntry).unit === 'minutes' ? 'min' : 'pts'}`
+                    ? `${memberName((entry.entry as ContributionEntry).performedByMemberId)} · ${(entry.entry as ContributionEntry).value} ${(entry.entry as ContributionEntry).unit === 'minutes' ? t('unit.minutesShort') : t('unit.pointsShort')}`
                     : entry.type === 'expense'
                     ? `${memberName((entry.entry as ExpenseEntry).paidByMemberId)} · ${formatAmountMinor((entry.entry as ExpenseEntry).amountMinor, (entry.entry as ExpenseEntry).currency)}`
                     : ''}
@@ -1169,7 +1163,7 @@ export default function AddScreen() {
                   style={styles.actionButton}
                 >
                   <Text variant="caption" color={colors.textSecondary}>
-                    Edit
+                    {t('action.editShort')}
                   </Text>
                 </TouchableOpacity>
                 <TouchableOpacity
@@ -1177,7 +1171,7 @@ export default function AddScreen() {
                   style={styles.actionButton}
                 >
                   <Text variant="caption" color={colors.textSecondary}>
-                    Share
+                    {t('action.shareShort')}
                   </Text>
                 </TouchableOpacity>
                 <TouchableOpacity
@@ -1185,7 +1179,7 @@ export default function AddScreen() {
                   style={styles.actionButton}
                 >
                   <Text variant="caption" color={colors.balanceNegative}>
-                    Suppr
+                    {t('action.deleteShort')}
                   </Text>
                 </TouchableOpacity>
               </View>
@@ -1195,7 +1189,7 @@ export default function AddScreen() {
 
         {historyHasMore && (
           <Button
-            title="Charger plus"
+            title={t('action.loadMore')}
             variant="secondary"
             onPress={() => loadHistory(true)}
             style={styles.loadMoreButton}

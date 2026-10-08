@@ -20,6 +20,7 @@
     "export:android": "expo export --platform android",
     "privacy:check": "node scripts/privacy-check.js",
     "cost:check": "node scripts/cost-check.js",
+    "i18n:check": "jest --passWithNoTests --testPathPattern=i18n --runInBand",
     "e2e:android": "node scripts/e2e-android.js"
   },
   "dependencies": {

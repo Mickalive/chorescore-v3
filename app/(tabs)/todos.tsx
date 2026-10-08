@@ -32,6 +32,7 @@ import { Button } from '../../src/ui/components/Button';
 import { Card } from '../../src/ui/components/Card';
 import { colors, spacing, borderRadius } from '../../src/ui/design-system/theme';
 import { useApp } from '../../src/features/app/AppContext';
+import { useI18n } from '../../src/i18n';
 import { TodoItem, Member, Household, ContributionUnit, PersistentTask } from '../../src/domain/entities';
 import { completeTodoAtomic } from '../../src/application/use-cases/completeTodoAtomic';
 
@@ -75,6 +76,7 @@ function formatDateTimeShort(d: Date): string {
 // ── Component ──────────────────────────────────────────────────
 
 export default function TodosScreen() {
+  const { t } = useI18n();
   const { currentHouseholdId, repos, currentUser, emitDataChange, services } = useApp();
 
   const [todos, setTodos] = useState<TodoItem[]>([]);
@@ -158,8 +160,8 @@ export default function TodosScreen() {
       // Schedule reminder if set and notification port is available
       if (createForm.reminderAt && services.notifications.isAvailable()) {
         await services.notifications.scheduleNotification({
-          title: `Rappel: ${createForm.title.trim()}`,
-          body: createForm.notes.trim() || 'Tache prevue',
+          title: t('todos.reminderNotificationTitle', { title: createForm.title.trim() }),
+          body: createForm.notes.trim() || t('todos.reminderNotificationBody'),
           scheduledAt: createForm.reminderAt.toISOString(),
           data: { todoId: created.id },
         });
@@ -184,7 +186,7 @@ export default function TodosScreen() {
       await loadData();
       emitDataChange('todo', currentHouseholdId);
     } catch {
-      Alert.alert('Erreur', 'Impossible de creer la tache.');
+      Alert.alert(t('state.error'), t('todos.errorCreate'));
     } finally {
       setIsSubmitting(false);
     }
@@ -224,12 +226,12 @@ export default function TodosScreen() {
 
     const numericValue = parseFloat(completeForm.value);
     if (isNaN(numericValue) || numericValue <= 0) {
-      Alert.alert('Erreur', 'La valeur doit etre positive.');
+      Alert.alert(t('state.error'), t('todos.errorValue'));
       return;
     }
 
     if (completeForm.beneficiaryMemberIds.length === 0) {
-      Alert.alert('Erreur', 'Au moins un beneficiaire est requis.');
+      Alert.alert(t('state.error'), t('todos.errorBeneficiary'));
       return;
     }
 
@@ -262,7 +264,7 @@ export default function TodosScreen() {
       setView('list');
       await loadData();
     } catch (err) {
-      Alert.alert('Erreur', 'Impossible de terminer la tache.');
+      Alert.alert(t('state.error'), t('todos.errorComplete'));
     } finally {
       setIsSubmitting(false);
     }
@@ -271,10 +273,10 @@ export default function TodosScreen() {
   // ── Delete todo ────────────────────────────────────────────
 
   const handleDelete = (todo: TodoItem) => {
-    Alert.alert('Supprimer', `Supprimer « ${todo.title} » ?`, [
-      { text: 'Annuler', style: 'cancel' },
+    Alert.alert(t('add.deleteTitle'), t('todos.deleteConfirm', { title: todo.title }), [
+      { text: t('action.cancel'), style: 'cancel' },
       {
-        text: 'Supprimer',
+        text: t('action.delete'),
         style: 'destructive',
         onPress: async () => {
           try {
@@ -282,7 +284,7 @@ export default function TodosScreen() {
             setTodos((prev) => prev.filter((t) => t.id !== todo.id));
             emitDataChange('todo', currentHouseholdId!);
           } catch {
-            Alert.alert('Erreur', 'Impossible de supprimer la tache.');
+            Alert.alert(t('state.error'), t('todos.errorDelete'));
           }
         },
       },
@@ -292,11 +294,12 @@ export default function TodosScreen() {
   // ── Helpers ────────────────────────────────────────────────
 
   const memberName = (memberId: string | null) => {
-    if (!memberId) return 'Non assigne';
-    return members.find((m) => m.id === memberId)?.name || 'Inconnu';
+    if (!memberId) return t('todos.noAssignee');
+    return members.find((m) => m.id === memberId)?.name || t('state.unknownMember');
   };
 
-  const unitLabel = household?.contributionUnit === 'points' ? 'pts' : 'min';
+  const unitLabel =
+    household?.contributionUnit === 'points' ? t('unit.pointsShort') : t('unit.minutesShort');
 
   const toggleCreateBeneficiary = (memberId: string) => {
     setCreateForm((prev) => {
@@ -327,7 +330,7 @@ export default function TodosScreen() {
         <ScrollView style={styles.flex} keyboardShouldPersistTaps="handled">
           {/* ── Header ────────────────────────────────────── */}
           <View style={styles.header}>
-            <Text variant="screenTitle">A faire</Text>
+            <Text variant="screenTitle">{t('todos.title')}</Text>
           </View>
 
           {/* ── List View ─────────────────────────────────── */}
@@ -335,7 +338,7 @@ export default function TodosScreen() {
             <>
               <View style={styles.actions}>
                 <Button
-                  title="Nouvelle tache"
+                  title={t('todos.new')}
                   variant="primary"
                   onPress={() => {
                     resetCreateForm();
@@ -347,10 +350,10 @@ export default function TodosScreen() {
               {todos.length === 0 ? (
                 <View style={styles.emptyState}>
                   <Text variant="sectionTitle" style={styles.emptyTitle}>
-                    Rien a faire
+                    {t('todos.emptyTitle')}
                   </Text>
                   <Text variant="body" style={styles.emptyText}>
-                    Ajoutez une tache pour commencer.
+                    {t('todos.emptyBody')}
                   </Text>
                 </View>
               ) : (
@@ -362,7 +365,9 @@ export default function TodosScreen() {
                           <Text variant="bodyBold">{todo.title}</Text>
                           <Text variant="caption">
                             {memberName(todo.assigneeMemberId)}
-                            {todo.dueAt ? ` · echeance ${formatDateShort(todo.dueAt)}` : ''}
+                            {todo.dueAt
+                              ? ` ${t('todos.dueLabel', { date: formatDateShort(todo.dueAt) })}`
+                              : ''}
                           </Text>
                           {todo.notes ? (
                             <Text variant="caption" numberOfLines={1} style={styles.todoNotes}>
@@ -372,13 +377,13 @@ export default function TodosScreen() {
                         </View>
                         <View style={styles.todoActions}>
                           <Button
-                            title="Terminer"
+                            title={t('todos.complete')}
                             variant="primary"
                             onPress={() => startComplete(todo)}
                             size="small"
                           />
                           <Button
-                            title="Suppr"
+                            title={t('action.deleteShort')}
                             variant="ghost"
                             onPress={() => handleDelete(todo)}
                             size="small"
@@ -396,12 +401,12 @@ export default function TodosScreen() {
           {view === 'create' && (
             <Card style={styles.formCard}>
               <View style={styles.inputGroup}>
-                <Text variant="caption">Titre</Text>
+                <Text variant="caption">{t('todos.titleLabel')}</Text>
                 <TextInput
                   style={styles.input}
                   value={createForm.title}
-                  onChangeText={(t) => setCreateForm((p) => ({ ...p, title: t }))}
-                  placeholder="Nouvelle tache..."
+                  onChangeText={(value) => setCreateForm((p) => ({ ...p, title: value }))}
+                  placeholder={t('todos.titlePlaceholder')}
                   placeholderTextColor={colors.textMuted}
                 />
               </View>
@@ -409,7 +414,7 @@ export default function TodosScreen() {
               {/* PersistentTask shortcuts */}
               {persistentTasks.length > 0 && (
                 <View style={styles.inputGroup}>
-                  <Text variant="caption">Raccourcis</Text>
+                  <Text variant="caption">{t('add.shortcuts')}</Text>
                   <View style={styles.memberRow}>
                     {persistentTasks.map((pt) => (
                       <TouchableOpacity
@@ -448,7 +453,7 @@ export default function TodosScreen() {
 
               {/* Assignee */}
               <View style={styles.inputGroup}>
-                <Text variant="caption">Assigne a</Text>
+                <Text variant="caption">{t('todos.assignee')}</Text>
                 <View style={styles.memberRow}>
                   {members.map((m) => (
                     <TouchableOpacity
@@ -476,7 +481,7 @@ export default function TodosScreen() {
 
               {/* Beneficiaries */}
               <View style={styles.inputGroup}>
-                <Text variant="caption">Beneficiaires</Text>
+                <Text variant="caption">{t('todos.beneficiaries')}</Text>
                 <View style={styles.memberRow}>
                   {members.map((m) => {
                     const selected = createForm.beneficiaryMemberIds.includes(m.id);
@@ -500,13 +505,13 @@ export default function TodosScreen() {
 
               {/* Due date */}
               <View style={styles.inputGroup}>
-                <Text variant="caption">Echeance (optionnel)</Text>
+                <Text variant="caption">{t('todos.due')}</Text>
                 <TouchableOpacity
                   style={styles.dateTimeButton}
                   onPress={() => {
-                    Alert.alert('Echeance', 'Choisir une echeance', [
+                    Alert.alert(t('todos.dueTitle'), t('todos.duePrompt'), [
                       {
-                        text: 'Demain',
+                        text: t('todos.dueTomorrow'),
                         onPress: () => {
                           const d = new Date();
                           d.setDate(d.getDate() + 1);
@@ -515,7 +520,7 @@ export default function TodosScreen() {
                         },
                       },
                       {
-                        text: 'Dans 3 jours',
+                        text: t('todos.dueIn3Days'),
                         onPress: () => {
                           const d = new Date();
                           d.setDate(d.getDate() + 3);
@@ -524,7 +529,7 @@ export default function TodosScreen() {
                         },
                       },
                       {
-                        text: 'Dans 1 semaine',
+                        text: t('todos.dueIn1Week'),
                         onPress: () => {
                           const d = new Date();
                           d.setDate(d.getDate() + 7);
@@ -533,28 +538,28 @@ export default function TodosScreen() {
                         },
                       },
                       {
-                        text: 'Effacer',
+                        text: t('todos.clear'),
                         onPress: () => setCreateForm((p) => ({ ...p, dueAt: null })),
                       },
-                      { text: 'Annuler', style: 'cancel' },
+                      { text: t('action.cancel'), style: 'cancel' },
                     ]);
                   }}
                 >
                   <Text variant="body">
-                    {createForm.dueAt ? formatDateTimeShort(createForm.dueAt) : 'Pas d\'echeance'}
+                    {createForm.dueAt ? formatDateTimeShort(createForm.dueAt) : t('todos.noDue')}
                   </Text>
                 </TouchableOpacity>
               </View>
 
               {/* Reminder */}
               <View style={styles.inputGroup}>
-                <Text variant="caption">Rappel (optionnel)</Text>
+                <Text variant="caption">{t('todos.reminder')}</Text>
                 <TouchableOpacity
                   style={styles.dateTimeButton}
                   onPress={() => {
-                    Alert.alert('Rappel', 'Quand envoyer un rappel ?', [
+                    Alert.alert(t('todos.reminderTitle'), t('todos.reminderPrompt'), [
                       {
-                        text: '1h avant echeance',
+                        text: t('todos.reminder1h'),
                         onPress: () => {
                           if (createForm.dueAt) {
                             const r = new Date(createForm.dueAt.getTime() - 3600000);
@@ -563,7 +568,7 @@ export default function TodosScreen() {
                         },
                       },
                       {
-                        text: 'Le jour meme',
+                        text: t('todos.reminderSameDay'),
                         onPress: () => {
                           if (createForm.dueAt) {
                             const r = new Date(createForm.dueAt);
@@ -573,29 +578,29 @@ export default function TodosScreen() {
                         },
                       },
                       {
-                        text: 'Effacer',
+                        text: t('todos.clear'),
                         onPress: () => setCreateForm((p) => ({ ...p, reminderAt: null })),
                       },
-                      { text: 'Annuler', style: 'cancel' },
+                      { text: t('action.cancel'), style: 'cancel' },
                     ]);
                   }}
                 >
                   <Text variant="body">
                     {createForm.reminderAt
                       ? formatDateTimeShort(createForm.reminderAt)
-                      : 'Pas de rappel'}
+                      : t('todos.noReminder')}
                   </Text>
                 </TouchableOpacity>
               </View>
 
               {/* Notes */}
               <View style={styles.inputGroup}>
-                <Text variant="caption">Notes (optionnel)</Text>
+                <Text variant="caption">{t('todos.notes')}</Text>
                 <TextInput
                   style={styles.input}
                   value={createForm.notes}
-                  onChangeText={(t) => setCreateForm((p) => ({ ...p, notes: t }))}
-                  placeholder="Details..."
+                  onChangeText={(value) => setCreateForm((p) => ({ ...p, notes: value }))}
+                  placeholder={t('todos.notesPlaceholder')}
                   placeholderTextColor={colors.textMuted}
                   multiline
                 />
@@ -603,14 +608,14 @@ export default function TodosScreen() {
 
               <View style={styles.createActions}>
                 <Button
-                  title="Creer"
+                  title={t('action.create')}
                   variant="primary"
                   onPress={handleCreate}
                   disabled={!createForm.title.trim() || isSubmitting}
                   loading={isSubmitting}
                 />
                 <Button
-                  title="Annuler"
+                  title={t('action.cancel')}
                   variant="ghost"
                   onPress={() => {
                     setView('list');
@@ -626,9 +631,9 @@ export default function TodosScreen() {
           {view === 'complete' && selectedTodo && (
             <Card style={styles.formCard}>
               <View style={styles.editBanner}>
-                <Text variant="sectionTitle">Terminer</Text>
+                <Text variant="sectionTitle">{t('todos.completeTitle')}</Text>
                 <Button
-                  title="Annuler"
+                  title={t('action.cancel')}
                   variant="ghost"
                   size="small"
                   onPress={() => {
@@ -644,7 +649,7 @@ export default function TodosScreen() {
 
               {/* Performer */}
               <View style={styles.inputGroup}>
-                <Text variant="caption">Fait par</Text>
+                <Text variant="caption">{t('todos.performedBy')}</Text>
                 <View style={styles.memberRow}>
                   {members.map((m) => (
                     <TouchableOpacity
@@ -674,11 +679,13 @@ export default function TodosScreen() {
 
               {/* Value */}
               <View style={styles.inputGroup}>
-                <Text variant="caption">Valeur ({unitLabel})</Text>
+                <Text variant="caption">
+                  {t('todos.value', { unit: unitLabel })}
+                </Text>
                 <TextInput
                   style={styles.input}
                   value={completeForm.value}
-                  onChangeText={(t) => setCompleteForm((p) => ({ ...p, value: t }))}
+                  onChangeText={(value) => setCompleteForm((p) => ({ ...p, value }))}
                   placeholder={household?.contributionUnit === 'points' ? '3' : '15'}
                   placeholderTextColor={colors.textMuted}
                   keyboardType="numeric"
@@ -687,7 +694,7 @@ export default function TodosScreen() {
 
               {/* Beneficiaries */}
               <View style={styles.inputGroup}>
-                <Text variant="caption">Beneficiaires</Text>
+                <Text variant="caption">{t('todos.beneficiaries')}</Text>
                 <View style={styles.memberRow}>
                   {members.map((m) => {
                     const selected = completeForm.beneficiaryMemberIds.includes(m.id);
@@ -710,7 +717,7 @@ export default function TodosScreen() {
               </View>
 
               <Button
-                title="Confirmer"
+                title={t('action.confirm')}
                 variant="primary"
                 onPress={handleComplete}
                 disabled={

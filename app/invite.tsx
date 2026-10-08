@@ -24,6 +24,7 @@ import { Button } from '../src/ui/components/Button';
 import { Card } from '../src/ui/components/Card';
 import { colors, spacing, borderRadius } from '../src/ui/design-system/theme';
 import { useApp } from '../src/features/app/AppContext';
+import { useI18n } from '../src/i18n';
 import { Invitation } from '../src/domain/entities';
 import { createInvitation } from '../src/domain/services/invitationService';
 import { LocalSystemShareAdapter } from '../src/infrastructure/local/LocalSystemShareAdapter';
@@ -32,6 +33,7 @@ const DEEP_LINK_BASE = 'https://chorescore.app/join';
 
 export default function InviteScreen() {
   const router = useRouter();
+  const { t, locale } = useI18n();
   const { currentHouseholdId, currentUser, repos, services } = useApp();
   const [email, setEmail] = useState('');
   const [existingInvitations, setExistingInvitations] = useState<Invitation[]>([]);
@@ -52,30 +54,30 @@ export default function InviteScreen() {
     const trimmedEmail = email.trim().toLowerCase();
 
     if (!trimmedEmail.includes('@')) {
-      Alert.alert('Erreur', 'Adresse email invalide.');
+      Alert.alert(t('state.error'), t('invite.emailError'));
       return;
     }
 
     // Idempotency check: already has pending invitation for this email?
-    const existing = existingInvitations.find(
-      (i) => i.invitedEmail === trimmedEmail,
-    );
-    if (existing) {
-      const link = `${DEEP_LINK_BASE}/${existing.linkToken}`;
-      const shareAdapter = new LocalSystemShareAdapter();
-      await shareAdapter.share({
-        title: `Rejoindre ${currentHouseholdId}`,
-        message: `Rejoins notre groupe sur ChoreScore : ${link}`,
-        url: link,
-      });
-      setEmail('');
-      return;
-    }
+      const existing = existingInvitations.find(
+        (i) => i.invitedEmail === trimmedEmail,
+      );
+      if (existing) {
+        const link = `${DEEP_LINK_BASE}/${existing.linkToken}`;
+        const shareAdapter = new LocalSystemShareAdapter();
+        await shareAdapter.share({
+          title: t('invite.linkTitle'),
+          message: t('invite.linkMessage', { link }),
+          url: link,
+        });
+        setEmail('');
+        return;
+      }
 
     setIsSubmitting(true);
     try {
       const household = await repos.households.getById(currentHouseholdId);
-      if (!household) throw new Error('Groupe introuvable');
+      if (!household) throw new Error(t('invite.groupNotFound'));
 
       const invData = createInvitation({
         household,
@@ -89,15 +91,15 @@ export default function InviteScreen() {
       const link = `${DEEP_LINK_BASE}/${created.linkToken}`;
       const shareAdapter = new LocalSystemShareAdapter();
       await shareAdapter.share({
-        title: `Invitation a ${household.name}`,
-        message: `Rejoins ${household.name} sur ChoreScore : ${link}`,
+        title: t('invite.shareTitle', { group: household.name }),
+        message: t('invite.shareMessage', { group: household.name, link }),
         url: link,
       });
 
       setEmail('');
       await loadInvitations();
     } catch {
-      Alert.alert('Erreur', 'Impossible de creer l\'invitation.');
+      Alert.alert(t('state.error'), t('invite.createError'));
     } finally {
       setIsSubmitting(false);
     }
@@ -107,22 +109,22 @@ export default function InviteScreen() {
     const link = `${DEEP_LINK_BASE}/${token}`;
     const shareAdapter = new LocalSystemShareAdapter();
     await shareAdapter.share({
-      title: 'Lien d\'invitation',
-      message: `Rejoins notre groupe sur ChoreScore : ${link}`,
+      title: t('invite.linkTitle'),
+      message: t('invite.linkMessage', { link }),
       url: link,
     });
   };
 
   return (
-    <ScreenContainer>
+    <ScreenContainer edges={['top', 'bottom']}>
       <ScrollView contentContainerStyle={styles.scrollContent}>
         <View style={styles.header}>
           <TouchableOpacity onPress={() => router.back()}>
             <Text variant="caption" color={colors.textSecondary}>
-              {'< Retour'}
+              {`< ${t('action.back')}`}
             </Text>
           </TouchableOpacity>
-          <Text variant="screenTitle">Inviter</Text>
+          <Text variant="screenTitle">{t('invite.title')}</Text>
         </View>
 
         <Card style={styles.card}>
@@ -131,13 +133,13 @@ export default function InviteScreen() {
               style={styles.input}
               value={email}
               onChangeText={setEmail}
-              placeholder="email@exemple.com"
+              placeholder={t('invite.emailPlaceholder')}
               placeholderTextColor={colors.textMuted}
               keyboardType="email-address"
               autoCapitalize="none"
             />
             <Button
-              title="Inviter"
+              title={t('invite.invite')}
               variant="primary"
               size="small"
               onPress={handleInvite}
@@ -146,14 +148,14 @@ export default function InviteScreen() {
             />
           </View>
           <Text variant="caption" color={colors.textSecondary} style={styles.hint}>
-            Un lien d'invitation sera partage via la feuille de partage native.
+            {t('invite.hint')}
           </Text>
         </Card>
 
         {existingInvitations.length > 0 && (
           <>
             <Text variant="sectionTitle" style={styles.sectionTitle}>
-              En attente
+              {t('invite.pending')}
             </Text>
             {existingInvitations.map((inv) => (
               <Card key={inv.id} style={styles.inviteCard}>
@@ -161,11 +163,15 @@ export default function InviteScreen() {
                   <View style={styles.inviteInfo}>
                     <Text variant="body">{inv.invitedEmail}</Text>
                     <Text variant="caption" color={colors.textSecondary}>
-                      Cree le {new Date(inv.createdAt).toLocaleDateString('fr-FR')}
+                      {t('invite.createdOn', {
+                        date: new Date(inv.createdAt).toLocaleDateString(
+                          locale === 'fr' ? 'fr-FR' : 'en-US',
+                        ),
+                      })}
                     </Text>
                   </View>
                   <Button
-                    title="Re-partager"
+                    title={t('invite.reshare')}
                     variant="ghost"
                     size="small"
                     onPress={() => handleShareLink(inv.linkToken)}

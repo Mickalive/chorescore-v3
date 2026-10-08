@@ -26,6 +26,7 @@ import { Button } from '../../src/ui/components/Button';
 import { Card } from '../../src/ui/components/Card';
 import { colors, spacing } from '../../src/ui/design-system/theme';
 import { useApp } from '../../src/features/app/AppContext';
+import { useI18n } from '../../src/i18n';
 import {
   validateAcceptInvitation,
   planInvitationAcceptance,
@@ -36,6 +37,7 @@ type JoinStatus = 'loading' | 'ready' | 'accepting' | 'accepted' | 'error';
 export default function JoinScreen() {
   const { token } = useLocalSearchParams<{ token: string }>();
   const router = useRouter();
+  const { t } = useI18n();
   const { currentUser, repos, rawRepos, signIn } = useApp();
 
   const [status, setStatus] = useState<JoinStatus>('loading');
@@ -45,7 +47,7 @@ export default function JoinScreen() {
   const resolveInvitation = useCallback(async () => {
     if (!token) {
       setStatus('error');
-      setErrorMessage('Lien d\'invitation invalide.');
+      setErrorMessage(t('join.invalidLink'));
       return;
     }
 
@@ -58,14 +60,14 @@ export default function JoinScreen() {
       const invitation = await rawRepos.invitations.getByLinkToken(token as string);
       if (!invitation) {
         setStatus('error');
-        setErrorMessage('Invitation introuvable ou invalide.');
+        setErrorMessage(t('join.notFound'));
         return;
       }
 
       const household = await rawRepos.households.getById(invitation.householdId);
       if (!household) {
         setStatus('error');
-        setErrorMessage('Groupe introuvable.');
+        setErrorMessage(t('join.groupNotFound'));
         return;
       }
 
@@ -74,7 +76,7 @@ export default function JoinScreen() {
       // Check if user is signed in
       if (!currentUser) {
         setStatus('error');
-        setErrorMessage('Connectez-vous pour accepter l\'invitation.');
+        setErrorMessage(t('join.signInRequired'));
         return;
       }
 
@@ -83,7 +85,7 @@ export default function JoinScreen() {
       try {
         validateAcceptInvitation(invitation, household, existingMemberships, currentUser.userId);
       } catch (err) {
-        const msg = err instanceof Error ? err.message : 'Invitation invalide.';
+        const msg = err instanceof Error ? err.message : t('join.notFound');
         setStatus('error');
         setErrorMessage(msg);
         return;
@@ -92,9 +94,9 @@ export default function JoinScreen() {
       setStatus('ready');
     } catch {
       setStatus('error');
-      setErrorMessage('Erreur lors de la verification de l\'invitation.');
+      setErrorMessage(t('join.verifyError'));
     }
-  }, [token, rawRepos, currentUser]);
+  }, [token, rawRepos, currentUser, t]);
 
   useEffect(() => {
     resolveInvitation();
@@ -112,14 +114,14 @@ export default function JoinScreen() {
       const invitation = await rawRepos.invitations.getByLinkToken(token as string);
       if (!invitation) {
         setStatus('error');
-        setErrorMessage('Invitation introuvable.');
+        setErrorMessage(t('join.notFound'));
         return;
       }
 
       const household = await rawRepos.households.getById(invitation.householdId);
       if (!household) {
         setStatus('error');
-        setErrorMessage('Groupe introuvable.');
+        setErrorMessage(t('join.groupNotFound'));
         return;
       }
 
@@ -144,7 +146,7 @@ export default function JoinScreen() {
       setStatus('accepted');
     } catch {
       setStatus('error');
-      setErrorMessage('Erreur lors de l\'acceptation de l\'invitation.');
+      setErrorMessage(t('join.acceptError'));
     }
   };
 
@@ -154,25 +156,25 @@ export default function JoinScreen() {
   };
 
   return (
-    <ScreenContainer>
+    <ScreenContainer edges={['top', 'bottom']}>
       <View style={styles.container}>
         <Text variant="screenTitle" style={styles.title}>
-          Rejoindre un groupe
+          {t('join.title')}
         </Text>
 
         {status === 'loading' && (
           <Card style={styles.card}>
-            <Text variant="body">Verification de l'invitation...</Text>
+            <Text variant="body">{t('join.verifying')}</Text>
           </Card>
         )}
 
         {status === 'ready' && (
           <Card style={styles.card}>
             <Text variant="body" style={styles.message}>
-              Vous etes invite a rejoindre <Text variant="bodyBold">{householdName}</Text>.
+              {t('join.invited', { group: householdName })}
             </Text>
             <Button
-              title="Rejoindre le groupe"
+              title={t('join.accept')}
               variant="primary"
               onPress={handleAccept}
               style={styles.button}
@@ -182,17 +184,17 @@ export default function JoinScreen() {
 
         {status === 'accepting' && (
           <Card style={styles.card}>
-            <Text variant="body">Acceptation en cours...</Text>
+            <Text variant="body">{t('join.accepting')}</Text>
           </Card>
         )}
 
         {status === 'accepted' && (
           <Card style={styles.card}>
             <Text variant="body" style={styles.successMessage}>
-              Vous avez rejoint <Text variant="bodyBold">{householdName}</Text> !
+              {t('join.accepted', { group: householdName })}
             </Text>
             <Button
-              title="Aller au groupe"
+              title={t('join.goToGroup')}
               variant="primary"
               onPress={handleGoToGroup}
               style={styles.button}
@@ -206,7 +208,7 @@ export default function JoinScreen() {
               {errorMessage}
             </Text>
             <Button
-              title="Retour"
+              title={t('action.back')}
               variant="secondary"
               onPress={() => router.replace('/')}
               style={styles.button}

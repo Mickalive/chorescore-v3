@@ -870,15 +870,15 @@ describe('V3-08 Gate 10: Accessibility and design system', () => {
     // Import theme at test time to avoid module caching issues
     const { colors, typography } = require('../../src/ui/design-system/theme');
 
-    // Primary text on surfaces must meet WCAG AA 4.5:1 ratio
-    // graphite (#171719) on white (#FFFFFF) ≈ 18.1:1 ✓
-    // graphite (#171719) on off-white (#F5F5F7) ≈ 16.4:1 ✓
-    expect(colors.text).toBe('#171719');
+    // V4 restores the canonical warm V2 palette. Primary text on surfaces must
+    // still meet WCAG AA 4.5:1.
+    // deep ink (#3D405B) on white (#FFFFFF) ≈ 9.7:1 ✓
+    // deep ink (#3D405B) on cream (#FFF8F0) ≈ 9.1:1 ✓
+    expect(colors.text).toBe('#3D405B');
     expect(colors.textOnPrimary).toBe('#FFFFFF');
 
-    // Secondary text must also meet 4.5:1
-    // metallic gray (#68686D) on white (#FFFFFF) ≈ 5.1:1 ✓
-    expect(colors.textSecondary).toBe('#68686D');
+    // Sage gray-green secondary text on white ≈ 4.8:1 ✓
+    expect(colors.textSecondary).toBe('#5A7260');
 
     // Font sizes meet minimum readable sizes
     expect(typography.caption.fontSize).toBeGreaterThanOrEqual(12);
@@ -901,28 +901,34 @@ describe('V3-08 Gate 10: Accessibility and design system', () => {
     }
   });
 
-  test('no chrono, premium, or warm V2 elements in design system', () => {
+  test('V4 warm V2 palette present; no V3 metallic remnants', () => {
     const { colors } = require('../../src/ui/design-system/theme');
 
-    // V3 design system uses graphite/off-white/metallic/forest-green/wine-red only.
-    // No warm terracotta, sage, peach, or cream hex values are allowed.
-    const WARM_HEX = new Set([
-      '#C4805A', '#D4956E', '#C98B6A', '#D19A76', // terracotta
-      '#A4B8A0', '#B5C5B0', '#C5D5C0', '#9DB896', // sage/green
-      '#F0C0A0', '#F5D5C0', '#EDBCA0', '#F2CAB0', // peach
-      '#FAF0E6', '#FFF5EE', '#FDF5E6', '#FFFAF0', // cream
-    ]);
+    // V4 restores the canonical warm V2 palette (docs/V4_CONSTITUTION.md §1).
+    expect(colors.background).toBe('#FFF8F0');
+    expect(colors.surface).toBe('#FFFFFF');
+    expect(colors.surfaceAlt).toBe('#FFF0E6');
+    expect(colors.surfaceHighlight).toBe('#FFE8D6');
+    expect(colors.primary).toBe('#C0512F');
+    expect(colors.primaryLight).toBe('#F2CC8F');
+    expect(colors.primaryDark).toBe('#9A3A1B');
+    expect(colors.border).toBe('#E8E0D8');
+    expect(colors.divider).toBe('#F0E8E0');
 
+    // V3 graphite/metallic values must not survive.
+    const METALLIC_HEX = new Set([
+      '#F5F5F7', '#171719', '#D1D1D6', '#68686D',
+    ]);
     const allColorValues = Object.values(colors).filter(
       (v): v is string => typeof v === 'string' && v.startsWith('#')
     );
     for (const hex of allColorValues) {
-      expect(WARM_HEX.has(hex.toUpperCase())).toBe(false);
+      expect(METALLIC_HEX.has(hex.toUpperCase())).toBe(false);
     }
 
-    // Balance colors must be exactly forest green and wine red
-    expect(colors.balancePositive).toBe('#2D6A4F');
-    expect(colors.balanceNegative).toBe('#9B2226');
+    // Balance colors must be the desaturated V2 sage / deep brick pair.
+    expect(colors.balancePositive).toBe('#5D8C6F');
+    expect(colors.balanceNegative).toBe('#9A3A1B');
   });
 
   test('copy uses factual, non-gamified language', () => {

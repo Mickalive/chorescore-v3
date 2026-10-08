@@ -33,9 +33,9 @@ import { Card } from '../../src/ui/components/Card';
 import { Button } from '../../src/ui/components/Button';
 import { colors, spacing, borderRadius } from '../../src/ui/design-system/theme';
 import { useApp, DataChangeType } from '../../src/features/app/AppContext';
+import { useI18n } from '../../src/i18n';
 import {
   ContributionEntry,
-  ContributionUnit,
   CrossLedgerSettlement,
   ExpenseEntry,
   Household,
@@ -75,12 +75,11 @@ import {
 
 // ── Helpers ────────────────────────────────────────────────────
 
-function formatContributionValue(value: number, unit: ContributionUnit): string {
+function formatContributionValue(value: number, unitShort: string): string {
   const abs = Math.abs(value);
-  const label = unit === 'minutes' ? 'min' : 'pts';
-  if (value > 0) return `+ ${abs} ${label}`;
-  if (value < 0) return `- ${abs} ${label}`;
-  return `0 ${label}`;
+  if (value > 0) return `+ ${abs} ${unitShort}`;
+  if (value < 0) return `- ${abs} ${unitShort}`;
+  return `0 ${unitShort}`;
 }
 
 function formatMoneyAmount(amountMinor: number, currency: string): string {
@@ -93,8 +92,12 @@ function formatMoneyAmount(amountMinor: number, currency: string): string {
   return `${currency} 0.00`;
 }
 
-function formatTransferContribution(t: ContributionTransfer, memberName: (id: string) => string): string {
-  return `${memberName(t.fromMemberId)} → ${memberName(t.toMemberId)} : ${t.value} ${t.unit === 'minutes' ? 'min' : 'pts'}`;
+function formatTransferContribution(
+  t: ContributionTransfer,
+  memberName: (id: string) => string,
+  unitShort: string,
+): string {
+  return `${memberName(t.fromMemberId)} → ${memberName(t.toMemberId)} : ${t.value} ${unitShort}`;
 }
 
 function formatTransferMoney(t: MoneyTransfer, memberName: (id: string) => string): string {
@@ -104,11 +107,16 @@ function formatTransferMoney(t: MoneyTransfer, memberName: (id: string) => strin
   return `${memberName(t.fromMemberId)} → ${memberName(t.toMemberId)} : ${t.currency} ${whole}.${cents.toString().padStart(2, '0')}`;
 }
 
-function formatActivityRow(entry: ActivityEntry, memberName: (id: string) => string, unit: ContributionUnit): string {
+function formatActivityRow(
+  entry: ActivityEntry,
+  memberName: (id: string) => string,
+  unitShort: string,
+  settlementLabel: string,
+): string {
   switch (entry.type) {
     case 'contribution': {
       const e = entry.entry;
-      const val = formatContributionValue(e.value, unit);
+      const val = formatContributionValue(e.value, unitShort);
       return `${e.label}  ${val}  ${memberName(e.performedByMemberId)} → ${e.beneficiaryMemberIds.map(memberName).join(', ')}`;
     }
     case 'expense': {
@@ -117,32 +125,19 @@ function formatActivityRow(entry: ActivityEntry, memberName: (id: string) => str
     }
     case 'cross-ledger-settlement': {
       const e = entry.entry;
-      const contrib = formatContributionValue(-e.contributionValue, e.contributionUnit);
+      const contrib = formatContributionValue(-e.contributionValue, unitShort);
       const money = formatMoneyAmount(e.moneyAmountMinor, e.currency);
-      return `Compensation  ${memberName(e.contributionCreditorMemberId)} ${contrib} ↔ ${money}`;
+      return `${settlementLabel}  ${memberName(e.contributionCreditorMemberId)} ${contrib} ↔ ${money}`;
     }
   }
 }
-
-const PERIOD_LABELS: Record<Period, string> = {
-  week: 'Semaine',
-  month: 'Mois',
-  year: 'Annee',
-  'all-time': 'Tout',
-};
-
-const HISTORY_FILTER_LABELS: Record<ActivityFilter, string> = {
-  all: 'Tout',
-  contribution: 'Contributions',
-  expense: 'Depenses',
-  settlement: 'Compensations',
-};
 
 const HISTORY_PAGE_SIZE = 20;
 
 // ── Component ──────────────────────────────────────────────────
 
 export default function BalancesScreen() {
+  const { t } = useI18n();
   const { currentHouseholdId, repos, subscribeToDataChanges, emitDataChange } = useApp();
   const [period, setPeriod] = useState<Period>('all-time');
   const [household, setHousehold] = useState<Household | null>(null);
@@ -440,8 +435,8 @@ export default function BalancesScreen() {
   // ── Member name helper ────────────────────────────────────
 
   const memberName = useCallback(
-    (memberId: string) => members.find((m) => m.id === memberId)?.name || 'Inconnu',
-    [members]
+    (memberId: string) => members.find((m) => m.id === memberId)?.name || t('state.unknownMember'),
+    [members, t]
   );
 
   // ── Period-filtered balances ───────────────────────────────
@@ -669,13 +664,27 @@ export default function BalancesScreen() {
 
   // ── Render ─────────────────────────────────────────────────
 
-  const unitLabel = unit === 'minutes' ? 'min' : 'pts';
+  const unitLabel = unit === 'minutes' ? t('unit.minutesShort') : t('unit.pointsShort');
+
+  const periodLabels: Record<Period, string> = {
+    week: t('balances.periodWeek'),
+    month: t('balances.periodMonth'),
+    year: t('balances.periodYear'),
+    'all-time': t('balances.periodAll'),
+  };
+
+  const historyFilterLabels: Record<ActivityFilter, string> = {
+    all: t('balances.filterAll'),
+    contribution: t('balances.filterTasks'),
+    expense: t('balances.filterExpenses'),
+    settlement: t('balances.filterSettlements'),
+  };
 
   return (
     <ScreenContainer>
       <ScrollView contentContainerStyle={styles.scrollContent}>
         <View style={styles.header}>
-          <Text variant="screenTitle">Balances</Text>
+          <Text variant="screenTitle">{t('balances.title')}</Text>
         </View>
 
         {/* Period filter */}
@@ -690,20 +699,20 @@ export default function BalancesScreen() {
                 variant="caption"
                 color={period === p ? colors.textOnPrimary : colors.textSecondary}
               >
-                {PERIOD_LABELS[p]}
+                {periodLabels[p]}
               </Text>
             </TouchableOpacity>
           ))}
         </View>
 
-        {/* Contribution Ledger Block */}
+        {/* Task Ledger Block */}
         <Text variant="sectionTitle" style={styles.sectionTitle}>
-          Contribution
+          {t('balances.tasks')}
         </Text>
         <Card style={styles.balanceCard}>
           {contributionArray.length === 0 ? (
             <Text variant="body" style={styles.emptyText}>
-              Aucune contribution pour cette periode.
+              {t('balances.emptyTasks')}
             </Text>
           ) : (
             contributionArray.map((balance) => (
@@ -729,7 +738,7 @@ export default function BalancesScreen() {
           {contributionArray.length > 0 && (
             <View style={styles.zeroSumBadge}>
               <Text variant="caption" color={isContributionZeroSum ? colors.balancePositive : colors.balanceNegative}>
-                {isContributionZeroSum ? '✓ Somme nulle' : '✗ Incoherence'}
+                {isContributionZeroSum ? t('balances.zeroSum') : t('balances.incoherent')}
               </Text>
             </View>
           )}
@@ -740,13 +749,13 @@ export default function BalancesScreen() {
           <Card style={styles.suggestionCard}>
             <View style={styles.suggestionHeader}>
               <Text variant="caption" color={colors.textSecondary}>
-                Reglages suggerees
+                {t('balances.suggestedSettlements')}
               </Text>
             </View>
-            {contributionSuggestions.map((t, i) => (
+            {contributionSuggestions.map((transfer, i) => (
               <View key={i} style={styles.suggestionRow}>
                 <Text variant="body" style={styles.suggestionText}>
-                  {formatTransferContribution(t, memberName)}
+                  {formatTransferContribution(transfer, memberName, unitLabel)}
                 </Text>
               </View>
             ))}
@@ -755,12 +764,12 @@ export default function BalancesScreen() {
 
         {/* Money Ledger Block */}
         <Text variant="sectionTitle" style={styles.sectionTitle}>
-          Argent
+          {t('balances.money')}
         </Text>
         {moneyBalancesByCurrency.size === 0 ? (
           <Card style={styles.balanceCard}>
             <Text variant="body" style={styles.emptyText}>
-              Aucune depense pour cette periode.
+              {t('balances.emptyExpenses')}
             </Text>
           </Card>
         ) : (
@@ -790,7 +799,7 @@ export default function BalancesScreen() {
                 ))}
                 <View style={styles.zeroSumBadge}>
                   <Text variant="caption" color={isZeroSum ? colors.balancePositive : colors.balanceNegative}>
-                    {isZeroSum ? '✓ Somme nulle' : '✗ Incoherence'} ({currency})
+                    {isZeroSum ? t('balances.zeroSum') : t('balances.incoherent')} ({currency})
                   </Text>
                 </View>
               </Card>
@@ -803,13 +812,13 @@ export default function BalancesScreen() {
           <Card style={styles.suggestionCard}>
             <View style={styles.suggestionHeader}>
               <Text variant="caption" color={colors.textSecondary}>
-                Reglages suggerees
+                {t('balances.suggestedSettlements')}
               </Text>
             </View>
-            {moneySuggestions.map((t, i) => (
+            {moneySuggestions.map((transfer, i) => (
               <View key={i} style={styles.suggestionRow}>
                 <Text variant="body" style={styles.suggestionText}>
-                  {formatTransferMoney(t, memberName)}
+                  {formatTransferMoney(transfer, memberName)}
                 </Text>
               </View>
             ))}
@@ -821,27 +830,35 @@ export default function BalancesScreen() {
           <Card style={styles.compensationCard}>
             <View style={styles.compensationHeader}>
               <Text variant="sectionTitle" style={{ fontSize: 16 }}>
-                Compensation
+                {t('balances.compensation')}
               </Text>
               <View style={[styles.statusBadge, household.crossLedgerCompensationEnabled ? styles.statusEnabled : styles.statusDisabled]}>
                 <Text variant="caption" color={colors.textOnPrimary}>
-                  {household.crossLedgerCompensationEnabled ? 'Activee' : 'Desactivee'}
+                  {household.crossLedgerCompensationEnabled
+                    ? t('balances.compensationEnabled')
+                    : t('balances.compensationDisabled')}
                 </Text>
               </View>
             </View>
             <Text variant="body" style={styles.compensationDescription}>
               {household.crossLedgerCompensationEnabled
-                ? `Taux : ${household.contributionToMoneyRate?.contributionValue} ${unitLabel} = ${household.contributionToMoneyRate ? `${household.contributionToMoneyRate.moneyAmountMinor / 100} ${household.contributionToMoneyRate.currency}` : '—'}`
-                : 'La compensation entre contribution et argent est desactivee par defaut. Activez-la dans les options du groupe avec un taux defini par le groupe.'}
+                ? t('balances.compensationRate', {
+                    value: household.contributionToMoneyRate?.contributionValue ?? '',
+                    unit: unitLabel,
+                    money: household.contributionToMoneyRate
+                      ? `${household.contributionToMoneyRate.moneyAmountMinor / 100} ${household.contributionToMoneyRate.currency}`
+                      : '—',
+                  })
+                : t('balances.compensationDisabledHelp')}
             </Text>
             {household.crossLedgerCompensationEnabled && household.contributionToMoneyRate && (
               <Text variant="caption" color={colors.textSecondary} style={{ marginTop: spacing.sm }}>
-                Chaque compensation produit un enregistrement immuable avec le taux utilise.
+                {t('balances.compensationImmutable')}
               </Text>
             )}
             {canCompensate && (
               <Button
-                title="Compenser"
+                title={t('balances.compensate')}
                 variant="secondary"
                 size="small"
                 style={{ marginTop: spacing.md }}
@@ -853,7 +870,7 @@ export default function BalancesScreen() {
 
         {/* ── Filtered History Section ──────────────────────── */}
         <Text variant="sectionTitle" style={styles.sectionTitle}>
-          Activite
+          {t('balances.activity')}
         </Text>
         <View style={styles.historyFilterRow}>
           {(['all', 'contribution', 'expense', 'settlement'] as ActivityFilter[]).map((f) => (
@@ -866,7 +883,7 @@ export default function BalancesScreen() {
                 variant="caption"
                 color={historyFilter === f ? colors.textOnPrimary : colors.textSecondary}
               >
-                {HISTORY_FILTER_LABELS[f]}
+                {historyFilterLabels[f]}
               </Text>
             </TouchableOpacity>
           ))}
@@ -877,7 +894,7 @@ export default function BalancesScreen() {
               {historyPage.entries.map((entry) => (
                 <View key={entry.entry.id} style={styles.historyRow}>
                   <Text variant="body" style={styles.historyText} numberOfLines={2}>
-                    {formatActivityRow(entry, memberName, unit)}
+                    {formatActivityRow(entry, memberName, unitLabel, t('add.settlement'))}
                   </Text>
                 </View>
               ))}
@@ -887,14 +904,14 @@ export default function BalancesScreen() {
                   onPress={() => loadHistoryPage(historyFilter, historyPage.cursor)}
                 >
                   <Text variant="caption" color={colors.textSecondary}>
-                    {historyLoading ? 'Chargement...' : 'Charger plus'}
+                    {historyLoading ? t('state.loading') : t('action.loadMore')}
                   </Text>
                 </TouchableOpacity>
               )}
             </>
           ) : (
             <Text variant="body" style={styles.emptyText}>
-              Aucune activite.
+              {t('balances.emptyActivity')}
             </Text>
           )}
         </Card>
@@ -910,14 +927,14 @@ export default function BalancesScreen() {
         <ScreenContainer>
           <ScrollView contentContainerStyle={styles.modalContent}>
             <View style={styles.modalHeader}>
-              <Text variant="screenTitle">Compenser</Text>
+              <Text variant="screenTitle">{t('balances.composerTitle')}</Text>
               <TouchableOpacity onPress={() => setShowCompenser(false)}>
-                <Text variant="bodyBold" color={colors.textSecondary}>Fermer</Text>
+                <Text variant="bodyBold" color={colors.textSecondary}>{t('action.close')}</Text>
               </TouchableOpacity>
             </View>
 
             <Text variant="body" style={styles.modalLabel}>
-              Crediteur de contribution (celui qui a un credit positif)
+              {t('balances.composerCreditor')}
             </Text>
             <View style={styles.memberSelectRow}>
               {memberIds.map((mid) => (
@@ -940,7 +957,7 @@ export default function BalancesScreen() {
             </View>
 
             <Text variant="body" style={styles.modalLabel}>
-              Valeur a compenser ({unitLabel})
+              {t('balances.composerValue', { unit: unitLabel })}
             </Text>
             <View style={styles.inputRow}>
               {['15', '30', '60'].map((preset) => (
@@ -959,10 +976,10 @@ export default function BalancesScreen() {
             {compenserPreview && (
               <Card style={styles.previewCard}>
                 <Text variant="bodyBold" style={{ marginBottom: spacing.sm }}>
-                  Avant / Apres
+                  {t('balances.composerBeforeAfter')}
                 </Text>
                 <Text variant="caption" color={colors.textSecondary} style={{ marginBottom: spacing.xs }}>
-                  Contribution ({unitLabel})
+                  {t('balances.composerTasks', { unit: unitLabel })}
                 </Text>
                 {compenserPreview.contribBefore.map((b) => {
                   const after = compenserPreview.contribAfter.find((a) => a.memberId === b.memberId);
@@ -981,7 +998,7 @@ export default function BalancesScreen() {
                 })}
 
                 <Text variant="caption" color={colors.textSecondary} style={{ marginTop: spacing.md, marginBottom: spacing.xs }}>
-                  Argent ({compenserPreview.rate.currency})
+                  {t('balances.composerMoney', { currency: compenserPreview.rate.currency })}
                 </Text>
                 {compenserPreview.moneyBefore.map((b) => {
                   const after = compenserPreview.moneyAfter.find((a) => a.memberId === b.memberId);
@@ -1000,10 +1017,18 @@ export default function BalancesScreen() {
                 })}
 
                 <Text variant="caption" color={colors.textSecondary} style={{ marginTop: spacing.md }}>
-                  Taux snapshot : {compenserPreview.rate.contributionValue} {unitLabel} = {compenserPreview.rate.moneyAmountMinor / 100} {compenserPreview.rate.currency}
+                  {t('balances.composerRateSnapshot', {
+                    value: compenserPreview.rate.contributionValue,
+                    unit: unitLabel,
+                    money: compenserPreview.rate.moneyAmountMinor / 100,
+                    currency: compenserPreview.rate.currency,
+                  })}
                 </Text>
                 <Text variant="caption" color={colors.textSecondary}>
-                  Montant : {compenserPreview.moneyAmount / 100} {compenserPreview.rate.currency}
+                  {t('balances.composerAmount', {
+                    amount: compenserPreview.moneyAmount / 100,
+                    currency: compenserPreview.rate.currency,
+                  })}
                 </Text>
               </Card>
             )}
@@ -1015,7 +1040,7 @@ export default function BalancesScreen() {
             )}
 
             <Button
-              title="Confirmer la compensation"
+              title={t('balances.composerConfirm')}
               disabled={!compenserPreview}
               onPress={handleCompenserConfirm}
               style={{ marginTop: spacing.lg }}

@@ -491,33 +491,44 @@ describe('V3-08 finalize workflow YAML regression guard', () => {
   });
 });
 
-describe('V3-08 E2E golden-path fixture alignment', () => {
-  test('every label asserted by the E2E script exists in the demo fixture or app screens', () => {
+describe('V4 golden-path label sourcing', () => {
+  test('main-journey labels are sourced from the i18n catalog and demo fixture', () => {
     const e2e = readRepo('scripts/e2e-android.js');
     const fixture = readRepo('src/features/app/demoFixture.ts');
+    const catalog = readRepo('src/i18n/catalog.ts');
     const rootScreen = readRepo('app/index.tsx');
     const tabsLayout = readRepo('app/(tabs)/_layout.tsx');
     const balancesScreen = readRepo('app/(tabs)/balances.tsx');
 
-    // Labels the E2E script waits for / taps (substring semantics, matching
-    // the script's own nodeMatches() includes() behavior).
+    // V4-02: user-visible labels live in the single i18n catalog (substring
+    // semantics, matching the E2E script's own nodeMatches() includes()
+    // behavior). The demo fixture still seeds E2E-only data.
     const expectedLabels: Array<[string, string]> = [
       // [label, source file that must contain it]
-      ['Demarrer', rootScreen], // "Demarrer (demo)" sign-in button
+      ['Ajouter', catalog], // tab 1
+      ['Balances', catalog], // tab 2
+      ['À faire', catalog], // tab 3
       ['Appartement', fixture], // demo household name
-      ['Ajouter', tabsLayout], // tab 1
-      ['Balances', tabsLayout], // tab 2
-      ['A faire', tabsLayout], // tab 3
       ['Vaisselle du soir', fixture], // demo contribution
       ['Sortir les poubelles', fixture], // demo todo
       ['Alex', fixture], // demo member
       ['Sam', fixture], // demo member
-      ['Contribution', balancesScreen], // dual-ledger section title
+      ['Tâche', catalog], // V4 vocabulary replaces "Contribution"
     ];
 
     for (const [label, source] of expectedLabels) {
       expect(source).toContain(label);
     }
+
+    // V4-02: the groups root exposes social providers only. No demo entry and
+    // no email/password on the normal screen. The deterministic E2E session is
+    // injected invisibly (V4-03), never as a rendered button.
+    expect(rootScreen).not.toContain('Demarrer');
+    expect(rootScreen).not.toContain('Demo');
+    expect(tabsLayout).not.toContain('Contribution');
+    // Balances renders the task block from the i18n key, never the internal
+    // "Contribution" noun. Type identifiers (ContributionEntry) are fine.
+    expect(balancesScreen).toContain("t('balances.tasks')");
 
     // The E2E script must assert the absence of chrono/premium/warm-V2 UI.
     for (const forbidden of ['Chrono', 'Chronometre', 'Duree reelle']) {

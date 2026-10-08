@@ -42,6 +42,11 @@ export class LocalAuthAdapter implements AuthGateway {
     return null;
   }
 
+  async signInWithApple(): Promise<AuthUser | null> {
+    // Not configured — honest adapter
+    return null;
+  }
+
   async signInWithFacebook(): Promise<AuthUser | null> {
     // Not configured — honest adapter
     return null;

@@ -1,54 +1,54 @@
 /**
- * ChoreScore V3 — Design System Theme
+ * ChoreScore V4 — Design System Theme
  *
- * Precise, adult, premium aesthetic.
- * Reference: Apple, bunq/Tricount, high-end personal finance tools.
+ * Warm V2 palette restored, with a more mature and polished execution.
+ * Reference palette is canonical: docs/V4_CONSTITUTION.md §1.
  *
- * - Graphite / off-white / metallic palette
- * - Dense but breathable composition
- * - Semantic balance colors only (forest green / wine red)
- * - No warm terracotta, no self-care, no gamification
+ * - Terracotta / cream / sage warm palette
+ * - Dense but breathable composition, controlled spaces
+ * - Audited balance colors only (deep sage / deep brick)
+ * - No gamification, no crypto/neobank flash, no gratuitous gradients
  */
 
 export const colors = {
-  // Base palette
-  background: '#F5F5F7',    // Off-white, near Apple default
+  // Base palette — canonical V2 warm
+  background: '#FFF8F0',    // Warm cream
   surface: '#FFFFFF',       // Clean white
-  surfaceAlt: '#F0F0F2',   // Light metallic surface
-  surfaceHighlight: '#E8E8EC', // Subtle highlight
+  surfaceAlt: '#FFF0E6',    // Soft warm surface
+  surfaceHighlight: '#FFE8D6', // Warm highlight
 
-  // Primary text hierarchy — all meet WCAG AA 4.5:1 on all surfaces
-  text: '#171719',          // Graphite, near-black
-  textSecondary: '#68686D', // Metallic gray
-  textMuted: '#8E8E93',     // Light metallic
+  // Primary text hierarchy — all meet WCAG AA 4.5:1 on surfaces
+  text: '#3D405B',          // Deep ink
+  textSecondary: '#5A7260', // Sage gray-green
+  textMuted: '#606070',     // Muted slate
   textOnPrimary: '#FFFFFF',
 
-  // Primary action
-  primary: '#171719',       // Graphite as primary
-  primaryLight: '#3A3A3C',
-  primaryDark: '#000000',
+  // Primary action — warm terracotta
+  primary: '#C0512F',
+  primaryLight: '#F2CC8F',
+  primaryDark: '#9A3A1B',
 
-  // Semantic balance states — desaturated, never aggressive
-  balancePositive: '#2D6A4F',  // Forest green
-  balanceNegative: '#9B2226',  // Wine red
+  // Semantic balance states — canonical and desaturated
+  balancePositive: '#5D8C6F',  // Deep sage
+  balanceNegative: '#9A3A1B',  // Deep brick
 
-  // Legacy semantic aliases (mapped to balance states for consistency)
-  success: '#2D6A4F',
-  error: '#9B2226',
+  // Semantic aliases from the canonical V2 palette
+  success: '#5D8C6F',
+  error: '#C0512F',
   warning: '#7A5614',
-  info: '#3A6EA5',
+  info: '#3D85C6',
 
-  // Borders and dividers — metallic
-  border: '#D1D1D6',
-  divider: '#E5E5EA',
+  // Borders and dividers — warm
+  border: '#E8E0D8',
+  divider: '#F0E8E0',
 
-  // Chart palette — muted metallic tones
+  // Chart palette — warm but sober
   chartColors: [
-    '#171719',
-    '#68686D',
-    '#2D6A4F',
-    '#9B2226',
-    '#3A6EA5',
+    '#C0512F',
+    '#5A7260',
+    '#3D405B',
+    '#5D8C6F',
+    '#F2CC8F',
     '#7A5614',
   ],
 };
@@ -126,15 +126,15 @@ export const shadows = {
   small: {
     shadowColor: colors.text,
     shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.04,
+    shadowOpacity: 0.05,
     shadowRadius: 2,
     elevation: 1,
   },
   medium: {
     shadowColor: colors.text,
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.06,
-    shadowRadius: 4,
+    shadowOpacity: 0.08,
+    shadowRadius: 5,
     elevation: 2,
   },
 };

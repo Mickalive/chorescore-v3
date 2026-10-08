@@ -27,6 +27,12 @@ interface ButtonProps {
   accessibilityLabel?: string;
   /** Optional hint for screen readers (e.g. "Double tap to submit") */
   accessibilityHint?: string;
+  /**
+   * Localized label announced while `loading` is true. The button's own
+   * accessibilityLabel and busy state already carry the meaning, so this is
+   * optional and provided by callers through the i18n layer.
+   */
+  loadingAccessibilityLabel?: string;
 }
 
 export function Button({
@@ -39,6 +45,7 @@ export function Button({
   style,
   accessibilityLabel,
   accessibilityHint,
+  loadingAccessibilityLabel,
 }: ButtonProps) {
   return (
     <TouchableOpacity
@@ -63,7 +70,7 @@ export function Button({
         <ActivityIndicator
           color={variant === 'primary' ? colors.textOnPrimary : colors.text}
           size="small"
-          accessibilityLabel="Chargement"
+          accessibilityLabel={loadingAccessibilityLabel}
         />
       ) : (
         <Text

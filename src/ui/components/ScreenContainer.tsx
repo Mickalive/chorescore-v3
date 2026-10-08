@@ -1,12 +1,17 @@
 /**
- * ChoreScore V3 — Screen Container
+ * ChoreScore V4 — Screen Container
  *
- * Consistent screen wrapper with V3 off-white background and safe area.
+ * Consistent screen wrapper with the warm V2 background and safe-area edges.
+ *
+ * Stack screens (pushed routes) pass `edges={['top', 'bottom']}` so controls
+ * and content never sit under the Android navigation bar or the iOS home
+ * indicator. Tab screens keep the default `['top']` and rely on React
+ * Navigation's tab bar, which already consumes the bottom inset.
  */
 
 import React from 'react';
 import { View, StyleSheet, ScrollView, ViewStyle } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, Edge } from 'react-native-safe-area-context';
 import { colors, spacing } from '../design-system/theme';
 
 interface ScreenContainerProps {
@@ -14,6 +19,8 @@ interface ScreenContainerProps {
   scrollable?: boolean;
   padded?: boolean;
   style?: ViewStyle;
+  /** Safe-area edges to respect. Defaults to the top edge only. */
+  edges?: Edge[];
 }
 
 export function ScreenContainer({
@@ -21,6 +28,7 @@ export function ScreenContainer({
   scrollable = true,
   padded = true,
   style,
+  edges = ['top'],
 }: ScreenContainerProps) {
   const content = scrollable ? (
     <ScrollView
@@ -37,7 +45,7 @@ export function ScreenContainer({
   );
 
   return (
-    <SafeAreaView style={styles.safeArea} edges={['top']}>
+    <SafeAreaView style={styles.safeArea} edges={edges}>
       <View style={[styles.container, style]}>
         {content}
       </View>

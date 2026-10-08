@@ -15,6 +15,7 @@ export interface AuthGateway {
   getCurrentUser(): AuthUser | null;
   signInWithEmail(email: string, password: string): Promise<AuthUser | null>;
   signInWithGoogle(): Promise<AuthUser | null>;
+  signInWithApple(): Promise<AuthUser | null>;
   signInWithFacebook(): Promise<AuthUser | null>;
   signOut(): Promise<void>;
   onAuthStateChanged(callback: (user: AuthUser | null) => void): () => void;
@@ -28,14 +29,14 @@ export interface AuthSessionToken {
   accessToken: string;
   refreshToken?: string;
   expiresAt: string;
-  provider: 'email' | 'google' | 'facebook' | 'local';
+  provider: 'email' | 'google' | 'apple' | 'facebook' | 'local';
 }
 
 export interface AuthUser {
   userId: string;
   email: string;
   displayName: string;
-  provider: 'email' | 'google' | 'facebook' | 'local';
+  provider: 'email' | 'google' | 'apple' | 'facebook' | 'local';
 }
 
 // ── System Ports ───────────────────────────────────────────────

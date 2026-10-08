@@ -232,11 +232,11 @@ export const ACCESSIBILITY_LABELS = {
   tabTodo: 'À faire',
 
   // Tabs within Ajouter
-  switchContribution: 'Contribution',
+  switchTask: 'Tâche',
   switchExpense: 'Dépense',
 
   // Balances section
-  balanceContribution: 'Balance de contribution',
+  balanceTasks: 'Balance de tâches',
   balanceMoney: 'Balance financière',
   balancePositive: 'En avance',
   balanceNegative: 'En retard',
@@ -264,7 +264,7 @@ export const ACCESSIBILITY_LABELS = {
   stateOffline: 'Mode hors ligne',
 
   // History
-  historyContribution: 'Contribution',
+  historyTask: 'Tâche',
   historyExpense: 'Dépense',
   historySettlement: 'Compensation',
 } as const;

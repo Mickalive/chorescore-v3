@@ -43,10 +43,16 @@ export type DataChangeType = 'contribution' | 'expense' | 'settlement' | 'househ
 /** Callback signature for data-change subscribers. */
 export type DataChangeCallback = (type: DataChangeType, householdId: string) => void;
 
+/** Honest social providers offered by the normal authentication UI. */
+export type SocialProvider = 'google' | 'apple' | 'facebook';
+
 interface AppState {
   currentUser: AuthUser | null;
   isLoading: boolean;
+  /** Kept for test seams and the deterministic local session. Not exposed in UI. */
   signIn: (email: string, password: string) => Promise<void>;
+  /** Returns true when a session was established, false when the provider is not configured. */
+  signInWithProvider: (provider: SocialProvider) => Promise<boolean>;
   signOut: () => Promise<void>;
 
   // Household
@@ -192,20 +198,40 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
   }, [currentUser, currentHouseholdId, ensureReposReady]);
 
+  const applySignedInUser = useCallback(async (user: AuthUser) => {
+    // V3-06 REPAIR: Always wrap from the RAW repos, never from an
+    // already-scoped set. This prevents stale callerUserId from a
+    // previous session leaking into the new session's scope.
+    reposRef.current = createScopedRepositories(rawReposRef.current, user.userId);
+    await ensureDemoFixture(reposRef.current, user);
+    setCurrentHouseholdId(DEMO_HOUSEHOLD_ID);
+    await loadHouseholds(user.userId);
+  }, [loadHouseholds]);
+
   const signIn = useCallback(async (email: string, _password: string) => {
     // Gate on repository readiness: an early sign-in must not skip the fixture.
     await ensureReposReady();
     const user = await servicesRef.current.auth.signInWithEmail(email, _password);
     if (user) {
-      // V3-06 REPAIR: Always wrap from the RAW repos, never from an
-      // already-scoped set. This prevents stale callerUserId from a
-      // previous session leaking into the new session's scope.
-      reposRef.current = createScopedRepositories(rawReposRef.current, user.userId);
-      await ensureDemoFixture(reposRef.current, user);
-      setCurrentHouseholdId(DEMO_HOUSEHOLD_ID);
-      await loadHouseholds(user.userId);
+      await applySignedInUser(user);
     }
-  }, [ensureReposReady, loadHouseholds]);
+  }, [ensureReposReady, applySignedInUser]);
+
+  const signInWithProvider = useCallback(async (provider: SocialProvider) => {
+    await ensureReposReady();
+    const gateway = servicesRef.current.auth;
+    const user =
+      provider === 'google'
+        ? await gateway.signInWithGoogle()
+        : provider === 'apple'
+          ? await gateway.signInWithApple()
+          : await gateway.signInWithFacebook();
+    if (user) {
+      await applySignedInUser(user);
+      return true;
+    }
+    return false;
+  }, [ensureReposReady, applySignedInUser]);
 
   const signOut = useCallback(async () => {
     await servicesRef.current.auth.signOut();
@@ -250,6 +276,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     currentUser,
     isLoading,
     signIn,
+    signInWithProvider,
     signOut,
     households,
     currentHouseholdId,

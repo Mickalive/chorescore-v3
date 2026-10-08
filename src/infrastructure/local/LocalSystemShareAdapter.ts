@@ -23,7 +23,7 @@ export class LocalSystemShareAdapter implements SystemShareGateway {
             this.shareAsync = () =>
               sharing.shareAsync(options.url || options.message || '', {
                 mimeType: 'text/plain',
-                dialogTitle: options.title || 'Partager',
+                dialogTitle: options.title || 'ChoreScore',
               });
           }
         } catch {

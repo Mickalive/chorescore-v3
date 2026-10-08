@@ -1,9 +1,9 @@
 /**
- * ChoreScore V3 — Root Index Screen (Groups)
+ * ChoreScore V4 — Root Index Screen (Groups)
  *
- * Shows the list of groups the user belongs to.
- * V3: No plan badges, no restrictions, unlimited groups.
- * Dense, transactional, premium V3 aesthetic.
+ * Social authentication only (Google / Apple / Facebook) behind honest
+ * ports/adapters. Once signed in, returns directly to the groups list.
+ * No demo entry, no email/password, no plan badge, unlimited groups.
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
@@ -14,17 +14,35 @@ import { Text } from '../src/ui/components/Text';
 import { Card } from '../src/ui/components/Card';
 import { Button } from '../src/ui/components/Button';
 import { colors, spacing, borderRadius } from '../src/ui/design-system/theme';
-import { useApp } from '../src/features/app/AppContext';
+import { useApp, SocialProvider } from '../src/features/app/AppContext';
+import { useI18n } from '../src/i18n';
 import { Household } from '../src/domain/entities';
+
+const SOCIAL_PROVIDERS: SocialProvider[] = ['google', 'apple', 'facebook'];
+
+const PROVIDER_TITLE_KEY: Record<SocialProvider, string> = {
+  google: 'auth.continueGoogle',
+  apple: 'auth.continueApple',
+  facebook: 'auth.continueFacebook',
+};
 
 export default function HomeScreen() {
   const router = useRouter();
-  const { currentUser, isLoading, signIn, households, loadHouseholds, createHousehold, setCurrentHouseholdId } = useApp();
-  const [showSignIn, setShowSignIn] = useState(false);
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
+  const { t } = useI18n();
+  const {
+    currentUser,
+    isLoading,
+    signInWithProvider,
+    households,
+    loadHouseholds,
+    createHousehold,
+    setCurrentHouseholdId,
+    getMembersForHousehold,
+  } = useApp();
+  const [signingInProvider, setSigningInProvider] = useState<SocialProvider | null>(null);
   const [newGroupName, setNewGroupName] = useState('');
   const [showCreate, setShowCreate] = useState(false);
+  const [memberCounts, setMemberCounts] = useState<Record<string, number>>({});
 
   const load = useCallback(async () => {
     if (currentUser) {
@@ -35,6 +53,29 @@ export default function HomeScreen() {
   useEffect(() => {
     load();
   }, [load]);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (households.length === 0) {
+      setMemberCounts({});
+      return;
+    }
+    Promise.all(
+      households.map(async (group) => {
+        try {
+          const members = await getMembersForHousehold(group.id);
+          return [group.id, members.length] as const;
+        } catch {
+          return [group.id, 0] as const;
+        }
+      }),
+    ).then((entries) => {
+      if (!cancelled) setMemberCounts(Object.fromEntries(entries));
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [households, getMembersForHousehold]);
 
   const openHousehold = async (id: string) => {
     setCurrentHouseholdId(id);
@@ -48,192 +89,140 @@ export default function HomeScreen() {
       setNewGroupName('');
       setShowCreate(false);
     } catch {
-      Alert.alert('Erreur', 'Impossible de créer le groupe.');
+      Alert.alert(t('state.error'), t('groups.createError'));
     }
   };
 
-  const handleSignIn = async () => {
-    if (!email || !password) return;
-    await signIn(email, password);
-    setShowSignIn(false);
+  const handleProviderSignIn = async (provider: SocialProvider) => {
+    setSigningInProvider(provider);
+    try {
+      const ok = await signInWithProvider(provider);
+      if (!ok) {
+        Alert.alert(t('state.error'), t('auth.providerUnavailable'));
+      }
+    } finally {
+      setSigningInProvider(null);
+    }
   };
 
-  const handleDemoSignIn = async () => {
-    await signIn('demo@chorescore.app', 'demo-password');
-  };
-
-  // Loading state
   if (isLoading) {
     return (
-      <ScreenContainer>
+      <ScreenContainer edges={['top', 'bottom']}>
         <View style={styles.loadingContainer}>
-          <Text variant="body">Chargement...</Text>
+          <Text variant="body">{t('state.loading')}</Text>
         </View>
       </ScreenContainer>
     );
   }
 
-  // Sign-in screen
+  // Sign-in: honest social providers only. No demo, no email/password.
   if (!currentUser) {
     return (
-      <ScreenContainer>
+      <ScreenContainer edges={['top', 'bottom']}>
         <View style={styles.header}>
-          <Text variant="screenTitle">ChoreScore</Text>
-          <Text variant="caption">Equilibrer ce que le groupe paie et fait</Text>
+          <Text variant="screenTitle">{t('app.name')}</Text>
+          <Text variant="caption">{t('app.tagline')}</Text>
         </View>
 
-        {!showSignIn ? (
-          <View style={styles.signInContainer}>
+        <View style={styles.signInContainer}>
+          {SOCIAL_PROVIDERS.map((provider) => (
             <Button
-              title="Demarrer (demo)"
-              variant="primary"
-              onPress={handleDemoSignIn}
+              key={provider}
+              title={signingInProvider === provider ? t('auth.signingIn') : t(PROVIDER_TITLE_KEY[provider])}
+              variant={provider === 'google' ? 'primary' : 'secondary'}
+              onPress={() => handleProviderSignIn(provider)}
+              disabled={signingInProvider !== null}
               style={styles.fullWidth}
             />
-            <Button
-              title="Se connecter"
-              variant="secondary"
-              onPress={() => setShowSignIn(true)}
-              style={styles.fullWidth}
-            />
-          </View>
-        ) : (
-          <View style={styles.signInForm}>
-            <Text variant="sectionTitle" style={styles.formTitle}>
-              Connexion
-            </Text>
-
-            <View style={styles.inputGroup}>
-              <Text variant="caption">Email</Text>
-              <TextInput
-                style={styles.input}
-                value={email}
-                onChangeText={setEmail}
-                placeholder="votre@email.com"
-                placeholderTextColor={colors.textMuted}
-                keyboardType="email-address"
-                autoCapitalize="none"
-              />
-            </View>
-
-            <View style={styles.inputGroup}>
-              <Text variant="caption">Mot de passe</Text>
-              <TextInput
-                style={styles.input}
-                value={password}
-                onChangeText={setPassword}
-                placeholder="Mot de passe"
-                placeholderTextColor={colors.textMuted}
-                secureTextEntry
-              />
-            </View>
-
-            <Button
-              title="Se connecter"
-              variant="primary"
-              onPress={handleSignIn}
-              style={styles.fullWidth}
-            />
-
-            <Button
-              title="Retour"
-              variant="ghost"
-              onPress={() => setShowSignIn(false)}
-              size="small"
-            />
-          </View>
-        )}
+          ))}
+        </View>
       </ScreenContainer>
     );
   }
 
-  // Groups list
   return (
-    <ScreenContainer>
+    <ScreenContainer edges={['top', 'bottom']}>
       <View style={styles.header}>
-        <Text variant="screenTitle">Groupes</Text>
+        <Text variant="screenTitle">{t('groups.title')}</Text>
       </View>
 
       <View style={styles.list}>
         {households.length === 0 ? (
           <View style={styles.emptyState}>
             <Text variant="sectionTitle" style={styles.emptyTitle}>
-              Aucun groupe
+              {t('groups.emptyTitle')}
             </Text>
             <Text variant="body" style={styles.emptyText}>
-              Creez un groupe pour commencer a partager depenses et contributions.
+              {t('groups.emptyBody')}
             </Text>
           </View>
         ) : (
-          households.map((item: Household) => (
-            <TouchableOpacity
-              key={item.id}
-              onPress={() => openHousehold(item.id)}
-              activeOpacity={0.7}
-            >
-              <Card variant="highlighted" style={styles.householdCard}>
-                <View style={styles.householdRow}>
-                  <View style={styles.householdInfo}>
-                    <Text variant="sectionTitle">{item.name}</Text>
-                    <Text variant="caption">
-                      {item.contributionUnit === 'minutes' ? 'Minutes' : 'Points'}
-                    </Text>
-                  </View>
-                  <View style={styles.householdActions}>
-                    <TouchableOpacity
-                      onPress={(e) => {
-                        e.stopPropagation?.();
-                        setCurrentHouseholdId(item.id);
-                        router.push('/invite');
-                      }}
-                      style={styles.actionChip}
-                    >
-                      <Text variant="caption" color={colors.textSecondary}>
-                        Inviter
+          households.map((item: Household) => {
+            const count = memberCounts[item.id] ?? null;
+            return (
+              <TouchableOpacity
+                key={item.id}
+                onPress={() => openHousehold(item.id)}
+                activeOpacity={0.7}
+              >
+                <Card variant="highlighted" style={styles.householdCard}>
+                  <View style={styles.householdRow}>
+                    <View style={styles.householdInfo}>
+                      <Text variant="sectionTitle">{item.name}</Text>
+                      <Text variant="caption">
+                        {count === null
+                          ? item.contributionUnit === 'minutes'
+                            ? t('unit.minutes')
+                            : t('unit.points')
+                          : count === 1
+                            ? t('groups.memberOne')
+                            : t('groups.memberMany', { count })}
                       </Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      onPress={(e) => {
-                        e.stopPropagation?.();
-                        setCurrentHouseholdId(item.id);
-                        router.push('/group-options');
-                      }}
-                      style={styles.actionChip}
-                    >
-                      <Text variant="caption" color={colors.textSecondary}>
-                        Options
-                      </Text>
-                    </TouchableOpacity>
-                    <Text variant="caption" style={styles.chevron}>{'>'}</Text>
+                    </View>
+                    <View style={styles.householdActions}>
+                      <TouchableOpacity
+                        onPress={(e) => {
+                          e.stopPropagation?.();
+                          setCurrentHouseholdId(item.id);
+                          router.push('/group-options');
+                        }}
+                        style={styles.actionChip}
+                      >
+                        <Text variant="caption" color={colors.textSecondary}>
+                          {t('groups.options')}
+                        </Text>
+                      </TouchableOpacity>
+                      <Text variant="caption" style={styles.chevron}>{'>'}</Text>
+                    </View>
                   </View>
-                </View>
-              </Card>
-            </TouchableOpacity>
-          ))
+                </Card>
+              </TouchableOpacity>
+            );
+          })
         )}
       </View>
 
       {showCreate ? (
         <View style={styles.createForm}>
           <View style={styles.inputGroup}>
-            <Text variant="caption">Nom du groupe</Text>
+            <Text variant="caption">{t('groups.nameLabel')}</Text>
             <TextInput
               style={styles.input}
               value={newGroupName}
               onChangeText={setNewGroupName}
-              placeholder="Ex: Colocation, Famille..."
+              placeholder={t('groups.namePlaceholder')}
               placeholderTextColor={colors.textMuted}
             />
           </View>
           <View style={styles.createActions}>
             <Button
-              title="Creer"
+              title={t('action.create')}
               variant="primary"
               onPress={handleCreateHousehold}
               disabled={!newGroupName.trim()}
             />
             <Button
-              title="Annuler"
+              title={t('action.cancel')}
               variant="ghost"
               onPress={() => {
                 setShowCreate(false);
@@ -246,12 +235,22 @@ export default function HomeScreen() {
       ) : (
         <View style={styles.actions}>
           <Button
-            title="Creer un groupe"
+            title={t('groups.create')}
             variant="primary"
             onPress={() => setShowCreate(true)}
           />
         </View>
       )}
+
+      <TouchableOpacity
+        onPress={() => router.push('/general-options')}
+        style={styles.generalOptions}
+        accessibilityRole="button"
+      >
+        <Text variant="caption" color={colors.textSecondary}>
+          {t('groups.generalOptions')}
+        </Text>
+      </TouchableOpacity>
     </ScreenContainer>
   );
 }
@@ -269,12 +268,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingVertical: spacing.xxl,
     gap: spacing.md,
-  },
-  signInForm: {
-    paddingVertical: spacing.xl,
-  },
-  formTitle: {
-    marginBottom: spacing.xl,
   },
   inputGroup: {
     marginBottom: spacing.md,
@@ -348,5 +341,12 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: spacing.md,
     marginTop: spacing.sm,
+  },
+  generalOptions: {
+    marginTop: spacing.xxl,
+    alignItems: 'center',
+    paddingVertical: spacing.md,
+    borderTopWidth: 1,
+    borderTopColor: colors.divider,
   },
 });

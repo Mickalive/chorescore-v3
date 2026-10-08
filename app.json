@@ -8,7 +8,7 @@
     "userInterfaceStyle": "light",
     "scheme": "chorescore",
     "splash": {
-      "backgroundColor": "#F5F5F7"
+      "backgroundColor": "#FFF5EB"
     },
     "assetBundlePatterns": [
       "**/*"
@@ -19,7 +19,7 @@
     },
     "android": {
       "adaptiveIcon": {
-        "backgroundColor": "#F5F5F7"
+        "backgroundColor": "#FFF5EB"
       },
       "package": "app.chorescore.v3",
       "intentFilters": [

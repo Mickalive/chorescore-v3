@@ -29,11 +29,13 @@ import { Button } from '../src/ui/components/Button';
 import { Card } from '../src/ui/components/Card';
 import { colors, spacing, borderRadius } from '../src/ui/design-system/theme';
 import { useApp } from '../src/features/app/AppContext';
+import { useI18n } from '../src/i18n';
 import { Household, ContributionUnit } from '../src/domain/entities';
 import { planUnitChange, validateUnitChange } from '../src/domain/services/unitChangeService';
 
 export default function GroupOptionsScreen() {
   const router = useRouter();
+  const { t } = useI18n();
   const { currentHouseholdId, repos, emitDataChange } = useApp();
   const [household, setHousehold] = useState<Household | null>(null);
   const [name, setName] = useState('');
@@ -73,7 +75,7 @@ export default function GroupOptionsScreen() {
       setHousehold({ ...household, name: name.trim() });
       emitDataChange('household', currentHouseholdId);
     } catch {
-      Alert.alert('Erreur', 'Impossible de modifier le nom.');
+      Alert.alert(t('state.error'), t('groupOptions.nameError'));
     } finally {
       setIsSaving(false);
     }
@@ -84,12 +86,14 @@ export default function GroupOptionsScreen() {
     if (newUnit === unit) return;
 
     Alert.alert(
-      'Changer d\'unite',
-      `Passer en ${newUnit === 'minutes' ? 'Minutes' : 'Points'} ? Les entrees historiques conservent leur unite d'origine.`,
+      t('groupOptions.unitChangeTitle'),
+      t('groupOptions.unitChangeConfirm', {
+        unit: newUnit === 'minutes' ? t('unit.minutes') : t('unit.points'),
+      }),
       [
-        { text: 'Annuler', style: 'cancel' },
+        { text: t('action.cancel'), style: 'cancel' },
         {
-          text: 'Confirmer',
+          text: t('action.confirm'),
           onPress: async () => {
             setIsSaving(true);
             try {
@@ -101,7 +105,7 @@ export default function GroupOptionsScreen() {
               setHousehold(result.updatedHousehold);
               emitDataChange('household', currentHouseholdId);
             } catch {
-              Alert.alert('Erreur', 'Impossible de changer l\'unite.');
+              Alert.alert(t('state.error'), t('groupOptions.unitChangeError'));
             } finally {
               setIsSaving(false);
             }
@@ -123,7 +127,7 @@ export default function GroupOptionsScreen() {
         const contribVal = parseFloat(rateContributionValue);
         const moneyMinor = Math.round(parseFloat(rateMoneyAmount) * 100);
         if (isNaN(contribVal) || contribVal <= 0 || isNaN(moneyMinor) || moneyMinor <= 0) {
-          Alert.alert('Erreur', 'Le taux doit etre positif.');
+          Alert.alert(t('state.error'), t('groupOptions.rateError'));
           setIsSaving(false);
           return;
         }
@@ -140,9 +144,9 @@ export default function GroupOptionsScreen() {
       await repos.households.update(currentHouseholdId, updates);
       setHousehold({ ...household, ...updates });
       emitDataChange('household', currentHouseholdId);
-      Alert.alert('OK', 'Options enregistrees.');
+      Alert.alert(t('action.ok'), t('groupOptions.saved'));
     } catch {
-      Alert.alert('Erreur', 'Impossible d\'enregistrer les options.');
+      Alert.alert(t('state.error'), t('groupOptions.saveError'));
     } finally {
       setIsSaving(false);
     }
@@ -150,32 +154,33 @@ export default function GroupOptionsScreen() {
 
   if (!household) {
     return (
-      <ScreenContainer>
+      <ScreenContainer edges={['top', 'bottom']}>
         <View style={styles.loadingContainer}>
-          <Text variant="body">Chargement...</Text>
+          <Text variant="body">{t('state.loading')}</Text>
         </View>
       </ScreenContainer>
     );
   }
 
-  const unitLabel = unit === 'minutes' ? 'min' : 'pts';
+  const unitLabel = unit === 'minutes' ? t('unit.minutesShort') : t('unit.pointsShort');
 
   return (
-    <ScreenContainer>
+    <ScreenContainer edges={['top', 'bottom']}>
       <ScrollView contentContainerStyle={styles.scrollContent}>
         {/* Header */}
         <View style={styles.header}>
           <TouchableOpacity onPress={() => router.back()}>
             <Text variant="caption" color={colors.textSecondary}>
-              {'< Retour'}
+              {'< '}
+              {t('action.back')}
             </Text>
           </TouchableOpacity>
-          <Text variant="screenTitle">Options du groupe</Text>
+          <Text variant="screenTitle">{t('groupOptions.title')}</Text>
         </View>
 
         {/* Group Name */}
         <Text variant="sectionTitle" style={styles.sectionTitle}>
-          Nom du groupe
+          {t('groupOptions.name')}
         </Text>
         <Card style={styles.card}>
           <View style={styles.inputRow}>
@@ -183,11 +188,11 @@ export default function GroupOptionsScreen() {
               style={styles.input}
               value={name}
               onChangeText={setName}
-              placeholder="Nom du groupe"
+              placeholder={t('groupOptions.namePlaceholder')}
               placeholderTextColor={colors.textMuted}
             />
             <Button
-              title="OK"
+              title={t('action.ok')}
               variant="primary"
               size="small"
               onPress={handleSaveName}
@@ -196,9 +201,9 @@ export default function GroupOptionsScreen() {
           </View>
         </Card>
 
-        {/* Contribution Unit */}
+        {/* Task unit */}
         <Text variant="sectionTitle" style={styles.sectionTitle}>
-          Unite de contribution
+          {t('groupOptions.unit')}
         </Text>
         <Card style={styles.card}>
           <View style={styles.unitToggle}>
@@ -210,7 +215,7 @@ export default function GroupOptionsScreen() {
                 variant="tabLabel"
                 color={unit === 'minutes' ? colors.textOnPrimary : colors.textSecondary}
               >
-                Minutes
+                {t('unit.minutes')}
               </Text>
             </TouchableOpacity>
             <TouchableOpacity
@@ -221,24 +226,23 @@ export default function GroupOptionsScreen() {
                 variant="tabLabel"
                 color={unit === 'points' ? colors.textOnPrimary : colors.textSecondary}
               >
-                Points
+                {t('unit.points')}
               </Text>
             </TouchableOpacity>
           </View>
           <Text variant="caption" color={colors.textSecondary} style={styles.provenanceWarning}>
-            Les entrees historiques conservent leur unite d'origine. Aucune conversion
-            silencieuse n'est effectuee.
+            {t('groupOptions.unitProvenance')}
           </Text>
         </Card>
 
         {/* Cross-Ledger Compensation */}
         <Text variant="sectionTitle" style={styles.sectionTitle}>
-          Compensation
+          {t('groupOptions.compensation')}
         </Text>
         <Card style={styles.card}>
           <View style={styles.toggleRow}>
             <Text variant="body" style={{ flex: 1 }}>
-              Compensation contribution / argent
+              {t('groupOptions.compensationToggle')}
             </Text>
             <TouchableOpacity
               style={[styles.toggle, compensationEnabled && styles.toggleActive]}
@@ -251,7 +255,7 @@ export default function GroupOptionsScreen() {
           {compensationEnabled && (
             <View style={styles.rateSection}>
               <Text variant="caption" color={colors.textSecondary} style={{ marginBottom: spacing.sm }}>
-                Taux defini par le groupe :
+                {t('groupOptions.rateDefined')}
               </Text>
               <View style={styles.rateRow}>
                 <TextInput
@@ -275,7 +279,7 @@ export default function GroupOptionsScreen() {
                 <TextInput
                   style={[styles.input, styles.currencyInput]}
                   value={rateCurrency}
-                  onChangeText={(t) => setRateCurrency(t.toUpperCase().slice(0, 3))}
+                  onChangeText={(value) => setRateCurrency(value.toUpperCase().slice(0, 3))}
                   placeholder="CHF"
                   placeholderTextColor={colors.textMuted}
                   maxLength={3}
@@ -286,7 +290,7 @@ export default function GroupOptionsScreen() {
           )}
 
           <Button
-            title="Enregistrer"
+            title={t('action.save')}
             variant="primary"
             size="small"
             onPress={handleSaveCompensation}
