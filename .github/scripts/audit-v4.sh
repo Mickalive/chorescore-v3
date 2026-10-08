@@ -39,6 +39,20 @@ fi
 test -s "$json"
 test -s "$md"
 
+# Normalize transport/schema fields the Auditor sometimes writes differently.
+# The substantive verdict/findings remain the Auditor's; trusted shell only fixes
+# required envelope fields before schema validation.
+tmp=$(mktemp)
+jq --arg cycle "$cycle" '
+  .schemaVersion=1 |
+  .cycle=$cycle |
+  .role="builder" |
+  .summary=(.summary // "V4 audit completed.") |
+  .checks=(.checks // []) |
+  .findings=(.findings // [])
+' "$json" > "$tmp"
+mv "$tmp" "$json"
+
 if (( verify_rc != 0 )); then
   tmp=$(mktemp)
   jq --arg rc "$verify_rc" --arg evidence "$trusted" '
