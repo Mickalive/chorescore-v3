@@ -25,7 +25,19 @@ printf '\n\nTrusted verification exit code: %s\n' "$verify_rc" >> "$trusted"
 
 json="reports/audits/RUN_${cycle}.json"
 md="reports/audits/RUN_${cycle}.md"
+set +e
 OPENCODE_RETRY_LABEL=auditor bash .github/scripts/run-ox.sh opencode run --model "${OX_MODEL:?}" --agent cycle-auditor "Audit ChoreScore V4 cycle $cycle independently. Active criterion: $criterion. Objective: $objective. Candidate checkout is current; pristine accepted tree is $accepted. Read V4_CONSTITUTION, V4_RELEASE_ENGINEERING and trusted verification $trusted. Trusted verification exit code is $verify_rc. Write exactly $json and $md. JSON schema: schemaVersion=1, cycle='$cycle', role='builder', decision accept/repair/reject, nonempty summary, checks string array, findings array. Each finding has path, problem, evidence, mustFix boolean, requiredFix, verification. Accept iff trusted verification passed AND no mustFix remains."
+auditor_rc=$?
+set -e
+
+# Some OpenCode providers can exit nonzero after successfully writing a complete
+# audit report. The report + trusted verification are the authoritative outputs.
+# Only fail here when the report itself is missing/invalid.
+if (( auditor_rc != 0 )); then
+  echo "::warning::Auditor process exited $auditor_rc; validating written audit artifacts before deciding whether this is fatal"
+fi
+test -s "$json"
+test -s "$md"
 
 if (( verify_rc != 0 )); then
   tmp=$(mktemp)
