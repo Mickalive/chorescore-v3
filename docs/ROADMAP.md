@@ -1,41 +1,57 @@
-# ChoreScore V3 — Roadmap canonique
+# ChoreScore V4 — Roadmap canonique
 
-La factory avance un seul critère cohérent à la fois. Chaque critère reste `in_progress` tant qu'un Auditor indépendant n'a pas accepté le candidat avec vérification trusted verte. Un `repair` conserve le code candidat comme baseline WIP. Aucun critère terminé ne peut régresser.
+V4 part de la V3 RC validée et avance critère par critère. Un critère accepté ne régresse jamais. Un `repair` conserve le delta sûr comme baseline WIP.
 
-`docs/V3_CONSTITUTION.md` et `docs/V3_BACKEND_FRUGAL.md` sont tous deux canoniques et additifs.
+## V4-01 — Domaine V4 et migration sûre
+Étendre le domaine V3 avec catégories libres, membres nommés/non liés, ratio de catégorie par défaut snapshoté, attachments note/photo, Todo kind task|expense et vocabulaire Task côté présentation sans casser les ledgers existants.
 
-## V3-01 — Domaine, doubles ledgers et invariants
-Finaliser le modèle déjà amorcé : ContributionEntry générique Minutes|Points, ExpenseEntry, CrossLedgerSettlement, validation partagée, replay edit/delete, périodes comme vues seulement et tests de propriété/invariants. Les sommes doivent rester nulles. Les devises et unités historiques restent distinctes. Préparer les contrats de révision/tombstone nécessaires à une future sync auditable sans coupler le domaine à Firebase.
+Acceptation : `typecheck/tests verts` ; `invariants V3 préservés` ; `Category sans seed obligatoire` ; `named member distinct de linked identity` ; `task split custom exact et snapshot du ratio de catégorie` ; `attachments provider-agnostic` ; `Todo task|expense atomique` ; `aucune réinterprétation historique`.
 
-## V3-02 — Structure application, design V3 et socle local-first
-Migrer sélectivement le squelette Expo/Router/AppContext/ports/adapters V2. Racine Groupes illimités et trois onglets Ajouter, Balances, À faire. Installer le langage visuel graphite/off-white/métallique. Supprimer toute trace comportementale Premium/paywall/chrono. Installer le socle local-first : stockage métier indexé (préférence `expo-sqlite`), repositories locaux et UI lisant le local sans requêtes cloud obligatoires au changement d'écran/onglet.
+## V4-02 — Design chaud V2, i18n et shell V4
+Revenir à la palette V2 exacte, installer une UI V4 soignée, safe-area correcte, FR/EN sans chaînes visibles hardcodées, accents français corrects et Options générales accessibles depuis Groupes.
 
-## V3-03 — Ajouter + historique
-Construire le switch Contribution|Dépense dans le même produit. Contribution libre + PersistentTask sans chrono ; dépense Tricount-like égal/custom ; historique compact unifié, édition/suppression et recalculs fiables. Les écritures sont optimistes et transactionnelles en local ; l'historique est paginable et cacheable, pas rechargé intégralement.
+Acceptation : `palette canonique V2` ; `FR et EN complets sur parcours principal` ; `accents français corrects` ; `aucune chaîne critique hardcodée` ; `safe areas Android/iOS` ; `Options générales en bas de Groupes` ; `aucune UX Premium/Demo/email login`.
 
-## V3-04 — Balances + compensation
-Faire évoluer Score en Balances : ledger contribution et ledger argent distincts, période/all-time, suggestions de règlement, historique et compensation inter-ledgers manuelle seulement, avec taux du groupe et snapshot immuable. Les balances courantes sont des vues matérialisées dérivées/reconstruisibles du ledger, jamais recalculées en rejouant tout l'historique à chaque affichage.
+## V4-03 — Auth sociale, session, groupes et membres
+Flux normal avec Google/Apple/Facebook derrière ports, session persistée, arrivée directe Groupes après première connexion, création de groupe avec membres nommés, ajout ultérieur, Options conservé et invitation par lien uniquement après création.
 
-## V3-05 — À faire
-Migrer Todo gratuitement. Complétion atomique vers exactement une ContributionEntry. Rappels/calendrier via ports honnêtes. Aucun chrono. La complétion doit rester cohérente en local/offline et intégrer proprement la queue de sync.
+Acceptation : `aucun bouton Démo/email-password normal` ; `auth adapters honnêtes` ; `mode E2E secretless invisible` ; `session persistée vers Groupes` ; `création groupe avec plusieurs membres` ; `member count visible` ; `aucun bouton Inviter sur carte groupe` ; `ajout membre post-création` ; `lien invitation + native share`.
 
-## V3-06 — Groupes, invitations, identité, sync et backend frugal
-Multi-groupes illimités, identité stable, invitation par lien/partage/acceptation, tenant isolation, persistance/sync/offline, options unité/compensation. Réutiliser les abstractions V2 solides sans billing. Implémenter sync delta-only avec révisions/cursors par groupe, signal de changement léger si temps réel, aucun N+1, aucun full scan, opérations couplées atomiques, conflits multi-appareils déterministes, règles backend hostiles et Firebase/Firestore uniquement comme adapter.
+## V4-04 — Ajouter — Tâches, Dépenses, catégories, notes et photos
+L'onglet Ajouter expose Tâche|Dépense, catégories libres gérées sous l'action, membres à la place de l'ancien historique, split custom des tâches/dépenses, ratio de catégorie par défaut, notes/photos et partage natif.
 
-## V3-07 — Data product frugal
-Migrer et étendre `src/analytics` V2 : consent, taxonomy/classifier downstream versionné, privacy pipeline, query budget, DP, release gate, buyer contracts, audit log. Étendre aux contributions, dépenses, settlements et usage sans exporter texte libre ni identifiants opérationnels. Pipeline asynchrone, incrémentale/checkpointée et batchée ; cache de classification ; règles/classifieur léger avant IA ; aucun LLM synchrone ; aucune double collecte inutile ; Research Facts minimisés ; rétention/reprocessing contrôlés.
+Acceptation : `UI dit Tâche jamais Contribution` ; `aucune catégorie seed imposée` ; `création/renommage/suppression catégorie sûre` ; `split task égal/custom` ; `ratio catégorie par défaut overrideable` ; `split dépense égal/custom exact` ; `note/photo task et dépense` ; `section Membres remplace historique` ; `share sheet native`.
 
-## V3-08 — Finition, coût et release
-Couvrir tous les états obligatoires de la constitution, accessibilité/large text, localisation, offline, erreurs, énorme historique, audit visuel, E2E. Ajouter les tests de coût et de non-régression réseau : 50k anciennes entrées sans 50k reads, tab-switch sans reloads répétés, sync de quelques deltas sans full history, writes bornés, classification cache, analytics no-op sans nouvel événement. Le Builder prépare les scripts et corrige le produit. Après audit accepté, le trusted finalizer seul peut marquer V3-08 `complete` après checks produit/privacy/coût, APK/install/lancement/golden path et vérification iOS readiness.
+## V4-05 — Balances — historique, édition, suppression et partage
+Balances centralise les deux ledgers et l'historique paginé. Toute Tâche/Dépense peut être ouverte, modifiée, supprimée par replay/tombstone et partagée depuis Balances.
+
+Acceptation : `blocs Tâches et Dépenses distincts` ; `historique paginé` ; `edit tâche depuis Balances` ; `edit dépense depuis Balances` ; `delete replay/tombstone correct` ; `share natif depuis Balances` ; `périodes restent vues` ; `compensation V3 préservée`.
+
+## V4-06 — À faire — Tâche ou Dépense
+À faire crée des items typés Tâche ou Dépense et leur complétion produit exactement une écriture ledger correspondante avec les champs nécessaires, offline-safe et atomique.
+
+Acceptation : `todo task` ; `todo expense` ; `complétion task exactement une écriture` ; `complétion expense exactement une écriture` ; `montant/devise confirmés pour expense` ; `split/bénéficiaires confirmés` ; `note/photo compatibles` ; `offline atomicité`.
+
+## V4-07 — Sync, pièces jointes, privacy et coût
+Étendre le backend frugal V3 aux catégories, membres nommés, invitations, notes/photos et todo-expense sans full scans ni fuite privacy. Photos lazy, métadonnées bornées, analytics sans texte/note/photo/IDs.
+
+Acceptation : `delta-only préservé` ; `aucun N+1/full scan` ; `photos lazy sans bulk history download` ; `conflicts déterministes` ; `tenant isolation` ; `notes/photos exclus analytics` ; `catégories normalisées downstream sans raw export` ; `privacy gate vert` ; `cost gate étendu`.
+
+## V4-08 — Polish complet, légal, accessibilité et états
+Finir tous les états V4, options générales/groupe, légal, erreurs, offline, large text, FR/EN, longs labels, photos manquantes, invitations, huge history et cohérence visuelle adulte/chaleureuse.
+
+Acceptation : `états obligatoires constitution couverts` ; `accessibilité/grands textes` ; `FR/EN visuellement audités` ; `légal accessible` ; `offline/persistence errors` ; `empty/loading/error states` ; `safe area tabs` ; `design cohérent et fini`.
+
+## V4-09 — Release mobile et golden path V4
+Finaliser la release selon V4_RELEASE_ENGINEERING : gates produit/privacy/coût/i18n, exports Android/iOS, x86_64 API35 golden path réel, puis APK arm64-v8a final hashé et uploadé.
+
+Acceptation : `tests/privacy/cost/i18n verts` ; `Expo Android+iOS exports` ; `x86_64 release install API35` ; `golden path V4 complet` ; `aucun label interdit visible` ; `arm64-v8a release APK` ; `SHA-256` ; `artifact 30 jours` ; `aucun finding ouvert`.
 
 ## Règles transversales
-- V3 est une migration sélective : inspecter `v2-reference/lab/chorescore-v2` quand utile, sans recopier les hypothèses V2 obsolètes.
-- L'app est toujours 100 % gratuite.
-- Les deux ledgers sont indépendants par défaut.
-- L'historique est le registre ; les vues UI n'en sont jamais la source de vérité.
-- Une unité de groupe changée ne réécrit jamais l'historique.
-- **Write once. Sync deltas. Read local. Derive incrementally. Classify once. Aggregate later.**
-- Une action courante ne peut pas avoir un coût proportionnel à l'historique total.
-- Le design fini est une gate : pas d'écran template/générique provisoire considéré terminé.
-- Les tests de coût sont des quality gates dès que persistance/sync/analytics entrent en jeu.
-- Deux cycles consécutifs non acceptés sans aucun delta produit mettent la factory en `STALLED` pour éviter une boucle stérile.
+- Sources : V4_CONSTITUTION + V4_RELEASE_ENGINEERING + V3_BACKEND_FRUGAL.
+- V4 est gratuite et sans chrono/paywall.
+- "Contribution" est un détail historique interne toléré seulement si nécessaire ; l'UI dit Tâche/Task.
+- Catégories libres uniquement.
+- FR/EN et accents corrects sont des gates.
+- La V3 stable n'est jamais modifiée.
+- Le finalizer seul marque V4-09 complete.
