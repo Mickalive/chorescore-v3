@@ -4,8 +4,8 @@
   "builder": {
     "enabled": true,
     "criterionId": "V4-01",
-    "objective": "Implement V4-01 — Domaine V4 et migration sûre. Étendre le domaine V3 avec catégories libres, membres nommés/non liés, ratio de catégorie par défaut snapshoté, attachments note/photo, Todo kind task|expense et vocabulaire Task côté présentation sans casser les ledgers existants.",
-    "scope": "Work only on V4-01 and directly necessary migrations. Preserve the validated V3 RC baseline and every V3 invariant.",
+    "objective": "REPAIR V4-01: Keep the assertions but make them type-correct: annotate the attachment fixture as `const base: Pick<AttachmentInput, 'id' | 'kind' | 'createdAt'> = { id: 'att-1', kind: 'photo', createdAt: ... }` (or use `kind: 'photo' as const`) so the literal keeps its narrow type; for line 264 either widen the accepted parameter of `memberIdentityKind`/`isNamedMember`/`isLinkedMember` to `string | null | undefined` (the implementation already classifies undefined as named) or construct the argument as a value typed `Pick<Member, 'userId'>` without an out-of-type `undefined`. No product behaviour change is required. Re-run `npm run check` until exit 0.; Make the cross-kind absence assertions type-safe without weakening them: assert with an in-check or a narrow cast, e.g. `expect('expenseEntry' in result).toBe(false)` / `expect((result as { expenseEntry?: unknown }).expenseEntry).toBeUndefined()` (and symmetrically for `contributionEntry`), instead of reading a property that the resolved overload type does not declare. For line 345, materialise a real entry id rather than an unsafe cast, e.g. `calculateContributionBalances([{ ...entry, id: 'c-plan' }], 'minutes', [], ['a', 'b'])`, or cast through `unknown` to `ContributionEntry`. Re-run `npm run check` until exit 0.; Resolve the concrete failing check without discarding correct work, then rerun.",
+    "scope": "Repair only audited must-fix findings on the preserved V4 baseline. Use new evidence/strategy rather than merely increasing timeouts.",
     "acceptance": [
       "typecheck/tests verts",
       "invariants V3 préservés",

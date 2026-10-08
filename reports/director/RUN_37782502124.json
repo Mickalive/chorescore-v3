@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "cycle": "37782502124",
+  "decision": "continue",
+  "reason": "Audit decision: repair on V4-01 with a real delta kept as WIP baseline. Trusted verification FAILED (exit 2, reports/audits/TRUSTED_37782502124.md): `npm run typecheck` reports 9 TypeScript errors, all confined to the two newly added test files `__tests__/domain/v4-01-domain.test.ts` (5 errors) and `__tests__/domain/v4-01-todo-atomic.test.ts` (4 errors), so the mandatory acceptance bullet `typecheck/tests verts` is not met and two mustFix findings remain open. Acceptance is therefore forbidden; reconstruction is forbidden too (the candidate is coherent). The product source typechecks clean (0 errors in src/), the full suite passes independently (526 tests / 25 suites, including 89 tests in the three V4-01 suites) and the static privacy contract exits 0, so the required work is narrow and type-level only: (1) make the attachment fixture in v4-01-domain.test.ts keep the literal `kind: 'photo'` (`as const` / typed as AttachmentInput) and express the `memberIdentityKind({ userId: undefined })` case without passing an out-of-type `undefined` (line 264); (2) express the cross-kind absence assertions in v4-01-todo-atomic.test.ts type-safely (`'expenseEntry' in result` / narrow through unknown) and materialise an id for the balance replay (`{ ...entry, id: 'c-plan' }`) instead of the unsafe `Omit<ContributionEntry,'id'>` cast at line 345. Then re-run `npm run check` until exit 0 and re-audit. V4-01 stays the active criterion; no V4-02 work starts until trusted verification is green and no mustFix remains.",
+  "progressEvidence": [
+    "audit-37782502124-repair-V4-01-delta-kept-as-WIP-baseline-no-reconstruction",
+    "trusted-verification-FAILED-exit-2-TRUSTED_37782502124-npm-run-check-tsc-noEmit",
+    "9-typecheck-errors-all-in-two-new-test-files-0-errors-in-src-product-code",
+    "finding-1-mustFix-v4-01-domain-test-ts-line-264-undefined-not-assignable-to-string-null",
+    "finding-1-mustFix-lines-634-636-641-642-attachment-base-kind-widened-to-string-not-photo",
+    "finding-2-mustFix-v4-01-todo-atomic-test-ts-line-112-expenseEntry-not-on-TaskCompletionOutput",
+    "finding-2-mustFix-line-137-contributionEntry-not-on-ExpenseCompletionOutput",
+    "finding-2-mustFix-line-345-unsafe-Omit-ContributionEntry-id-to-id-string-cast-TS2740-TS2352",
+    "independent-jest-526-tests-25-suites-PASS-including-89-V4-01-suite-tests",
+    "independent-static-privacy-contract-PASS-exit-0",
+    "invariants-preserved-zero-sum-contribution-and-money-per-currency-delta-equals-full-replay",
+    "category-sans-seed-enforced-no-categories-seed-call-demo-fixture-has-no-category",
+    "named-vs-linked-member-distinct-null-roundtrip-sqlite-and-inmemory-no-history-rewrite",
+    "task-split-custom-exact-residual-absorbing-category-ratio-snapshot-survives-category-edit",
+    "attachments-provider-agnostic-honest-unavailable-LocalAttachmentAdapter-metadata-only-release-descriptor",
+    "todo-task-expense-completion-atomic-one-entry-per-kind-rollback-retry-tested",
+    "privacy-hardened-note-categoryLabelSnapshot-categoryId-attachments-blocked-at-transform-and-release-gate",
+    "additive-sqlite-migration-only-absent-stays-absent-V3-shape-preserved-no-reinterpretation",
+    "finding-3-informational-categories-local-only-sync-extension-is-V4-07-scope-no-action-in-V4-01",
+    "no-control-plane-edits-no-chrono-premium-paywall-demo-no-cross-ledger-implicit-compensation",
+    "next-task-narrow-type-level-repair-of-the-two-test-files-then-npm-run-check-until-exit-0",
+    "trusted-shell-normalizes-criterion-status-and-open-findings-V4-09-handoff-remains-finalizer-owned"
+  ]
+}
