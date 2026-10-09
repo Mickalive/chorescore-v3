@@ -4,8 +4,8 @@
   "builder": {
     "enabled": true,
     "criterionId": "V4-09",
-    "objective": "REPAIR V4-09 trusted finalizer failure from Actions run 37988155828. The candidate script will inject exact failed logs into reports/release-input; use them as evidence.",
-    "scope": "Repair only the concrete finalizer blocker; preserve V4-01..V4-08.",
+    "objective": "REPAIR V4-09: finish trusted finalizer repair AND implement targeted invitation of an existing named member so acceptance links the same member identity instead of creating a duplicate.",
+    "scope": "Preserve V4-01..V4-08 behavior. Add only the domain/repository/UI/deep-link changes and migrations needed for targeted named-member invitation linkage, plus the concrete Android E2E finalizer repair.",
     "acceptance": [
       "tests/privacy/cost/i18n verts",
       "Expo Android+iOS exports",
@@ -15,7 +15,8 @@
       "arm64-v8a release APK",
       "SHA-256",
       "artifact 30 jours",
-      "aucun finding ouvert"
+      "aucun finding ouvert",
+      "named member invitation links same memberId without duplicate and preserves ledger history"
     ],
     "previousCriteriaPreserved": [
       "V4-01: accepted and must not regress",
