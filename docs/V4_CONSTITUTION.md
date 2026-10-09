@@ -343,3 +343,12 @@ V4 n'est finie que lorsque :
 - le golden path V4 réel passe sans Metro ;
 - l'APK final est hashé et uploadé comme artifact ;
 - le statut V4 est `complete`, aucun finding ouvert, Builder désactivé.
+
+### Invitation et rattachement des membres nommés
+
+- Un membre nommé créé avec le foyer ou ajouté ensuite est une identité de ledger persistante, même avant d'avoir un compte.
+- Les options du groupe doivent permettre d'inviter ce membre nommé via un lien partagé par la feuille de partage native.
+- L'invitation ciblée conserve l'identité du membre nommé (memberId). À l'acceptation, le compte authentifié est rattaché à CE membre existant en renseignant son userId ; aucun second membre ne doit être créé.
+- Toutes les tâches, dépenses, todos et balances historiques déjà rattachés à ce memberId restent inchangés et deviennent naturellement ceux du compte lié.
+- Une invitation ne doit jamais fusionner deux membres distincts par simple égalité de nom. Le rattachement se fait par l'identifiant ciblé porté par l'invitation.
+- L'APK V4 ne peut pas être finalisé tant que le parcours « créer foyer avec membre nommé → inviter ce membre → accepter → même membre lié sans doublon » n'est pas testé.
