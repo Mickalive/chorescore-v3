@@ -25,8 +25,9 @@ import {
   TouchableOpacity,
   ScrollView,
   Modal,
+  Alert,
 } from 'react-native';
-import { useFocusEffect } from 'expo-router';
+import { useFocusEffect, useRouter } from 'expo-router';
 import { ScreenContainer } from '../../src/ui/components/ScreenContainer';
 import { Text } from '../../src/ui/components/Text';
 import { Card } from '../../src/ui/components/Card';
@@ -138,7 +139,8 @@ const HISTORY_PAGE_SIZE = 20;
 
 export default function BalancesScreen() {
   const { t } = useI18n();
-  const { currentHouseholdId, repos, subscribeToDataChanges, emitDataChange } = useApp();
+  const router = useRouter();
+  const { currentHouseholdId, repos, services, subscribeToDataChanges, emitDataChange } = useApp();
   const [period, setPeriod] = useState<Period>('all-time');
   const [household, setHousehold] = useState<Household | null>(null);
   const [members, setMembers] = useState<Member[]>([]);
@@ -163,6 +165,10 @@ export default function BalancesScreen() {
   const [historyFilter, setHistoryFilter] = useState<ActivityFilter>('all');
   const [historyPage, setHistoryPage] = useState<ActivityLogPage | null>(null);
   const [historyLoading, setHistoryLoading] = useState(false);
+
+  // Entry action sheet (Edit / Delete / Share) — historical entries are
+  // modified or removed here under Balances, never in the past-only ledger.
+  const [selectedEntry, setSelectedEntry] = useState<ActivityEntry | null>(null);
 
   // ── Full load (initial / household change) ──────────────────
 
@@ -680,6 +686,55 @@ export default function BalancesScreen() {
     settlement: t('balances.filterSettlements'),
   };
 
+  // ── Historical entry actions ───────────────────────────────
+
+  const closeEntryActions = () => setSelectedEntry(null);
+
+  const handleEditEntry = (entry: ActivityEntry) => {
+    if (entry.type === 'cross-ledger-settlement') return;
+    const entryId = entry.entry.id;
+    const entryType = entry.type === 'contribution' ? 'task' : 'expense';
+    setSelectedEntry(null);
+    router.push({ pathname: '/edit-entry', params: { entryId, entryType } });
+  };
+
+  const handleDeleteEntry = (entry: ActivityEntry) => {
+    if (entry.type === 'cross-ledger-settlement' || !currentHouseholdId) return;
+    const isTask = entry.type === 'contribution';
+    const entryId = entry.entry.id;
+    setSelectedEntry(null);
+    Alert.alert(
+      t('balances.deleteEntry'),
+      isTask ? t('balances.deleteConfirmTask') : t('balances.deleteConfirmExpense'),
+      [
+        { text: t('action.cancel'), style: 'cancel' },
+        {
+          text: t('balances.deleteEntry'),
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              if (isTask) {
+                await repos.contributions.delete(entryId);
+                emitDataChange('contribution', currentHouseholdId);
+              } else {
+                await repos.expenses.delete(entryId);
+                emitDataChange('expense', currentHouseholdId);
+              }
+            } catch {
+              Alert.alert(t('state.error'), t('add.errorDelete'));
+            }
+          },
+        },
+      ],
+    );
+  };
+
+  const handleShareEntry = (entry: ActivityEntry) => {
+    setSelectedEntry(null);
+    const message = formatActivityRow(entry, memberName, unitLabel, t('add.settlement'));
+    services.share.share({ message });
+  };
+
   return (
     <ScreenContainer>
       <ScrollView contentContainerStyle={styles.scrollContent}>
@@ -892,11 +947,22 @@ export default function BalancesScreen() {
           {historyPage && historyPage.entries.length > 0 ? (
             <>
               {historyPage.entries.map((entry) => (
-                <View key={entry.entry.id} style={styles.historyRow}>
+                <TouchableOpacity
+                  key={entry.entry.id}
+                  style={styles.historyRow}
+                  onPress={() => setSelectedEntry(entry)}
+                  accessibilityRole="button"
+                  accessibilityLabel={formatActivityRow(
+                    entry,
+                    memberName,
+                    unitLabel,
+                    t('add.settlement'),
+                  )}
+                >
                   <Text variant="body" style={styles.historyText} numberOfLines={2}>
                     {formatActivityRow(entry, memberName, unitLabel, t('add.settlement'))}
                   </Text>
-                </View>
+                </TouchableOpacity>
               ))}
               {historyPage.hasMore && (
                 <TouchableOpacity
@@ -916,6 +982,81 @@ export default function BalancesScreen() {
           )}
         </Card>
       </ScrollView>
+
+      {/* ── Historical entry actions (Edit / Delete / Share) ── */}
+      <Modal
+        visible={selectedEntry !== null}
+        animationType="fade"
+        transparent
+        onRequestClose={closeEntryActions}
+      >
+        <TouchableOpacity
+          style={styles.actionSheetBackdrop}
+          activeOpacity={1}
+          onPress={closeEntryActions}
+        >
+          <View style={styles.actionSheet}>
+            <Text variant="sectionTitle" style={styles.actionSheetTitle}>
+              {t('balances.entryActions')}
+            </Text>
+            {selectedEntry && (
+              <Text
+                variant="caption"
+                color={colors.textSecondary}
+                style={styles.actionSheetSummary}
+                numberOfLines={2}
+              >
+                {formatActivityRow(selectedEntry, memberName, unitLabel, t('add.settlement'))}
+              </Text>
+            )}
+
+            {selectedEntry && selectedEntry.type !== 'cross-ledger-settlement' && (
+              <>
+                <TouchableOpacity
+                  style={styles.actionSheetButton}
+                  onPress={() => handleEditEntry(selectedEntry)}
+                  accessibilityRole="button"
+                >
+                  <Text variant="body">
+                    {selectedEntry.type === 'contribution'
+                      ? t('balances.editTask')
+                      : t('balances.editExpense')}
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.actionSheetButton}
+                  onPress={() => handleDeleteEntry(selectedEntry)}
+                  accessibilityRole="button"
+                >
+                  <Text variant="body" color={colors.balanceNegative}>
+                    {t('balances.deleteEntry')}
+                  </Text>
+                </TouchableOpacity>
+              </>
+            )}
+
+            {selectedEntry && (
+              <TouchableOpacity
+                style={styles.actionSheetButton}
+                onPress={() => handleShareEntry(selectedEntry)}
+                accessibilityRole="button"
+              >
+                <Text variant="body">{t('balances.shareEntry')}</Text>
+              </TouchableOpacity>
+            )}
+
+            <TouchableOpacity
+              style={styles.actionSheetButton}
+              onPress={closeEntryActions}
+              accessibilityRole="button"
+            >
+              <Text variant="body" color={colors.textSecondary}>
+                {t('action.cancel')}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
+      </Modal>
 
       {/* ── Compenser Modal ─────────────────────────────────── */}
       <Modal
@@ -1173,6 +1314,33 @@ const styles = StyleSheet.create({
   loadMoreBtn: {
     alignItems: 'center',
     paddingVertical: spacing.sm,
+  },
+  // Entry action sheet (Edit / Delete / Share)
+  actionSheetBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.35)',
+    justifyContent: 'flex-end',
+  },
+  actionSheet: {
+    backgroundColor: colors.surface,
+    borderTopLeftRadius: borderRadius.lg,
+    borderTopRightRadius: borderRadius.lg,
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.lg,
+    paddingBottom: 40,
+    borderTopWidth: 1,
+    borderTopColor: colors.divider,
+  },
+  actionSheetTitle: {
+    marginBottom: spacing.xs,
+  },
+  actionSheetSummary: {
+    marginBottom: spacing.md,
+  },
+  actionSheetButton: {
+    paddingVertical: spacing.md,
+    borderTopWidth: 1,
+    borderTopColor: colors.divider,
   },
   // Compenser modal
   modalContent: {

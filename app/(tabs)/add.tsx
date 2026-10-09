@@ -25,7 +25,7 @@ import {
   TouchableOpacity,
   Alert,
 } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useRouter, useLocalSearchParams } from 'expo-router';
 import { ScreenContainer } from '../../src/ui/components/ScreenContainer';
 import { Text } from '../../src/ui/components/Text';
 import { Button } from '../../src/ui/components/Button';
@@ -36,7 +36,9 @@ import { useI18n } from '../../src/i18n';
 import {
   Attachment,
   Category,
+  ContributionEntry,
   ContributionUnit,
+  ExpenseEntry,
   ExpenseSplitMode,
   Member,
   PersistentTask,
@@ -124,6 +126,67 @@ function formatDateTimeShort(d: Date): string {
   return `${day}/${month} ${hours}:${minutes}`;
 }
 
+/** Render integer minor units back into a plain decimal string for the form. */
+function amountMinorToRaw(amountMinor: number): string {
+  const whole = Math.floor(amountMinor / 100);
+  const cents = amountMinor % 100;
+  return `${whole}.${cents.toString().padStart(2, '0')}`;
+}
+
+/**
+ * Build the update payload for an edited task.
+ *
+ * The explicit `undefined` entries are deliberate: the repository merges the
+ * partial over the existing row, and SQLite writes `NULL` for undefined, so an
+ * edit can genuinely *remove* a note, a photo, a category or a custom split.
+ * Spreading the draft alone would keep stale values when a field is omitted.
+ */
+function taskUpdatePayload(
+  draft: Omit<ContributionEntry, 'id'>,
+  modifiedBy: string,
+): Partial<ContributionEntry> {
+  return {
+    label: draft.label,
+    performedByMemberId: draft.performedByMemberId,
+    beneficiaryMemberIds: draft.beneficiaryMemberIds,
+    value: draft.value,
+    unit: draft.unit,
+    persistentTaskId: draft.persistentTaskId,
+    occurredAt: draft.occurredAt,
+    categoryId: draft.categoryId,
+    categoryLabelSnapshot: draft.categoryLabelSnapshot,
+    note: draft.note,
+    attachments: draft.attachments,
+    splitMode: draft.splitMode,
+    splitWeights: draft.splitWeights,
+    splitSource: draft.splitSource,
+    modifiedBy,
+  };
+}
+
+/** Same "edit can clear a field" contract as {@link taskUpdatePayload}. */
+function expenseUpdatePayload(
+  draft: Omit<ExpenseEntry, 'id'>,
+  modifiedBy: string,
+): Partial<ExpenseEntry> {
+  return {
+    title: draft.title,
+    amountMinor: draft.amountMinor,
+    currency: draft.currency,
+    paidByMemberId: draft.paidByMemberId,
+    participantMemberIds: draft.participantMemberIds,
+    splitMode: draft.splitMode,
+    customShares: draft.customShares,
+    category: draft.category,
+    categoryId: draft.categoryId,
+    categoryLabelSnapshot: draft.categoryLabelSnapshot,
+    note: draft.note,
+    attachments: draft.attachments,
+    occurredAt: draft.occurredAt,
+    modifiedBy,
+  };
+}
+
 interface CategoryOption {
   id: string | null;
   name: string;
@@ -136,6 +199,15 @@ export default function AddScreen() {
   const router = useRouter();
   const { currentHouseholdId, repos, currentUser, emitDataChange, addMember, services } = useApp();
 
+  // Edit mode: Balances pushes `/edit-entry` with an entry id + kind, which
+  // renders this same screen so the create and edit forms stay in lockstep.
+  const params = useLocalSearchParams<{ entryId?: string; entryType?: string }>();
+  const editEntryId = typeof params.entryId === 'string' && params.entryId ? params.entryId : null;
+  const editEntryType: EntryMode | null =
+    params.entryType === 'task' || params.entryType === 'expense' ? params.entryType : null;
+  const isEditing = !!editEntryId && !!editEntryType;
+  const editLoadedRef = useRef(false);
+
   const [mode, setMode] = useState<EntryMode>('task');
   const [members, setMembers] = useState<Member[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
@@ -146,6 +218,9 @@ export default function AddScreen() {
   // Task split choice + raw weights
   const [taskSplitChoice, setTaskSplitChoice] = useState<TaskSplitChoice>('equal');
   const [taskWeightsRaw, setTaskWeightsRaw] = useState<Record<string, string>>({});
+  // When editing a stored task, keep the entry's own unit so history is never
+  // reinterpreted if the group later switched minutes <-> points.
+  const [taskEditUnit, setTaskEditUnit] = useState<ContributionUnit | null>(null);
 
   // Category manager
   const [categoriesOpen, setCategoriesOpen] = useState(false);
@@ -242,6 +317,84 @@ export default function AddScreen() {
       // Keep the form usable; a later focus/retry can reload.
     });
   }, [loadHousehold]);
+
+  // ── Pre-fill the form when editing an existing entry ───────
+  useEffect(() => {
+    if (!isEditing || !editEntryId || !editEntryType || !currentHouseholdId) return;
+    if (editLoadedRef.current) return;
+    editLoadedRef.current = true;
+    setMode(editEntryType);
+
+    (async () => {
+      try {
+        if (editEntryType === 'task') {
+          const entry = await repos.contributions.getById(editEntryId);
+          if (!entry || entry.householdId !== currentHouseholdId) {
+            Alert.alert(t('state.error'), t('balances.entryMissing'));
+            router.back();
+            return;
+          }
+          setTaskEditUnit(entry.unit);
+          setTaskForm({
+            label: entry.label,
+            value: String(entry.value),
+            performedByMemberId: entry.performedByMemberId,
+            beneficiaryMemberIds: [...entry.beneficiaryMemberIds],
+            categoryId: entry.categoryId ?? null,
+            occurredAt: new Date(entry.occurredAt),
+            persistentTaskId: entry.persistentTaskId,
+            note: entry.note ?? '',
+            attachments: entry.attachments ?? [],
+          });
+          if (entry.splitMode === 'custom' && entry.splitWeights) {
+            const raw: Record<string, string> = {};
+            for (const weight of entry.splitWeights) raw[weight.memberId] = String(weight.weight);
+            setTaskWeightsRaw(raw);
+            setTaskSplitChoice('custom');
+          } else if (entry.splitSource === 'category-default') {
+            setTaskSplitChoice('category');
+          } else {
+            setTaskSplitChoice('equal');
+          }
+        } else {
+          const entry = await repos.expenses.getById(editEntryId);
+          if (!entry || entry.householdId !== currentHouseholdId) {
+            Alert.alert(t('state.error'), t('balances.entryMissing'));
+            router.back();
+            return;
+          }
+          const customShares: Record<string, string> = {};
+          for (const share of entry.customShares ?? []) {
+            customShares[share.memberId] = amountMinorToRaw(share.amountMinor);
+          }
+          setExpenseForm({
+            title: entry.title,
+            amountRaw: amountMinorToRaw(entry.amountMinor),
+            currency: entry.currency,
+            paidByMemberId: entry.paidByMemberId,
+            participantMemberIds: [...entry.participantMemberIds],
+            splitMode: entry.splitMode,
+            customShares,
+            categoryId: entry.categoryId ?? null,
+            occurredAt: new Date(entry.occurredAt),
+            note: entry.note ?? '',
+            attachments: entry.attachments ?? [],
+          });
+        }
+      } catch {
+        Alert.alert(t('state.error'), t('balances.entryMissing'));
+        router.back();
+      }
+    })();
+  }, [
+    isEditing,
+    editEntryId,
+    editEntryType,
+    currentHouseholdId,
+    repos,
+    router,
+    t,
+  ]);
 
   // ── Derived values ─────────────────────────────────────────
 
@@ -510,7 +663,7 @@ export default function AddScreen() {
         householdId: currentHouseholdId,
         label: taskForm.label,
         value,
-        unit: householdUnit,
+        unit: isEditing ? taskEditUnit ?? householdUnit : householdUnit,
         performedByMemberId: taskForm.performedByMemberId,
         beneficiaryMemberIds:
           taskForm.beneficiaryMemberIds.length > 0
@@ -530,6 +683,16 @@ export default function AddScreen() {
         return;
       }
 
+      if (isEditing && editEntryId) {
+        await repos.contributions.update(
+          editEntryId,
+          taskUpdatePayload(built.draft, currentUser?.userId || ''),
+        );
+        emitDataChange('contribution', currentHouseholdId);
+        router.back();
+        return;
+      }
+
       const created = await repos.contributions.create(built.draft);
       emitDataChange('contribution', currentHouseholdId);
       setLastCreated({
@@ -544,7 +707,7 @@ export default function AddScreen() {
       });
       resetTaskForm();
     } catch {
-      Alert.alert(t('state.error'), t('add.errorTask'));
+      Alert.alert(t('state.error'), isEditing ? t('add.errorEdit') : t('add.errorTask'));
     } finally {
       setIsSubmitting(false);
     }
@@ -604,6 +767,16 @@ export default function AddScreen() {
         return;
       }
 
+      if (isEditing && editEntryId) {
+        await repos.expenses.update(
+          editEntryId,
+          expenseUpdatePayload(built.draft, currentUser?.userId || ''),
+        );
+        emitDataChange('expense', currentHouseholdId);
+        router.back();
+        return;
+      }
+
       const created = await repos.expenses.create(built.draft);
       emitDataChange('expense', currentHouseholdId);
       setLastCreated({
@@ -617,7 +790,7 @@ export default function AddScreen() {
       });
       resetExpenseForm();
     } catch {
-      Alert.alert(t('state.error'), t('add.errorExpense'));
+      Alert.alert(t('state.error'), isEditing ? t('add.errorEdit') : t('add.errorExpense'));
     } finally {
       setIsSubmitting(false);
     }
@@ -669,7 +842,10 @@ export default function AddScreen() {
     ]);
   };
 
-  const unitLabel = householdUnit === 'minutes' ? t('unit.minutesShort') : t('unit.pointsShort');
+  // A stored task keeps its own unit: editing it must never relabel minutes as
+  // points (or the reverse) just because the group later changed its unit.
+  const activeTaskUnit = isEditing ? taskEditUnit ?? householdUnit : householdUnit;
+  const unitLabel = activeTaskUnit === 'minutes' ? t('unit.minutesShort') : t('unit.pointsShort');
 
   // ── Render helpers ─────────────────────────────────────────
 
@@ -893,34 +1069,38 @@ export default function AddScreen() {
   return (
     <ScreenContainer>
       <View style={styles.header}>
-        <Text variant="screenTitle">{t('add.title')}</Text>
+        <Text variant="screenTitle">
+          {isEditing ? t('add.editBanner') : t('add.title')}
+        </Text>
       </View>
 
-      {/* Mode switch */}
-      <View style={styles.modeSwitch}>
-        <TouchableOpacity
-          style={[styles.modeButton, mode === 'task' && styles.modeButtonActive]}
-          onPress={() => setMode('task')}
-        >
-          <Text
-            variant="tabLabel"
-            color={mode === 'task' ? colors.textOnPrimary : colors.textSecondary}
+      {/* Mode switch (hidden while editing: the entry kind is fixed) */}
+      {!isEditing && (
+        <View style={styles.modeSwitch}>
+          <TouchableOpacity
+            style={[styles.modeButton, mode === 'task' && styles.modeButtonActive]}
+            onPress={() => setMode('task')}
           >
-            {t('add.modeTask')}
-          </Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[styles.modeButton, mode === 'expense' && styles.modeButtonActive]}
-          onPress={() => setMode('expense')}
-        >
-          <Text
-            variant="tabLabel"
-            color={mode === 'expense' ? colors.textOnPrimary : colors.textSecondary}
+            <Text
+              variant="tabLabel"
+              color={mode === 'task' ? colors.textOnPrimary : colors.textSecondary}
+            >
+              {t('add.modeTask')}
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.modeButton, mode === 'expense' && styles.modeButtonActive]}
+            onPress={() => setMode('expense')}
           >
-            {t('add.modeExpense')}
-          </Text>
-        </TouchableOpacity>
-      </View>
+            <Text
+              variant="tabLabel"
+              color={mode === 'expense' ? colors.textOnPrimary : colors.textSecondary}
+            >
+              {t('add.modeExpense')}
+            </Text>
+          </TouchableOpacity>
+        </View>
+      )}
 
       {/* ── Task form ────────────────────────────── */}
       {mode === 'task' && (
@@ -983,7 +1163,7 @@ export default function AddScreen() {
               style={styles.input}
               value={taskForm.value}
               onChangeText={(value) => setTaskForm((prev) => ({ ...prev, value }))}
-              placeholder={householdUnit === 'minutes' ? '15' : '3'}
+              placeholder={activeTaskUnit === 'minutes' ? '15' : '3'}
               placeholderTextColor={colors.textMuted}
               keyboardType="numeric"
             />
@@ -1154,7 +1334,7 @@ export default function AddScreen() {
           </View>
 
           <Button
-            title={t('add.addTask')}
+            title={isEditing ? t('add.update') : t('add.addTask')}
             variant="primary"
             onPress={submitTask}
             disabled={
@@ -1368,7 +1548,7 @@ export default function AddScreen() {
           </View>
 
           <Button
-            title={t('add.addExpense')}
+            title={isEditing ? t('add.update') : t('add.addExpense')}
             variant="primary"
             onPress={submitExpense}
             disabled={
@@ -1419,7 +1599,8 @@ export default function AddScreen() {
         </Card>
       )}
 
-      {/* ── Members (replaces the old history section) ───────── */}
+      {/* ── Members (hidden while editing a single entry) ────── */}
+      {!isEditing && (
       <Card style={styles.membersCard}>
         <Text variant="sectionTitle" style={styles.membersTitle}>
           {t('add.members')}
@@ -1465,6 +1646,7 @@ export default function AddScreen() {
           style={styles.inviteButton}
         />
       </Card>
+      )}
     </ScreenContainer>
   );
 }

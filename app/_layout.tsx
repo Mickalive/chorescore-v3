@@ -28,6 +28,7 @@ export default function RootLayout() {
             <Stack.Screen name="general-options" />
             <Stack.Screen name="group-options" />
             <Stack.Screen name="invite" />
+            <Stack.Screen name="edit-entry" />
             <Stack.Screen name="join/[token]" />
           </Stack>
         </AppProvider>
