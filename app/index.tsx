@@ -13,6 +13,7 @@ import { ScreenContainer } from '../src/ui/components/ScreenContainer';
 import { Text } from '../src/ui/components/Text';
 import { Card } from '../src/ui/components/Card';
 import { Button } from '../src/ui/components/Button';
+import { LoadingState, EmptyState, PersistenceBanner } from '../src/ui/components/States';
 import { colors, spacing, borderRadius } from '../src/ui/design-system/theme';
 import { useApp, SocialProvider } from '../src/features/app/AppContext';
 import { useI18n } from '../src/i18n';
@@ -32,6 +33,7 @@ export default function HomeScreen() {
   const {
     currentUser,
     isLoading,
+    persistenceDegraded,
     signInWithProvider,
     households,
     loadHouseholds,
@@ -130,9 +132,7 @@ export default function HomeScreen() {
   if (isLoading) {
     return (
       <ScreenContainer edges={['top', 'bottom']}>
-        <View style={styles.loadingContainer}>
-          <Text variant="body">{t('state.loading')}</Text>
-        </View>
+        <LoadingState message={t('state.loading')} />
       </ScreenContainer>
     );
   }
@@ -168,16 +168,16 @@ export default function HomeScreen() {
         <Text variant="screenTitle">{t('groups.title')}</Text>
       </View>
 
+      <PersistenceBanner visible={persistenceDegraded} message={t('state.persistenceBody')} />
+
       <View style={styles.list}>
         {households.length === 0 ? (
-          <View style={styles.emptyState}>
-            <Text variant="sectionTitle" style={styles.emptyTitle}>
-              {t('groups.emptyTitle')}
-            </Text>
-            <Text variant="body" style={styles.emptyText}>
-              {t('groups.emptyBody')}
-            </Text>
-          </View>
+          <EmptyState
+            title={t('groups.emptyTitle')}
+            body={t('groups.emptyBody')}
+            actionLabel={t('groups.create')}
+            onAction={() => setShowCreate(true)}
+          />
         ) : (
           households.map((item: Household) => {
             const count = memberCounts[item.id] ?? null;
@@ -186,6 +186,8 @@ export default function HomeScreen() {
                 key={item.id}
                 onPress={() => openHousehold(item.id)}
                 activeOpacity={0.7}
+                accessibilityRole="button"
+                accessibilityLabel={t('a11y.openGroup', { name: item.name })}
               >
                 <Card variant="highlighted" style={styles.householdCard}>
                   <View style={styles.householdRow}>
@@ -209,6 +211,8 @@ export default function HomeScreen() {
                           router.push('/group-options');
                         }}
                         style={styles.actionChip}
+                        accessibilityRole="button"
+                        accessibilityLabel={t('a11y.groupOptions', { name: item.name })}
                       >
                         <Text variant="caption" color={colors.textSecondary}>
                           {t('groups.options')}

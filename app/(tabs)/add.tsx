@@ -862,6 +862,7 @@ export default function AddScreen() {
             style={[styles.memberChip, selected && styles.memberChipActive]}
             onPress={() => onSelect(option.id)}
             accessibilityRole="button"
+            accessibilityLabel={`${option.name}, ${selected ? t('a11y.selected') : t('a11y.notSelected')}`}
             accessibilityState={{ selected }}
           >
             <Text variant="caption" color={selected ? colors.textOnPrimary : colors.textSecondary}>
@@ -894,6 +895,11 @@ export default function AddScreen() {
           </TouchableOpacity>
         </View>
       ))}
+      {attachments.length > 0 && !attachmentsAvailable ? (
+        <Text variant="caption" color={colors.textMuted} style={styles.hint}>
+          {t('add.photoMissing')}
+        </Text>
+      ) : null}
       {attachmentsAvailable ? (
         <Button
           title={t('add.photoAdd')}
@@ -1080,6 +1086,9 @@ export default function AddScreen() {
           <TouchableOpacity
             style={[styles.modeButton, mode === 'task' && styles.modeButtonActive]}
             onPress={() => setMode('task')}
+            accessibilityRole="button"
+            accessibilityLabel={t('a11y.modeTask')}
+            accessibilityState={{ selected: mode === 'task' }}
           >
             <Text
               variant="tabLabel"
@@ -1091,6 +1100,9 @@ export default function AddScreen() {
           <TouchableOpacity
             style={[styles.modeButton, mode === 'expense' && styles.modeButtonActive]}
             onPress={() => setMode('expense')}
+            accessibilityRole="button"
+            accessibilityLabel={t('a11y.modeExpense')}
+            accessibilityState={{ selected: mode === 'expense' }}
           >
             <Text
               variant="tabLabel"
@@ -1328,6 +1340,8 @@ export default function AddScreen() {
                   setTaskForm((prev) => ({ ...prev, occurredAt: date })),
                 )
               }
+              accessibilityRole="button"
+              accessibilityLabel={t('a11y.chooseDateTime')}
             >
               <Text variant="body">{formatDateTimeShort(taskForm.occurredAt)}</Text>
             </TouchableOpacity>
@@ -1542,6 +1556,8 @@ export default function AddScreen() {
                   setExpenseForm((prev) => ({ ...prev, occurredAt: date })),
                 )
               }
+              accessibilityRole="button"
+              accessibilityLabel={t('a11y.chooseDateTime')}
             >
               <Text variant="body">{formatDateTimeShort(expenseForm.occurredAt)}</Text>
             </TouchableOpacity>

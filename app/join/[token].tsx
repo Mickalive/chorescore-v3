@@ -24,6 +24,7 @@ import { ScreenContainer } from '../../src/ui/components/ScreenContainer';
 import { Text } from '../../src/ui/components/Text';
 import { Button } from '../../src/ui/components/Button';
 import { Card } from '../../src/ui/components/Card';
+import { LoadingState, ErrorState } from '../../src/ui/components/States';
 import { colors, spacing } from '../../src/ui/design-system/theme';
 import { useApp } from '../../src/features/app/AppContext';
 import { useI18n } from '../../src/i18n';
@@ -164,7 +165,7 @@ export default function JoinScreen() {
 
         {status === 'loading' && (
           <Card style={styles.card}>
-            <Text variant="body">{t('join.verifying')}</Text>
+            <LoadingState message={t('join.verifying')} />
           </Card>
         )}
 
@@ -184,7 +185,7 @@ export default function JoinScreen() {
 
         {status === 'accepting' && (
           <Card style={styles.card}>
-            <Text variant="body">{t('join.accepting')}</Text>
+            <LoadingState message={t('join.accepting')} />
           </Card>
         )}
 
@@ -204,14 +205,11 @@ export default function JoinScreen() {
 
         {status === 'error' && (
           <Card style={styles.card}>
-            <Text variant="body" style={styles.errorMessage}>
-              {errorMessage}
-            </Text>
-            <Button
-              title={t('action.back')}
-              variant="secondary"
-              onPress={() => router.replace('/')}
-              style={styles.button}
+            <ErrorState
+              title={t('state.errorTitle')}
+              message={errorMessage}
+              retryLabel={t('action.back')}
+              onRetry={() => router.replace('/')}
             />
           </Card>
         )}

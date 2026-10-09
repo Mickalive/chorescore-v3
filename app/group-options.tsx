@@ -27,6 +27,7 @@ import { ScreenContainer } from '../src/ui/components/ScreenContainer';
 import { Text } from '../src/ui/components/Text';
 import { Button } from '../src/ui/components/Button';
 import { Card } from '../src/ui/components/Card';
+import { LoadingState } from '../src/ui/components/States';
 import { colors, spacing, borderRadius } from '../src/ui/design-system/theme';
 import { useApp } from '../src/features/app/AppContext';
 import { useI18n } from '../src/i18n';
@@ -182,9 +183,7 @@ export default function GroupOptionsScreen() {
   if (!household) {
     return (
       <ScreenContainer edges={['top', 'bottom']}>
-        <View style={styles.loadingContainer}>
-          <Text variant="body">{t('state.loading')}</Text>
-        </View>
+        <LoadingState message={t('state.loading')} />
       </ScreenContainer>
     );
   }
@@ -291,6 +290,9 @@ export default function GroupOptionsScreen() {
             <TouchableOpacity
               style={[styles.unitButton, unit === 'minutes' && styles.unitButtonActive]}
               onPress={() => handleUnitChange('minutes')}
+              accessibilityRole="button"
+              accessibilityLabel={t('unit.minutes')}
+              accessibilityState={{ selected: unit === 'minutes' }}
             >
               <Text
                 variant="tabLabel"
@@ -302,6 +304,9 @@ export default function GroupOptionsScreen() {
             <TouchableOpacity
               style={[styles.unitButton, unit === 'points' && styles.unitButtonActive]}
               onPress={() => handleUnitChange('points')}
+              accessibilityRole="button"
+              accessibilityLabel={t('unit.points')}
+              accessibilityState={{ selected: unit === 'points' }}
             >
               <Text
                 variant="tabLabel"
@@ -328,6 +333,9 @@ export default function GroupOptionsScreen() {
             <TouchableOpacity
               style={[styles.toggle, compensationEnabled && styles.toggleActive]}
               onPress={() => setCompensationEnabled(!compensationEnabled)}
+              accessibilityRole="switch"
+              accessibilityLabel={t('groupOptions.compensationToggle')}
+              accessibilityState={{ checked: compensationEnabled }}
             >
               <View style={[styles.toggleKnob, compensationEnabled && styles.toggleKnobActive]} />
             </TouchableOpacity>

@@ -7,7 +7,7 @@
  */
 
 import React, { useEffect, useState } from 'react';
-import { View, StyleSheet, TouchableOpacity, Switch, Alert } from 'react-native';
+import { View, StyleSheet, TouchableOpacity, Switch } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from 'expo-router';
 import { ScreenContainer } from '../src/ui/components/ScreenContainer';
@@ -25,11 +25,13 @@ function SettingRow({
   value,
   onPress,
   last,
+  accessibilityLabel,
 }: {
   label: string;
   value?: string;
   onPress?: () => void;
   last?: boolean;
+  accessibilityLabel?: string;
 }) {
   const content = (
     <View style={[styles.row, last && styles.rowLast]}>
@@ -43,7 +45,11 @@ function SettingRow({
   );
   if (!onPress) return content;
   return (
-    <TouchableOpacity onPress={onPress} accessibilityRole="button">
+    <TouchableOpacity
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={accessibilityLabel ?? label}
+    >
       {content}
     </TouchableOpacity>
   );
@@ -74,8 +80,8 @@ export default function GeneralOptionsScreen() {
     });
   };
 
-  const handleLegal = () => {
-    Alert.alert(t('options.legal'), t('options.legalUnavailable'));
+  const openLegal = (doc: 'terms' | 'privacy' | 'notice') => {
+    router.push(`/legal?doc=${doc}`);
   };
 
   const handleSignOut = async () => {
@@ -175,9 +181,22 @@ export default function GeneralOptionsScreen() {
         {t('options.legal')}
       </Text>
       <Card style={styles.card}>
-        <SettingRow label={t('options.legalTerms')} onPress={handleLegal} />
-        <SettingRow label={t('options.legalPrivacy')} onPress={handleLegal} />
-        <SettingRow label={t('options.legalNotice')} onPress={handleLegal} last />
+        <SettingRow
+          label={t('options.legalTerms')}
+          accessibilityLabel={t('legal.openTerms')}
+          onPress={() => openLegal('terms')}
+        />
+        <SettingRow
+          label={t('options.legalPrivacy')}
+          accessibilityLabel={t('legal.openPrivacy')}
+          onPress={() => openLegal('privacy')}
+        />
+        <SettingRow
+          label={t('options.legalNotice')}
+          accessibilityLabel={t('legal.openNotice')}
+          onPress={() => openLegal('notice')}
+          last
+        />
       </Card>
 
       <View style={styles.signOut}>

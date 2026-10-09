@@ -223,48 +223,52 @@ export function verifyFontSizesReadable(): boolean {
 // ── Screen reader announcements ─────────────────────────────
 
 /**
- * Standard accessibility labels for V3 domain concepts.
+ * Standard accessibility labels for V4 domain concepts, resolved through the
+ * FR/EN catalog so no French literal is hardcoded in the UI layer.
+ * `t` is the `useI18n()` translate function; labels follow the active locale.
  */
-export const ACCESSIBILITY_LABELS = {
-  // Navigation
-  tabAdd: 'Ajouter',
-  tabBalances: 'Balances',
-  tabTodo: 'À faire',
+export function accessibilityLabels(t: (key: string, params?: Record<string, string | number>) => string): Record<string, string> {
+  return {
+    // Navigation
+    tabAdd: t('tabs.add'),
+    tabBalances: t('tabs.balances'),
+    tabTodo: t('tabs.todo'),
 
-  // Tabs within Ajouter
-  switchTask: 'Tâche',
-  switchExpense: 'Dépense',
+    // Tabs within Ajouter
+    switchTask: t('add.modeTask'),
+    switchExpense: t('add.modeExpense'),
 
-  // Balances section
-  balanceTasks: 'Balance de tâches',
-  balanceMoney: 'Balance financière',
-  balancePositive: 'En avance',
-  balanceNegative: 'En retard',
+    // Balances section
+    balanceTasks: t('a11y.balanceTasks'),
+    balanceMoney: t('a11y.balanceMoney'),
+    balancePositive: t('a11y.balancePositive'),
+    balanceNegative: t('a11y.balanceNegative'),
 
-  // Forms
-  labelTask: 'Libellé de la tâche',
-  labelAmount: 'Montant',
-  labelCurrency: 'Devise',
-  labelPaidBy: 'Payé par',
-  labelParticipants: 'Participants',
-  labelFaitPar: 'Fait par',
-  labelFaitPour: 'Fait pour',
-  labelValue: 'Valeur',
+    // Forms
+    labelTask: t('add.label'),
+    labelAmount: t('add.amount'),
+    labelCurrency: t('a11y.labelCurrency'),
+    labelPaidBy: t('add.paidBy'),
+    labelParticipants: t('add.participants'),
+    labelFaitPar: t('add.performedBy'),
+    labelFaitPour: t('add.beneficiaries'),
+    labelValue: t('add.value'),
 
-  // Actions
-  actionAdd: 'Ajouter',
-  actionEdit: 'Modifier',
-  actionDelete: 'Supprimer',
-  actionComplete: 'Terminer',
-  actionCompensate: 'Compenser',
+    // Actions
+    actionAdd: t('action.add'),
+    actionEdit: t('action.edit'),
+    actionDelete: t('action.delete'),
+    actionComplete: t('action.complete'),
+    actionCompensate: t('balances.compensate'),
 
-  // States
-  stateLoading: 'Chargement…',
-  stateEmpty: 'Aucune donnée',
-  stateOffline: 'Mode hors ligne',
+    // States
+    stateLoading: t('state.loading'),
+    stateEmpty: t('a11y.stateEmpty'),
+    stateOffline: t('state.offline'),
 
-  // History
-  historyTask: 'Tâche',
-  historyExpense: 'Dépense',
-  historySettlement: 'Compensation',
-} as const;
+    // History
+    historyTask: t('a11y.historyTask'),
+    historyExpense: t('a11y.historyExpense'),
+    historySettlement: t('a11y.historySettlement'),
+  };
+}

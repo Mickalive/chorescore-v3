@@ -31,6 +31,12 @@ export default function TabsLayout() {
           fontWeight: '500',
           letterSpacing: 0.2,
         },
+        // V4-08: hide the tab bar while the keyboard is open so the form
+        // keeps its full height on small screens.
+        tabBarHideOnKeyboard: true,
+        // V4-08: the scene background matches the warm cream canvas so no
+        // white flash appears between tab transitions.
+        sceneStyle: { backgroundColor: colors.background },
       }}
     >
       <Tabs.Screen
@@ -38,6 +44,7 @@ export default function TabsLayout() {
         options={{
           title: t('tabs.add'),
           tabBarLabel: t('tabs.add'),
+          tabBarAccessibilityLabel: t('tabs.add'),
         }}
       />
       <Tabs.Screen
@@ -45,6 +52,7 @@ export default function TabsLayout() {
         options={{
           title: t('tabs.balances'),
           tabBarLabel: t('tabs.balances'),
+          tabBarAccessibilityLabel: t('tabs.balances'),
         }}
       />
       <Tabs.Screen
@@ -52,6 +60,7 @@ export default function TabsLayout() {
         options={{
           title: t('tabs.todo'),
           tabBarLabel: t('tabs.todo'),
+          tabBarAccessibilityLabel: t('tabs.todo'),
         }}
       />
     </Tabs>

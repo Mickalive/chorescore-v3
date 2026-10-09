@@ -26,7 +26,7 @@ import { LocalAttachmentAdapter } from '../../infrastructure/local/LocalAttachme
 import { E2EAttachmentAdapter } from '../../infrastructure/local/E2EAttachmentAdapter';
 import { isE2EAuthEnabled } from '../../infrastructure/local/e2eAuthConfig';
 import {
-  createRepositories,
+  createRepositoriesWithStatus,
   createInMemoryRepositories,
   AllRepositories,
 } from '../../infrastructure/repositories/RepositoryFactory';
@@ -55,6 +55,12 @@ export type SocialProvider = 'google' | 'apple' | 'facebook';
 interface AppState {
   currentUser: AuthUser | null;
   isLoading: boolean;
+  /**
+   * True when the local store could not be opened and the app runs on the
+   * in-memory backend. The UI surfaces this honestly (data may not survive a
+   * restart) instead of pretending persistence works.
+   */
+  persistenceDegraded: boolean;
   /** Kept for test seams and the deterministic local session. Not exposed in UI. */
   signIn: (email: string, password: string) => Promise<void>;
   /** Returns true when a session was established, false when the provider is not configured. */
@@ -107,6 +113,7 @@ export function useApp(): AppState {
 export function AppProvider({ children }: { children: React.ReactNode }) {
   const [currentUser, setCurrentUser] = useState<AuthUser | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [persistenceDegraded, setPersistenceDegraded] = useState(false);
   const [households, setHouseholds] = useState<Household[]>([]);
   const [currentHouseholdId, setCurrentHouseholdId] = useState<string | null>(null);
   const [reposReady, setReposReady] = useState(false);
@@ -123,9 +130,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const ensureReposReady = useCallback(async () => {
     if (!reposReadyPromiseRef.current) {
       reposReadyPromiseRef.current = (async () => {
-        const repos = await createRepositories();
+        const { repos, degraded } = await createRepositoriesWithStatus();
         rawReposRef.current = repos;
         reposRef.current = repos;
+        setPersistenceDegraded(degraded);
         setReposReady(true);
       })();
     }
@@ -139,6 +147,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       // guard keeps the app usable even if that fallback itself fails.
       if (!cancelled) {
         reposRef.current = createInMemoryRepositories();
+        setPersistenceDegraded(true);
         setReposReady(true);
       }
     });
@@ -307,6 +316,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const value: AppState = {
     currentUser,
     isLoading,
+    persistenceDegraded,
     signIn,
     signInWithProvider,
     signOut,

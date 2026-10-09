@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "cycle": "37887082027",
+  "role": "builder",
+  "decision": "accept",
+  "summary": "V4-08 Polish complet, légal, accessibilité et états — all acceptance criteria satisfied. Trusted verification passed (exit code 0): 656 tests green, privacy gate PASS, cost regression gate PASS, i18n check PASS, Expo Android/iOS exports successful. Legal screen implemented and reachable from General Options. Shared state components (LoadingState, EmptyState, ErrorState, InlineNotice, PersistenceBanner) wired across main screens. Persistence degradation honestly reported via RepositoryFactory status and surfaced in Groups root. Accessibility: no font scaling disabled, all a11y labels i18n-backed (no hardcoded French), WCAG AA contrast verified in tests, tab bar has accessibility labels/keyboard hiding/scene background. Safe areas respected. FR/EN catalogs complete with legal documents (>100 chars body keys). V2 warm palette canonical, no V3 metallic remnants. No regressions in V4-01 through V4-07 (all prior criteria preserved per test suite). No forbidden labels (Premium, Demo, chrono, paywall, Contribution in UI).",
+  "checks": [
+    "typecheck",
+    "unit-tests (656 passed)",
+    "privacy-check",
+    "cost-check (V3-08 gates 1-13)",
+    "i18n-check",
+    "expo-export-android",
+    "expo-export-ios"
+  ],
+  "findings": []
+}

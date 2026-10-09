@@ -155,6 +155,7 @@ export const CATALOG: Record<SupportedLocale, LocaleCatalog> = {
     'add.photoOptional': 'Photo (optionnel)',
     'add.photoAdd': 'Ajouter une photo',
     'add.photoAttached': 'Photo jointe',
+    'add.photoMissing': 'Photo jointe, indisponible sur cet appareil.',
     'add.photoRemove': 'Retirer',
     'add.photoUnavailable': 'Photos non configurées sur ce build.',
     'add.photoError': 'Impossible d’ajouter la photo.',
@@ -358,9 +359,55 @@ export const CATALOG: Record<SupportedLocale, LocaleCatalog> = {
     'options.legalTerms': 'Conditions d’utilisation',
     'options.legalPrivacy': 'Politique de confidentialité',
     'options.legalNotice': 'Mentions légales',
-    'options.legalUnavailable': 'Document non configuré sur ce build.',
     'options.signOut': 'Se déconnecter',
     'options.languageChanged': 'Langue mise à jour.',
+
+    // ── Shared states (loading / empty / error / offline) ──────
+    'state.loadingBody': 'Chargement des données…',
+    'state.emptyTitle': 'Rien à afficher',
+    'state.errorTitle': 'Une erreur est survenue',
+    'state.errorBody': 'Réessayez ou revenez plus tard.',
+    'state.genericError': 'Une erreur est survenue.',
+    'state.offline': 'Hors ligne — les modifications seront synchronisées plus tard.',
+    'state.persistenceTitle': 'Stockage local indisponible',
+    'state.persistenceBody':
+      'Les données sont conservées temporairement en mémoire. Elles peuvent être perdues à la fermeture de l’application.',
+
+    // ── Legal documents ───────────────────────────────────────
+    'legal.title': 'Légal',
+    'legal.terms': 'Conditions d’utilisation',
+    'legal.privacy': 'Politique de confidentialité',
+    'legal.notice': 'Mentions légales',
+    'legal.updated': 'Dernière mise à jour : octobre 2026.',
+    'legal.openTerms': 'Ouvrir les conditions d’utilisation',
+    'legal.openPrivacy': 'Ouvrir la politique de confidentialité',
+    'legal.openNotice': 'Ouvrir les mentions légales',
+    'legal.notFoundTitle': 'Document introuvable',
+    'legal.notFoundBody': 'Ce document n’est pas disponible dans cette version.',
+    'legal.termsBody':
+      'ChoreScore est une application gratuite pour équilibrer les dépenses et les tâches d’un groupe.\n\nL’application est fournie en l’état. Vous restez responsable de l’exactitude des montants, des valeurs et des répartitions que vous saisissez.\n\nLes soldes affichés proviennent uniquement des écritures enregistrées. Une modification ou une suppression recalcule les soldes concernés sans réinterpréter l’historique.\n\nAucune donnée n’est vendue. Les fonctions de recherche respectent les choix de confidentialité exprimés dans l’application.',
+    'legal.privacyBody':
+      'Vos données de fonctionnement restent sur votre appareil. Elles ne sont transmises à un produit de recherche qu’après agrégation et retrait des identifiants, des noms, des notes, des photos et du texte libre.\n\nVous pouvez refuser ou retirer votre participation aux statistiques anonymisées dans Options générales → Confidentialité.\n\nSelon la juridiction applicable, vous pouvez demander l’accès, la correction ou la suppression de vos données de fonctionnement.',
+    'legal.noticeBody':
+      'Éditeur : ChoreScore.\n\nApplication mobile distribuée sans frais.\n\nHébergement et traitement technique : infrastructure locale de l’appareil et, lorsque configurée, synchronisation du groupe.\n\nContact : support@chorescore.app.',
+
+    // ── Accessibility labels ──────────────────────────────────
+    'a11y.openGroup': 'Ouvrir le groupe {name}',
+    'a11y.groupOptions': 'Options du groupe {name}',
+    'a11y.modeTask': 'Saisir une tâche',
+    'a11y.modeExpense': 'Saisir une dépense',
+    'a11y.selected': 'sélectionné',
+    'a11y.notSelected': 'non sélectionné',
+    'a11y.chooseDateTime': 'Choisir la date et l’heure',
+    'a11y.balanceTasks': 'Balance de tâches',
+    'a11y.balanceMoney': 'Balance financière',
+    'a11y.balancePositive': 'En avance',
+    'a11y.balanceNegative': 'En retard',
+    'a11y.labelCurrency': 'Devise',
+    'a11y.stateEmpty': 'Aucune donnée',
+    'a11y.historyTask': 'Tâche',
+    'a11y.historyExpense': 'Dépense',
+    'a11y.historySettlement': 'Compensation',
   },
 
   en: {
@@ -493,6 +540,7 @@ export const CATALOG: Record<SupportedLocale, LocaleCatalog> = {
     'add.photoOptional': 'Photo (optional)',
     'add.photoAdd': 'Add a photo',
     'add.photoAttached': 'Photo attached',
+    'add.photoMissing': 'Photo attached, unavailable on this device.',
     'add.photoRemove': 'Remove',
     'add.photoUnavailable': 'Photos are not configured in this build.',
     'add.photoError': 'Could not add the photo.',
@@ -695,9 +743,55 @@ export const CATALOG: Record<SupportedLocale, LocaleCatalog> = {
     'options.legalTerms': 'Terms of use',
     'options.legalPrivacy': 'Privacy policy',
     'options.legalNotice': 'Legal notice',
-    'options.legalUnavailable': 'Document not configured in this build.',
     'options.signOut': 'Sign out',
     'options.languageChanged': 'Language updated.',
+
+    // ── Shared states (loading / empty / error / offline) ──────
+    'state.loadingBody': 'Loading data…',
+    'state.emptyTitle': 'Nothing to show',
+    'state.errorTitle': 'Something went wrong',
+    'state.errorBody': 'Try again or come back later.',
+    'state.genericError': 'Something went wrong.',
+    'state.offline': 'Offline — changes will sync later.',
+    'state.persistenceTitle': 'Local storage unavailable',
+    'state.persistenceBody':
+      'Data is kept temporarily in memory. It may be lost when the app closes.',
+
+    // ── Legal documents ───────────────────────────────────────
+    'legal.title': 'Legal',
+    'legal.terms': 'Terms of use',
+    'legal.privacy': 'Privacy policy',
+    'legal.notice': 'Legal notice',
+    'legal.updated': 'Last updated: October 2026.',
+    'legal.openTerms': 'Open terms of use',
+    'legal.openPrivacy': 'Open privacy policy',
+    'legal.openNotice': 'Open legal notice',
+    'legal.notFoundTitle': 'Document not found',
+    'legal.notFoundBody': 'This document is not available in this version.',
+    'legal.termsBody':
+      'ChoreScore is a free app for balancing a group’s expenses and tasks.\n\nThe app is provided as is. You remain responsible for the accuracy of the amounts, values and splits you enter.\n\nDisplayed balances come only from recorded entries. Editing or deleting recalculates the affected balances without reinterpreting history.\n\nNo data is sold. Research features follow the privacy choices made in the app.',
+    'legal.privacyBody':
+      'Your operational data stays on your device. It is only sent to a research product after aggregation and removal of identifiers, names, notes, photos and free text.\n\nYou can decline or withdraw your participation in anonymized statistics in General options → Privacy.\n\nDepending on applicable law, you can request access, correction or deletion of your operational data.',
+    'legal.noticeBody':
+      'Publisher: ChoreScore.\n\nMobile app distributed at no cost.\n\nHosting and technical processing: the device’s local infrastructure and, when configured, group synchronization.\n\nContact: support@chorescore.app.',
+
+    // ── Accessibility labels ──────────────────────────────────
+    'a11y.openGroup': 'Open group {name}',
+    'a11y.groupOptions': 'Group options for {name}',
+    'a11y.modeTask': 'Enter a task',
+    'a11y.modeExpense': 'Enter an expense',
+    'a11y.selected': 'selected',
+    'a11y.notSelected': 'not selected',
+    'a11y.chooseDateTime': 'Choose date and time',
+    'a11y.balanceTasks': 'Task balance',
+    'a11y.balanceMoney': 'Money balance',
+    'a11y.balancePositive': 'Ahead',
+    'a11y.balanceNegative': 'Behind',
+    'a11y.labelCurrency': 'Currency',
+    'a11y.stateEmpty': 'No data',
+    'a11y.historyTask': 'Task',
+    'a11y.historyExpense': 'Expense',
+    'a11y.historySettlement': 'Settlement',
   },
 };
 

@@ -569,8 +569,32 @@ export function withTimeout<T>(promise: Promise<T>, ms: number, fallback: () => 
  * repository set instead of leaving the app on the loading screen forever.
  */
 export async function createRepositories(): Promise<AllRepositories> {
+  const { repos } = await createRepositoriesWithStatus();
+  return repos;
+}
+
+/** Which storage backend actually served the repository set. */
+export type RepositoryBackend = 'sqlite' | 'memory';
+
+export interface RepositoryFactoryStatus {
+  repos: AllRepositories;
+  backend: RepositoryBackend;
+  /**
+   * True when a real device asked for SQLite persistence but the store could
+   * not be opened, so the app silently degraded to in-memory. Tests always
+   * report `false`: the memory backend there is expected, not a degradation.
+   */
+  degraded: boolean;
+}
+
+/**
+ * Same contract as {@link createRepositories}, but also reports the backend
+ * actually used so the UI can be honest when persistence is unavailable
+ * (constitution §23: persistence error state). Never throws.
+ */
+export async function createRepositoriesWithStatus(): Promise<RepositoryFactoryStatus> {
   if (isTestEnvironment()) {
-    return createInMemoryRepositories();
+    return { repos: createInMemoryRepositories(), backend: 'memory', degraded: false };
   }
 
   const sqliteRepos = await withTimeout(
@@ -579,9 +603,9 @@ export async function createRepositories(): Promise<AllRepositories> {
     () => null,
   );
   if (sqliteRepos) {
-    return sqliteRepos;
+    return { repos: sqliteRepos, backend: 'sqlite', degraded: false };
   }
 
   // Final fallback: in-memory (web, degraded environment)
-  return createInMemoryRepositories();
+  return { repos: createInMemoryRepositories(), backend: 'memory', degraded: true };
 }
