@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "cycle": "37871782896",
+  "decision": "continue",
+  "reason": "V4-05 — Balances, historique, édition, suppression et partage is audit-accepted WITH a delta and zero must-fix findings. The builder repaired all three prior must-fix findings: (1) Balances history rows are now TouchableOpacity with accessibilityRole=button opening an action sheet (Edit/Delete/Share/Cancel) in app/(tabs)/balances.tsx; (2) edit mode was added to app/(tabs)/add.tsx via entryId/entryType route params with pre-fill, add.editBanner title, add.update button and repos.contributions.update / repos.expenses.update on submit, plus a new app/edit-entry.tsx stack route that reuses AddScreen; (3) the balances.editEntry / editTask / editExpense / deleteEntry / shareEntry / deleteConfirmTask / deleteConfirmExpense keys were added in FR and EN with correct French accents. Delete uses an Alert confirmation and emits emitDataChange for delta refresh; share reuses services.share.share with formatActivityRow. Trusted verification is exit 0: typecheck PASS, 29 suites / 600 Jest tests PASS (up from 588/28, +12 V4-05 tests), privacy release contract PASS (71), cost regression gates PASS (21), i18n PASS (9), Expo Android export PASS (bundled 1337 modules). The safe delta is integrated as the WIP baseline; previously accepted V4-01..V4-04 and all V3 foundations are preserved. The next coherent criterion from docs/ROADMAP.md is V4-06 — À faire — Tâche ou Dépense: the À faire tab must create typed task|expense todos and completion must produce exactly one corresponding ledger entry (ContributionEntry for task, ExpenseEntry for expense), offline-safe and atomic. The domain supports this already via TodoKind and completeTodoAtomic's expense branch, but app/(tabs)/todos.tsx currently has no kind selector and no expense fields (no amount/currency/split), so the expense path is unreachable from the UI. V4-06 is therefore a focused UI/verification tranche, not optional polish. Future criteria remain non-optional: V4-07 must actually deliver delta-only sync, tenant security, deterministic conflict handling, lazy photo metadata and the extended privacy/cost gates for categories, named members, invitations, notes/photos and todo-expense; V4-08 carries the cost regression gate and full states/accessibility/FR-EN polish; V4-09 final completion stays owned by the trusted release finalizer after privacy/cost/APK/install/golden-path evidence.",
+  "progressEvidence": [
+    "auditDecision: accept",
+    "criterionId: V4-05",
+    "hasDelta: true",
+    "reports/audits/RUN_37871782896.json: decision=accept, summary states V4-05 fully implemented and verified, findings=[]",
+    "reports/audits/RUN_37871782896.md: decision ACCEPT, no must-fix findings; Edit/Delete/Share flows, edit mode, i18n keys and ledger integrity documented",
+    "reports/audits/TRUSTED_37871782896.md: Trusted verification exit code 0",
+    "trusted typecheck PASS; 29 suites / 600 Jest tests PASS (previous audited baseline 588 tests / 28 suites)",
+    "trusted privacy release contract PASS (71 focused tests); cost regression gates PASS (21 gates); i18n catalog parity PASS (9 tests)",
+    "trusted Expo Android export PASS (bundled 1337 modules to v4-audit-android-export)",
+    "V4-05 acceptance satisfied per audit: blocs Tâches et Dépenses distincts; historique paginé (cursor page size 20 + Charger plus); edit tâche depuis Balances; edit dépense depuis Balances; delete replay/tombstone correct; share natif depuis Balances; périodes restent vues; compensation V3 préservée",
+    "confirmed in source: app/(tabs)/balances.tsx history rows are TouchableOpacity opening an action sheet with Edit/Delete/Share/Cancel and delta refresh via emitDataChange",
+    "confirmed in source: app/(tabs)/add.tsx supports edit mode via useLocalSearchParams entryId/entryType, isEditing state, pre-fill, add.editBanner title and add.update button; app/edit-entry.tsx mounts AddScreen as a stack route",
+    "confirmed in source: src/i18n/catalog.ts now contains balances.editEntry / editTask / editExpense / deleteEntry / shareEntry / deleteConfirmTask / deleteConfirmExpense in FR (accents) and EN",
+    "confirmed in source: __tests__/domain/v4-05-balances-history.test.ts adds 12 V4-05 regression tests",
+    "next-criterion: V4-06 — À faire — Tâche ou Dépense; acceptance target: todo task; todo expense; complétion task exactement une écriture; complétion expense exactement une écriture; montant/devise confirmés pour expense; split/bénéficiaires confirmés; note/photo compatibles; offline atomicité",
+    "V4-06 gap confirmed in source: app/(tabs)/todos.tsx has no kind selector and no expense fields (amountMinor/currency/custom split); the expense branch of completeTodoAtomic exists but is unreachable from the À faire UI; no V4-06 tests exist yet",
+    "V4-06 domain foundation already present (V4-01): TodoKind task|expense in src/domain/entities/index.ts, planTodoCompletion expense planning and completeTodoAtomic expense transaction (todos.update + expenses.create in one withTransaction)",
+    "future-obligations: V4-07 must actually deliver delta-only sync, tenant security, deterministic conflicts, lazy photo metadata and extended privacy/cost gates; V4-08 carries the cost regression gate; V4-09 final completion remains finalizer-owned",
+    "trusted-shell-normalizes-criterion-status-and-V4-09-handoff-remains-finalizer-owned"
+  ]
+}
