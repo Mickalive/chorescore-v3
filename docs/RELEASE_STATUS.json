@@ -1,12 +1,12 @@
 {
   "schemaVersion": 1,
   "milestone": "v4-rc",
-  "lastCycle": "37864743792",
+  "lastCycle": "37870302637",
   "activeCriteria": [
     "V4-05"
   ],
   "pendingArtifact": null,
-  "progressSummary": "Audited V4-02 requires targeted repair; safe WIP retained and autonomous loop continues.",
+  "progressSummary": "Audited V4-05 requires targeted repair; safe WIP retained and autonomous loop continues.",
   "criteria": [
     {
       "id": "V4-01",
@@ -63,11 +63,36 @@
       "evidence": []
     }
   ],
-  "openFindings": [],
+  "openFindings": [
+    {
+      "path": "app/(tabs)/balances.tsx",
+      "problem": "History rows are read-only — no edit, delete, or share actions. V4-05 requires: edit tâche depuis Balances, edit dépense depuis Balances, delete replay/tombstone correct, share natif depuis Balances.",
+      "evidence": "Lines 894-917: historyRow renders formatActivityRow as Text with numberOfLines={2}, no onPress, no action buttons. No navigation to edit screen, no delete confirmation, no share invocation.",
+      "mustFix": true,
+      "requiredFix": "Make history rows interactive: onPress opens action sheet/modal with Edit, Delete, Share. Edit navigates to edit screen (reuse add.tsx with edit mode or new edit screen) pre-filled with entry data. Delete shows confirmation, calls repos.contributions.delete or repos.expenses.delete, emits dataChange. Share uses services.share.share with formatted message. Preserve paginated loading and delta refresh.",
+      "verification": "Manual test: open Balances → Activity section → tap a task row → action sheet appears → Edit opens form pre-filled → Save updates entry and balances refresh via delta. Delete confirms → entry removed, balances update, zero-sum holds. Share opens native sheet with formatted text."
+    },
+    {
+      "path": "app/(tabs)/add.tsx",
+      "problem": "Add screen lacks edit mode support. Translation keys 'add.editBanner' and 'add.update' exist but no edit logic.",
+      "evidence": "No edit mode state, no pre-fill from existing entry, no update submission path. Only create flow implemented.",
+      "mustFix": true,
+      "requiredFix": "Add edit mode to add.tsx: accept route params (entryId, entryType) or use router params. When editing, pre-fill form with entry data, show 'add.editBanner' title, use 'add.update' button text, call repos.contributions.update or repos.expenses.update on submit. Preserve all existing create functionality.",
+      "verification": "Manual test: from Balances history, tap Edit on a task → navigates to Add screen in edit mode → form pre-filled → modify value → Save → returns to Balances → balances updated via delta, zero-sum holds."
+    },
+    {
+      "path": "src/i18n/catalog.ts",
+      "problem": "Missing i18n keys for history entry actions (edit, delete, share confirmations) in both FR and EN.",
+      "evidence": "Catalog has 'add.editBanner', 'add.update', 'add.errorEdit', 'add.errorDelete', 'add.deleteTitle', 'add.deleteConfirm' but no keys for history-specific confirmations or share from history.",
+      "mustFix": true,
+      "requiredFix": "Add keys: 'balances.editEntry', 'balances.deleteEntry', 'balances.shareEntry', 'balances.deleteConfirmTask', 'balances.deleteConfirmExpense', 'balances.editTask', 'balances.editExpense'. Ensure FR accents and EN parity.",
+      "verification": "Run i18n:check — all keys present in both locales, no forbidden wording, French accents correct."
+    }
+  ],
   "factoryHealth": {
     "stalled": false,
-    "consecutiveNoProgress": 0,
-    "lastProductSha": "492334493e230c5ef5e20a1df9d4937b6aad069e",
+    "consecutiveNoProgress": 1,
+    "lastProductSha": "283a5851f83e569fc5ffba60cc2e990815c2c0e3",
     "reason": null
   }
 }

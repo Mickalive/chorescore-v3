@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "cycle": "37870302637",
+  "decision": "continue",
+  "reason": "Audit decision: repair on V4-05 with no delta (candidate checkout identical to the pristine accepted tree; no product code was changed for V4-05). Trusted verification is green (exit 0: typecheck PASS, 588 Jest tests / 28 suites PASS, privacy release contract PASS with 71 focused tests, cost regression gates PASS with 21 gates, i18n catalog parity PASS with 9 tests, Expo Android export PASS), so the blocker is not infrastructure or gates — it is the missing V4-05 UI work. The Auditor's three must-fix findings are confirmed against the source: (1) app/(tabs)/balances.tsx history rows (lines 894-917) are read-only Text with no onPress and no Edit/Delete/Share actions, so 'edit tâche depuis Balances', 'edit dépense depuis Balances', 'delete replay/tombstone correct' and 'share natif depuis Balances' are unmet; (2) app/(tabs)/add.tsx has no edit mode — no entryId/entryType route params, no pre-fill, no update submission path, leaving the existing add.editBanner/add.update/add.errorEdit/add.errorDelete keys unused; (3) src/i18n/catalog.ts lacks the history-action keys (balances.editEntry, balances.deleteEntry, balances.shareEntry, balances.deleteConfirmTask, balances.deleteConfirmExpense, balances.editTask, balances.editExpense) in both FR and EN. The repository layer already exposes update/delete for ContributionEntry and ExpenseEntry (ScopedRepositoryFacade, InMemoryRepositories, SqliteRepositories, SyncRecordingWrapper) and domain tests confirm zero-sum invariants hold after edit/delete, so the repair is a focused UI-layer tranche: make Balances history rows interactive with an action sheet (Edit/Delete/Share), add edit mode to add.tsx reusing the existing create form, add the missing i18n keys with correct French accents, and verify delta refresh after edit/delete. The candidate baseline is retained; reconstruction is forbidden. V4-05 stays the active criterion; no V4-06 work starts until the must-fix findings are resolved and the criterion is re-audited.",
+  "progressEvidence": [
+    "auditDecision: repair",
+    "criterionId: V4-05",
+    "hasDelta: false",
+    "reports/audits/RUN_37870302637.json: decision=repair, findings=3 mustFix (balances.tsx read-only history rows; add.tsx no edit mode; missing balances.* i18n keys)",
+    "reports/audits/RUN_37870302637.md: candidate identical to accepted-pristine tree; no V4-05 changes made",
+    "Trusted verification exit code 0 (reports/audits/TRUSTED_37870302637.md)",
+    "trusted typecheck PASS; 28 suites / 588 Jest tests PASS",
+    "trusted privacy release contract PASS (71 focused tests); cost regression gates PASS (21 gates); i18n catalog parity PASS (9 tests)",
+    "Expo Android export PASS (bundled 1336 modules to v4-audit-android-export)",
+    "confirmed in source: app/(tabs)/balances.tsx lines 894-917 historyRow renders formatActivityRow as Text with numberOfLines={2}, no onPress, no action buttons",
+    "confirmed in source: app/(tabs)/add.tsx has no edit mode state, no entryId/entryType params, no update submission path; add.editBanner/add.update/add.errorEdit/add.errorDelete keys unused",
+    "confirmed in source: src/i18n/catalog.ts has no balances.editEntry/deleteEntry/shareEntry/deleteConfirmTask/deleteConfirmExpense/editTask/editExpense in FR or EN",
+    "repository layer ready: update/delete exist for ContributionEntry and ExpenseEntry in ScopedRepositoryFacade, InMemoryRepositories, SqliteRepositories, SyncRecordingWrapper",
+    "domain invariants ready: contribution-expense-crud.test.ts confirms zero-sum holds after edit/delete; share.taskLine/share.expenseLine keys exist",
+    "already-satisfied V4-05 acceptance: distinct Task/Expense balance blocks, paginated history with loadMore cursor, period filters as views (never reset), cross-ledger compensation with before/after preview, materialized balances with delta refresh",
+    "mustFix-1: make Balances history rows interactive — action sheet/modal with Edit (navigate to add.tsx edit mode pre-filled), Delete (confirmation via t('add.deleteConfirm'), repos.contributions.delete or repos.expenses.delete, emit dataChange for delta refresh), Share (services.share.share with formatted line)",
+    "mustFix-2: add edit mode to add.tsx — accept entryId/entryType route params, pre-fill all form fields, show add.editBanner title, use add.update button text, call repos.contributions.update or repos.expenses.update with modifiedBy set, preserve all existing create functionality",
+    "mustFix-3: add balances.editEntry/deleteEntry/shareEntry/deleteConfirmTask/deleteConfirmExpense/editTask/editExpense keys in FR and EN with correct French accents (e.g. Modifier la tâche, Supprimer cette dépense, Partager)",
+    "next-task: focused V4-05 repair tranche only — no V4-06 scope, no gate weakening, no reconstruction",
+    "future-obligations: V4-07 must actually deliver delta-only sync, security, deterministic conflicts and the extended cost/privacy gates for categories, named members, invitations, notes/photos and todo-expense; V4-08 carries the cost regression gate; V4-09 final completion remains finalizer-owned",
+    "trusted-shell-normalizes-criterion-status-and-V4-09-handoff-remains-finalizer-owned"
+  ]
+}
