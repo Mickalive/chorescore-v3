@@ -56,7 +56,8 @@
         "member count visible",
         "aucun bouton Inviter sur carte groupe",
         "ajout membre post-création",
-        "lien invitation + native share"
+        "lien invitation + native share",
+        "invitation ciblée d’un membre nommé puis rattachement du compte au même memberId sans doublon"
       ],
       "requiredEvidence": [
         "tests",
@@ -185,7 +186,8 @@
         "arm64-v8a release APK",
         "SHA-256",
         "artifact 30 jours",
-        "aucun finding ouvert"
+        "aucun finding ouvert",
+        "named member invitation links same memberId without duplicate and preserves ledger history"
       ],
       "requiredEvidence": [
         "artifact",
