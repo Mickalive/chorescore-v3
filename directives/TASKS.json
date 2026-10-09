@@ -3,18 +3,19 @@
   "milestone": "v4-rc",
   "builder": {
     "enabled": true,
-    "criterionId": "V4-08",
-    "objective": "Implement V4-08 — Polish complet, légal, accessibilité et états. Finir tous les états V4, options générales/groupe, légal, erreurs, offline, large text, FR/EN, longs labels, photos manquantes, invitations, huge history et cohérence visuelle adulte/chaleureuse.",
-    "scope": "Work only on V4-08 and directly necessary migrations/repairs. Preserve validated V3 foundations and every completed V4 criterion.",
+    "criterionId": "V4-09",
+    "objective": "Implement V4-09 — Release mobile et golden path V4. Finaliser la release selon V4_RELEASE_ENGINEERING : gates produit/privacy/coût/i18n, exports Android/iOS, x86_64 API35 golden path réel, puis APK arm64-v8a final hashé et uploadé.",
+    "scope": "Work only on V4-09 and directly necessary migrations/repairs. Preserve validated V3 foundations and every completed V4 criterion.",
     "acceptance": [
-      "états obligatoires constitution couverts",
-      "accessibilité/grands textes",
-      "FR/EN visuellement audités",
-      "légal accessible",
-      "offline/persistence errors",
-      "empty/loading/error states",
-      "safe area tabs",
-      "design cohérent et fini"
+      "tests/privacy/cost/i18n verts",
+      "Expo Android+iOS exports",
+      "x86_64 release install API35",
+      "golden path V4 complet",
+      "aucun label interdit visible",
+      "arm64-v8a release APK",
+      "SHA-256",
+      "artifact 30 jours",
+      "aucun finding ouvert"
     ],
     "previousCriteriaPreserved": [
       "V4-01: accepted and must not regress",
@@ -23,7 +24,8 @@
       "V4-04: accepted and must not regress",
       "V4-05: accepted and must not regress",
       "V4-06: accepted and must not regress",
-      "V4-07: accepted and must not regress"
+      "V4-07: accepted and must not regress",
+      "V4-08: accepted and must not regress"
     ]
   }
 }

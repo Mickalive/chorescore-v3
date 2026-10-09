@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "cycle": "37887082027",
+  "decision": "continue",
+  "reason": "V4-08 accepted with audited delta (trusted verification exit 0: typecheck, 656 tests, privacy gate PASS, cost regression gate PASS, i18n check PASS, Expo Android/iOS exports). Proceed to the next roadmap criterion V4-09 (Release mobile et golden path V4). V4-09 final completion is owned exclusively by the trusted release finalizer after product/privacy/cost/i18n gates, Android/iOS exports, x86_64 API35 install/golden path, and arm64-v8a APK/SHA-256/artifact evidence; the trusted shell owns the V4-09 handoff.",
+  "progressEvidence": [
+    "auditDecision: accept (criterionId: V4-08, hasDelta: true)",
+    "Trusted verification PASS: typecheck, 656 unit tests, privacy gate (71 focused tests), cost regression gate (13 V3-08 gates extended to V4), i18n check, Expo Android/iOS exports",
+    "V4-08 states delivered: LoadingState/EmptyState/ErrorState/InlineNotice/PersistenceBanner wired across Groups root, group options and join screens",
+    "Legal screen implemented and reachable from General Options (terms | privacy | notice)",
+    "Accessibility: no font scaling disabled, i18n-backed a11y labels (no hardcoded French), WCAG AA contrast test, tab bar safe areas/accessibility labels",
+    "Offline/persistence honesty: RepositoryFactory status exposes sqlite|memory degraded and is surfaced via PersistenceBanner",
+    "FR/EN catalogs complete with correct French accents and legal documents; no critical hardcoded strings",
+    "Warm canonical V2 palette, no V3 metallic remnants; no forbidden labels (Premium/Demo/chrono/paywall/Contribution in UI)",
+    "No regressions in V4-01 through V4-07; V3 foundations (two ledgers, zero-sum, explicit-only cross-ledger compensation, historical unit semantics, local-first, delta-only, materialized balances, privacy separation) preserved"
+  ]
+}
