@@ -3,23 +3,24 @@
   "milestone": "v4-rc",
   "builder": {
     "enabled": true,
-    "criterionId": "V4-03",
-    "objective": "Implement V4-03 — Auth sociale, session, groupes et membres. Flux normal avec Google/Apple/Facebook derrière ports, session persistée, arrivée directe Groupes après première connexion, création de groupe avec membres nommés, ajout ultérieur, Options conservé et invitation par lien uniquement après création.",
-    "scope": "Work only on V4-03 and directly necessary migrations/repairs. Preserve validated V3 foundations and every completed V4 criterion.",
+    "criterionId": "V4-04",
+    "objective": "Implement V4-04 — Ajouter — Tâches, Dépenses, catégories, notes et photos. L'onglet Ajouter expose Tâche|Dépense, catégories libres gérées sous l'action, membres à la place de l'ancien historique, split custom des tâches/dépenses, ratio de catégorie par défaut, notes/photos et partage natif.",
+    "scope": "Work only on V4-04 and directly necessary migrations/repairs. Preserve validated V3 foundations and every completed V4 criterion.",
     "acceptance": [
-      "aucun bouton Démo/email-password normal",
-      "auth adapters honnêtes",
-      "mode E2E secretless invisible",
-      "session persistée vers Groupes",
-      "création groupe avec plusieurs membres",
-      "member count visible",
-      "aucun bouton Inviter sur carte groupe",
-      "ajout membre post-création",
-      "lien invitation + native share"
+      "UI dit Tâche jamais Contribution",
+      "aucune catégorie seed imposée",
+      "création/renommage/suppression catégorie sûre",
+      "split task égal/custom",
+      "ratio catégorie par défaut overrideable",
+      "split dépense égal/custom exact",
+      "note/photo task et dépense",
+      "section Membres remplace historique",
+      "share sheet native"
     ],
     "previousCriteriaPreserved": [
       "V4-01: accepted and must not regress",
-      "V4-02: accepted and must not regress"
+      "V4-02: accepted and must not regress",
+      "V4-03: accepted and must not regress"
     ]
   }
 }

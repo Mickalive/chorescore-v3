@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "cycle": "37858935787",
+  "decision": "continue",
+  "reason": "V4-03 accepted with delta; proceeding to V4-04 (Balances: double ledger, periods, filters, settlements, filtered history) per roadmap.",
+  "progressEvidence": [
+    "auditDecision: accept",
+    "criterionId: V4-03",
+    "hasDelta: true"
+  ]
+}
