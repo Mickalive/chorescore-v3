@@ -126,6 +126,59 @@ describe('V3-08 finalizer wrapper contract', () => {
     expect(wrapper).toMatch(/dismiss_keyguard\(\)[\s\S]*WARNING: keyguard still showing[\s\S]*return 0/);
   });
 
+  test('framework_cmd_ready probes a live input round-trip (the exact service that aborted the action)', () => {
+    // Runs 37909577314 and 37976784854 died on the emulator-runner action's
+    // own `input keyevent 82` -> "cmd: Failure calling service input: Broken
+    // pipe (32)", before this wrapper ran. The readiness gate must therefore
+    // probe the *input* service with a real round-trip too, not only settings,
+    // so the golden path never starts on a service that still answers with a
+    // broken pipe.
+    const wrapper = readRepo('scripts/finalizer-e2e.sh');
+    expect(wrapper).toMatch(/framework_cmd_ready\(\)[\s\S]*settings get system screen_off_timeout/);
+    expect(wrapper).toMatch(/framework_cmd_ready\(\)[\s\S]*input keyevent 0/);
+    expect(wrapper).toMatch(/framework_cmd_ready\(\)[\s\S]*Failure calling service/);
+  });
+
+  test('wrapper owns the emulator boot when no device is attached (strategy change)', () => {
+    // The action's post-boot unlock cannot be repaired from product code, so
+    // the wrapper must be able to own the emulator lifecycle itself when run
+    // from a plain `run:` step: `adb get-state` fails -> boot via
+    // scripts/boot-emulator.sh, then pin ANDROID_SERIAL for the bare adb calls.
+    const wrapper = readRepo('scripts/finalizer-e2e.sh');
+    expect(wrapper).toContain('No attached emulator detected');
+    expect(wrapper).toContain('scripts/boot-emulator.sh');
+    expect(wrapper).toMatch(/adb get-state[\s\S]*scripts\/boot-emulator\.sh/);
+    expect(wrapper).toContain('export ANDROID_SERIAL');
+  });
+
+  test('scripts/boot-emulator.sh exists, parses, and gates on a live input probe', () => {
+    // Self-contained boot path that removes the fragile action unlock from the
+    // critical path. Static contract only (no emulator in plain CI).
+    expect(repoFileExists('scripts/boot-emulator.sh')).toBe(true);
+    expect(() =>
+      execFileSync('bash', ['-n', path.join(REPO_ROOT, 'scripts', 'boot-emulator.sh')], {
+        stdio: 'pipe',
+      })
+    ).not.toThrow();
+    const boot = readRepo('scripts/boot-emulator.sh');
+    expect(boot).toContain('set -euo pipefail');
+    // AVD creation + the same deterministic headless emulator options the
+    // finalizer relies on.
+    expect(boot).toMatch(/AVDMANAGER.*create avd/);
+    expect(boot).toContain('system-images;android-${API_LEVEL}');
+    expect(boot).toContain('-no-window');
+    expect(boot).toContain('-no-snapshot');
+    expect(boot).toContain('sys.boot_completed');
+    // Registration gate AND the exact live input round-trip.
+    expect(boot).toContain('service check package');
+    expect(boot).toContain('service check activity');
+    expect(boot).toContain('service check input');
+    expect(boot).toContain('service check settings');
+    expect(boot).toContain('input keyevent 0');
+    expect(boot).toContain('Broken pipe');
+    expect(boot).toContain('emulator-${EMULATOR_PORT}');
+  });
+
   test('wrapper falls back to push + pm install via the shell transport', () => {
     // `adb install` uses the adb sync service which can hang on degraded
     // emulators; `adb push` + `adb shell pm install` uses the shell

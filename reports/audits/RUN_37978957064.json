@@ -1,0 +1,43 @@
+{
+  "schemaVersion": 1,
+  "cycle": "37978957064",
+  "role": "builder",
+  "decision": "accept",
+  "summary": "V4-09 repair candidate accepted. Trusted verification passed (exit 0). The delta repairs the concrete infrastructure blocker that caused trusted finalizer runs 37909577314 and 37976784854 to abort before the wrapper started: the emulator-runner action's built-in `input keyevent 82` hit a broken pipe on the unaccelerated API 35 x86_64 runner. The repair introduces a self-contained emulator boot script (scripts/boot-emulator.sh) with a live input/settings round-trip gate, and enhances scripts/finalizer-e2e.sh with emulator ownership fallback and the same live probe. Product/privacy/cost/i18n gates remain green; no V4-01..V4-08 regression; no forbidden labels introduced; all 661 tests pass.",
+  "checks": [
+    "typecheck: 0 errors",
+    "tests: 661 passed / 31 suites",
+    "privacy:check: 71 tests PASS (taxonomy versioning, classification cache, pipeline, privacy gate, consent, query budget, differential privacy, buyer contracts, audit log, operational/analytics separation, incremental checkpoint, no synchronous LLM, rare-cell suppression, retention)",
+    "cost:check: 29 gates PASS (50k entries ≤5 reads, tab-switch 0 reads, 3-delta sync incremental, bounded contribution/expense/category/todo writes, 10k-label classification cache, 10-collection sync budgets, privacy gate, offline handling, domain golden path, accessibility/design system)",
+    "i18n:check: 9 tests PASS (FR/EN catalogs identical keys, French accents exact, no forbidden wording, visible screens localized)",
+    "Expo export Android + iOS: OK",
+    "Android prebuild + gradlew :app:assembleDebug: BUILD SUCCESSFUL (19m12s, 374 tasks)",
+    "Trusted verification exit code: 0"
+  ],
+  "findings": [
+    {
+      "path": "scripts/boot-emulator.sh",
+      "problem": "New self-contained emulator boot script; installs SDK packages and creates AVD on every invocation when no device attached.",
+      "evidence": "Script lines 91-109 install platform-tools, emulator, platform, system image and create AVD unconditionally. This is acceptable for the fallback path (no device attached) and matches the emulator-runner defaults (API 35, x86_64, pixel_6, 2 CPU cores).",
+      "mustFix": false,
+      "requiredFix": "None. The script is only invoked when adb get-state shows no device, which in the new strategy becomes the normal finalizer path. Idempotent SDK installs and AVD creation are standard CI practice.",
+      "verification": "bash -n passes; contract tests in v3-08-finalizer-wrapper.test.ts verify AVD creation, emulator flags, service checks, and live input probe."
+    },
+    {
+      "path": "scripts/finalizer-e2e.sh",
+      "problem": "Emulator ownership fallback changes the finalizer strategy from depending on reactivecircus/android-emulator-runner@v2 to owning the emulator lifecycle when run from a plain run: step.",
+      "evidence": "Lines 31-56: adb get-state check -> if no device, boot via scripts/boot-emulator.sh and export ANDROID_SERIAL. Lines 67-85: framework_cmd_ready() now probes both settings get AND input keyevent 0 (the exact service that failed). Lines 94-119: wait_android_services() requires package/activity/input/settings registration AND live round-trip.",
+      "mustFix": false,
+      "requiredFix": "None. This is the documented strategy change per V4_RELEASE_ENGINEERING.md §7: 'une répétition identique sans nouvelle preuve doit changer de stratégie, pas seulement augmenter les timeouts'. The action-driven path is preserved when a device is already attached.",
+      "verification": "Contract tests verify the fallback logic, framework_cmd_ready probes, and boot-emulator.sh integration. Trusted verification exit 0 confirms no regression."
+    },
+    {
+      "path": "__tests__/domain/v3-08-finalizer-wrapper.test.ts",
+      "problem": "Three new contract tests added for the infrastructure repair.",
+      "evidence": "Tests: 'framework_cmd_ready probes a live input round-trip', 'wrapper owns the emulator boot when no device is attached', 'scripts/boot-emulator.sh exists, parses, and gates on a live input probe'. All verify static contracts without emulator.",
+      "mustFix": false,
+      "requiredFix": "None. Tests are pure contract guards; they run in plain CI and passed in trusted verification.",
+      "verification": "All 3 new tests PASS in trusted verification (part of 661 total)."
+    }
+  ]
+}

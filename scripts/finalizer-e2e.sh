@@ -28,6 +28,33 @@ set -euo pipefail
 echo "=== ChoreScore V4 finalizer E2E ==="
 echo "Time: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
+# ── Emulator ownership fallback (V4-09 strategy change) ────────────────
+# The trusted workflow historically launched the emulator through
+# reactivecircus/android-emulator-runner@v2. That action's own
+# launchEmulator() unconditionally runs `adb shell input keyevent 82` right
+# after sys.boot_completed flips to 1; on the unaccelerated Linux runner the
+# input service is not always live yet, so the call fails with
+# "cmd: Failure calling service input: Broken pipe (32)" and @actions/exec
+# aborts the WHOLE step with exit 224 — before this wrapper even starts
+# (trusted finalizer runs 37909577314, 37976784854). Because that abort
+# happens inside the action, hardening this wrapper cannot prevent it.
+#
+# Strategy change: this wrapper can also OWN the emulator lifecycle. When it
+# is invoked from a plain `run:` step (no device attached) it boots and gates
+# the emulator itself via scripts/boot-emulator.sh, which waits for a LIVE
+# input/settings round-trip before returning. The trusted workflow can then
+# drop the fragile action step and run `bash scripts/finalizer-e2e.sh`
+# directly. When the action is still used (device already attached) behaviour
+# is unchanged.
+adb start-server >/dev/null 2>&1 || true
+if ! adb get-state 2>/dev/null | grep -q '^device$'; then
+  echo "No attached emulator detected — booting one via scripts/boot-emulator.sh"
+  bash scripts/boot-emulator.sh
+fi
+# Bare `adb` calls below then target the booted device deterministically.
+export ANDROID_SERIAL="${ANDROID_SERIAL:-emulator-${EMULATOR_PORT:-5554}}"
+echo "Target device: ${ANDROID_SERIAL}"
+
 # Probe whether the Android framework command services actually answer a real
 # round-trip.  In the trusted finalizer run 37909577314, right after
 # sys.boot_completed flipped to 1, the emulator-runner action's own
@@ -35,7 +62,8 @@ echo "Time: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
 # "cmd: Failure calling service input/settings: Broken pipe (32)".  A service
 # can be *listed* by `service check` while system_server is still initializing
 # (or restarting), so registration alone is not proof of readiness: probe an
-# actual `settings get` and treat broken-pipe / not-found output as not ready.
+# actual `settings get` AND a no-op `input keyevent` and treat broken-pipe /
+# not-found output as not ready.
 framework_cmd_ready() {
   local out
   out=$(timeout 30 adb shell settings get system screen_off_timeout 2>&1 | tr -d '\r' || true)
@@ -44,15 +72,25 @@ framework_cmd_ready() {
   esac
   # An empty answer is also a failure: settings always returns a value.
   [ -n "$out" ] || return 1
+  # The exact call that aborted the emulator-runner action was
+  # `input keyevent 82`, so probe the input service with a harmless no-op
+  # keyevent (KEYCODE_UNKNOWN=0) before letting the golden path start. The
+  # gate must never pass while the input service still answers with a
+  # broken pipe / failed service call.
+  out=$(timeout 30 adb shell input keyevent 0 2>&1 | tr -d '\r' || true)
+  case "$out" in
+    *"Broken pipe"*|*"Failure calling service"*) return 1 ;;
+  esac
   return 0
 }
 
 # Wait until Android's framework services are actually available, not merely
 # until sys.boot_completed flips to 1. On hosted API 35 emulators adb can be
 # reachable while ActivityManager/PackageManager are still absent, and even
-# then the command services can fail a live round-trip (run 37909577314).
-# Require the package/activity/input/settings services to be registered AND a
-# real `settings get` round-trip to succeed before touching the APK.
+# then the command services can fail a live round-trip (runs 37909577314 /
+# 37976784854). Require the package/activity/input/settings services to be
+# registered AND a real `settings get` + `input keyevent` round-trip to
+# succeed before touching the APK.
 wait_android_services() {
   local max_checks="${1:-60}"
   local sleep_seconds="${2:-5}"
