@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "cycle": "37900691065",
+  "decision": "stop",
+  "reason": "Audit decision: accept. The V4-09 repair candidate for the trusted finalizer failure in run 37896462840 is accepted with hasDelta=true and zero must-fix findings (reports/audits/RUN_37900691065.json findings=[]). Trusted verification exit code 0 (reports/audits/TRUSTED_37900691065.md): typecheck clean; 657 tests / 31 suites; privacy release gate 71 tests PASS; cost regression gate 29 gates PASS; i18n 9 tests PASS; Expo Android AND iOS exports OK; Android prebuild OK; gradlew :app:assembleDebug BUILD SUCCESSFUL (374 tasks, 13m31s). The accepted delta repairs only the trusted golden-path automation (scripts/e2e-android.js): a scroll-aware findVisible/waitForVisible that resets to top and sweeps down so below-the-fold controls pruned by uiautomator (category manager create action, expense submit, confirmation toasts) are reachable on the real API 35 golden path, plus scroll resets before filling the task/expense forms. Product/ledger code is unchanged and V4-01..V4-08 remain preserved. V4-09 is the FINAL roadmap criterion, so there is no next criterion to author; final completion belongs EXCLUSIVELY to the trusted release finalizer and is not claimed here. The factory Builder loop stops: the trusted shell owns the V4-09 state transition and the handoff. The finalizer must re-run the ordered finalization of V4_RELEASE_ENGINEERING.md against this accepted baseline: product/privacy/cost/i18n gates, Expo exports, x86_64 release install on a genuinely-ready API 35 emulator (ADB state=device, service check package/activity), the full V4 golden path without Metro, then the arm64-v8a release APK with SHA-256 and an artifact retained >=30 days, and only then v4-complete with no open finding. No release gate is weakened, skipped or reinterpreted and no completed criterion is reopened.",
+  "progressEvidence": [
+    "auditDecision-accept-criterionId-V4-09-hasDelta-true",
+    "zero-mustFix-findings-audit-findings-empty",
+    "trusted-verification-exit-0-typecheck-657-tests-31-suites",
+    "privacy-release-contract-71-tests-PASS",
+    "cost-regression-gate-29-gates-PASS",
+    "i18n-check-9-tests-PASS",
+    "expo-export-android-OK-and-expo-export-ios-OK",
+    "android-prebuild-OK-assembleDebug-BUILD-SUCCESSFUL-374-tasks",
+    "accepted-delta-is-scroll-aware-golden-path-automation-scripts-e2e-android-js-findVisible-waitForVisible",
+    "below-the-fold-controls-reachable-category-create-expense-submit-confirmation-toasts-on-real-API35",
+    "product-ledger-code-unchanged-repair-only-touches-trusted-e2e-automation",
+    "V4-01-through-V4-08-preserved-zero-regression",
+    "V4-09-is-final-roadmap-criterion-no-next-criterion",
+    "builder-loop-stops-trusted-shell-owns-V4-09-state-and-handoff",
+    "trusted-finalizer-owns-V4-09-completion-re-run-ordered-finalization-per-V4_RELEASE_ENGINEERING",
+    "finalizer-x86_64-API35-golden-path-then-arm64-v8a-APK-SHA-256-artifact-30-days-then-v4-complete",
+    "no-release-gate-weakened-skipped-or-reinterpreted",
+    "V3-foundations-two-ledgers-zero-sum-explicit-only-cross-ledger-compensation-rate-snapshot-historical-unit-semantics-local-first-delta-only-bounded-cost-incremental-analytics-privacy-separation-preserved"
+  ]
+}
