@@ -1232,12 +1232,13 @@ try {
   // app has enough time to cold-start AND appear before the timeout fires.
   waitFor('Créer un groupe', 1260000, { graceMs: COLD_START_GRACE_MS });
   screenshot('01-groups');
-  // The E2E session is restored on launch; the demo fixture seeds the
-  // "Appartement" group.  A normal build would show the social sign-in
+  // The E2E session is restored on launch but must not fabricate any
+  // household or member data. A normal build would show the social sign-in
   // screen instead — the absence of "Démarrer"/"Demo" below proves the
   // session was injected without a demo entry point.
   assertAbsentExact('Démarrer');
   assertAbsentExact('Demo');
+  assertAbsentExact('Appartement');
   assertAbsentExact('Premium');
   assertAbsentExact('Standard');
   assertAbsentExact('Pro');
