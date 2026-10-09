@@ -341,6 +341,15 @@ describe('V4-03 Groups root UI', () => {
     expect(indexSource).toContain('groups.memberNamePlaceholder');
     expect(indexSource).toContain('createHousehold(newGroupName.trim(), memberNames)');
   });
+
+  test('sign-in never seeds a demo household or demo members', () => {
+    const appContext = fs.readFileSync(
+      path.join(ROOT, 'src/features/app/AppContext.tsx'),
+      'utf8',
+    );
+    expect(appContext).not.toContain('ensureDemoFixture');
+    expect(appContext).not.toContain('DEMO_HOUSEHOLD_ID');
+  });
 });
 
 // ─────────────────────────────────────────────────────────────
