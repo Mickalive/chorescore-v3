@@ -2,9 +2,11 @@
   "schemaVersion": 1,
   "milestone": "v4-rc",
   "lastCycle": "37900691065",
-  "activeCriteria": [],
-  "pendingArtifact": "V4-09-RELEASE",
-  "progressSummary": "V4-09 accepted; trusted V4 mobile finalizer owns APK/API35/golden-path completion.",
+  "activeCriteria": [
+    "V4-09"
+  ],
+  "pendingArtifact": null,
+  "progressSummary": "V4-09 reopened after trusted finalizer failure in run 37909577314",
   "criteria": [
     {
       "id": "V4-01",
@@ -72,7 +74,16 @@
       ]
     }
   ],
-  "openFindings": [],
+  "openFindings": [
+    {
+      "path": "release",
+      "problem": "Trusted V4 finalizer failed",
+      "evidence": "GitHub Actions V4 finalizer run 37909577314",
+      "mustFix": true,
+      "requiredFix": "Inspect the exact trusted finalizer failed logs and repair only the concrete V4 product/build/Android/E2E blocker. Distinguish infrastructure from product and do not repeat unchanged.",
+      "verification": "Trusted V4 finalizer must pass all gates and produce the final arm64-v8a APK."
+    }
+  ],
   "factoryHealth": {
     "stalled": false,
     "consecutiveNoProgress": 0,
