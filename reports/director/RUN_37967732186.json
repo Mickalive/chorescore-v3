@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "cycle": "37967732186",
+  "decision": "stop",
+  "reason": "Audit decision: accept. The trusted manifest reports auditDecision=accept, criterionId=V4-09, hasDelta=true. The audit (reports/audits/RUN_37967732186.json/.md) accepts the repair candidate with two non-blocking findings (mustFix=false, both already fixed in candidate) and zero must-fix findings. Trusted verification exit code 0 (reports/audits/TRUSTED_37967732186.md): typecheck 0 errors; 658 tests / 31 suites PASS; privacy release contract 71 tests PASS; cost regression gate 29 gates PASS; i18n 9 tests PASS; Expo Android AND iOS exports OK; Android prebuild OK; gradlew :app:assembleDebug BUILD SUCCESSFUL (19m44s, 374 tasks). The accepted delta repairs only the trusted golden-path/finalizer automation, not product/ledger code: scripts/e2e-android.js sets hide_error_dialogs=1 before launch (line ~999) and scripts/finalizer-e2e.sh adds a bounded suppress_error_dialogs() function (lines 146-164). Both address the concrete infrastructure failure mode of trusted finalizer run 37962372613, where recurring SystemUI/Quickstep/launcher ANR dialogs on unaccelerated API 35 x86_64 runners remained the FOCUSED window, covering the app UI and burning the whole 21-minute golden-path window despite a healthy app process (pid alive, MainActivity focused, no app ANR). Crash detection still relies on pidof (process state), so app crashes remain detectable and no application ANR is masked. Product/ledger code is unchanged and V4-01..V4-08 remain preserved with zero regression. V4-09 is the FINAL roadmap criterion (priority 90): there is no next V4 criterion to author. Its final completion belongs EXCLUSIVELY to the trusted release finalizer and is not claimed here — this cycle produced product/privacy/cost/i18n gate evidence only, and no APK/install/golden-path/finalizer artifact evidence yet exists. The open release finding therefore stays open and the trusted shell owns the V4-09 state transition. The factory Builder loop stops; the finalizer must re-run the ordered finalization of docs/V4_RELEASE_ENGINEERING.md section 2 against this accepted baseline: product/privacy/cost/i18n gates, Expo Android+iOS exports, prebuild, x86_64 release for the emulator, genuine Android readiness (ADB state=device, service check package/activity), install + full golden path on API 35 with no forbidden visible label, then final arm64-v8a release APK, SHA-256, artifact chorescore-v4-android-release with >=30-day retention, and only then v4-complete with no open finding. No release gate was weakened, skipped or reinterpreted, and all V3 foundations are intact: two independent ledgers; zero-sum per contribution unit and per currency; explicit-only cross-ledger compensation with rate snapshot; historical unit semantics (no reinterpretation); local-first/delta-only backend; materialized balances; bounded network cost; incremental analytics/classification cache; privacy plane separation; 100% free model; no chrono; warm adult V2 visual direction.",
+  "progressEvidence": [
+    "auditDecision-accept-criterionId-V4-09-hasDelta-true",
+    "audit-findings-two-non-blocking-mustFix-false-zero-mustFix-findings",
+    "trusted-verification-exit-0-typecheck-0-errors-658-tests-31-suites",
+    "privacy-release-contract-71-tests-PASS",
+    "cost-regression-gate-29-gates-PASS",
+    "i18n-check-9-tests-PASS",
+    "expo-export-android-OK-and-expo-export-ios-OK",
+    "android-prebuild-OK-assembleDebug-BUILD-SUCCESSFUL-374-tasks-19m44s",
+    "accepted-delta-touches-only-trusted-e2e-automation-scripts-e2e-android-js-and-scripts-finalizer-e2e-sh",
+    "e2e-android-js-sets-hide_error_dialogs-1-before-launch-line-999",
+    "finalizer-e2e-sh-adds-bounded-suppress_error_dialogs-function-lines-146-164",
+    "targets-infrastructure-failure-mode-of-finalizer-run-37962372613-ANR-dialogs-FOCUSED-window-covered-app-UI",
+    "crash-detection-still-uses-pidof-process-state-not-dialog-presence-no-app-ANR-masked",
+    "product-ledger-code-unchanged-repair-only-touches-trusted-e2e-automation",
+    "V4-01-through-V4-08-preserved-zero-regression",
+    "V4-09-is-final-roadmap-criterion-priority-90-no-next-criterion",
+    "no-apk-install-golden-path-finalizer-artifact-evidence-yet-final-completion-not-claimed",
+    "open-release-finding-stays-open-trusted-shell-owns-V4-09-state-transition",
+    "builder-loop-stops-trusted-finalizer-reruns-ordered-finalization-V4_RELEASE_ENGINEERING-section-2",
+    "finalizer-x86_64-API35-golden-path-then-arm64-v8a-APK-SHA-256-artifact-30-days-then-v4-complete-no-open-finding",
+    "no-release-gate-weakened-skipped-or-reinterpreted",
+    "V3-foundations-two-ledgers-zero-sum-explicit-only-cross-ledger-compensation-rate-snapshot-historical-unit-semantics-local-first-delta-only-bounded-cost-incremental-analytics-privacy-separation-preserved"
+  ]
+}
