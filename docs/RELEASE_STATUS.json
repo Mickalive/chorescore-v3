@@ -6,7 +6,7 @@
     "V4-09"
   ],
   "pendingArtifact": null,
-  "progressSummary": "V4-09 reopened after trusted finalizer failure in run 37988155828",
+  "progressSummary": "V4-09 blocked on final Android release plus targeted named-member invitation linkage; both must pass before APK.",
   "criteria": [
     {
       "id": "V4-01",
@@ -86,6 +86,14 @@
       "mustFix": true,
       "requiredFix": "Inspect the exact trusted finalizer failed logs and repair only the concrete V4 product/build/Android/E2E blocker. Distinguish infrastructure from product and do not repeat unchanged.",
       "verification": "Trusted V4 finalizer must pass all gates and produce the final arm64-v8a APK."
+    },
+    {
+      "path": "member-invitation-link",
+      "problem": "V4 invitation can currently create a second linked member instead of linking the existing named member identity.",
+      "evidence": "Current join flow planInvitationAcceptance creates a new Member; named members created with the group carry userId=null and must be linked in place.",
+      "mustFix": true,
+      "requiredFix": "Allow inviting a specific named member. Carry the target memberId in the invitation and, on acceptance, update that existing member with the authenticated userId atomically with membership creation and invitation acceptance. Never match or merge by display name. Preserve the same memberId so all historical ledger references remain intact.",
+      "verification": "E2E/domain test: create group with named member Marie -> create/share invitation for Marie -> accept as authenticated Marie -> household has one Marie member with the original memberId and non-null userId; no duplicate member; historical entries referencing the original memberId remain unchanged."
     }
   ],
   "factoryHealth": {
