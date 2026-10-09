@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "cycle": "37911408311",
+  "decision": "stop",
+  "reason": "Audit decision: accept. The trusted manifest reports auditDecision=accept, criterionId=V4-09, hasDelta=true. The audit (reports/audits/RUN_37911408311.json/.md) accepts the repaired candidate with an empty findings array and no must-fix finding. Trusted verification exit code 0 (reports/audits/TRUSTED_37911408311.md): typecheck 0 errors; 658 tests / 31 suites; privacy release contract 71 tests PASS; cost regression gate 29 gates PASS; i18n 9 tests PASS; Expo Android AND iOS exports OK; Android prebuild OK; gradlew app assembleDebug BUILD SUCCESSFUL (374 tasks, 15m11s). The accepted delta repairs only the trusted finalizer E2E wrapper (scripts/finalizer-e2e.sh plus a dedicated wrapper-contract test): it adds a framework_cmd_ready() liveness probe (real settings round-trip, treating broken pipe/not-found/empty as not-ready), extends wait_android_services() to require the input and settings services in addition to package/activity, and adds a bounded best-effort dismiss_keyguard() re-assertion before install/launch. This addresses the concrete infrastructure failure mode of trusted finalizer run 37909577314, where right after sys.boot_completed=1 the runner action's own input keyevent/settings put calls returned 'Failure calling service input/settings: Broken pipe (32)'. Product/ledger code is unchanged and V4-01..V4-08 remain preserved. V4-09 is the FINAL roadmap criterion (priority 90), so there is no next criterion to author; its final completion belongs EXCLUSIVELY to the trusted release finalizer and is not claimed here. No privacy/cost/APK/install/golden-path release evidence exists yet, so the open release finding stays open and the trusted shell owns the V4-09 state transition. The factory Builder loop stops: the finalizer must re-run the ordered finalization of V4_RELEASE_ENGINEERING per docs/V4_RELEASE_ENGINEERING.md section 2 against this accepted baseline. No release gate is weakened, skipped or reinterpreted and no completed criterion is reopened.",
+  "progressEvidence": [
+    "auditDecision-accept-criterionId-V4-09-hasDelta-true",
+    "zero-mustFix-findings-audit-findings-empty",
+    "trusted-verification-exit-0-typecheck-658-tests-31-suites",
+    "privacy-release-contract-71-tests-PASS",
+    "cost-regression-gate-29-gates-PASS",
+    "i18n-check-9-tests-PASS",
+    "expo-export-android-OK-and-expo-export-ios-OK",
+    "android-prebuild-OK-assembleDebug-BUILD-SUCCESSFUL-374-tasks-15m11s",
+    "accepted-delta-touches-only-trusted-finalizer-wrapper-scripts-finalizer-e2e-sh-plus-wrapper-contract-test",
+    "repair-adds-framework-cmd-ready-liveness-probe-settings-round-trip-broken-pipe-as-not-ready",
+    "repair-extends-wait-android-services-to-require-input-and-settings-services",
+    "repair-adds-bounded-best-effort-dismiss-keyguard-before-install-launch",
+    "targets-infrastructure-failure-mode-of-finalizer-run-37909577314-broken-pipe-input-settings-after-boot-completed",
+    "product-ledger-code-unchanged-repair-only-touches-trusted-e2e-automation",
+    "V4-01-through-V4-08-preserved-zero-regression",
+    "V4-09-is-final-roadmap-criterion-priority-90-no-next-criterion",
+    "no-privacy-cost-apk-install-golden-path-release-evidence-yet-final-completion-not-claimed",
+    "builder-loop-stops-trusted-shell-owns-V4-09-state-and-handoff",
+    "trusted-finalizer-owns-V4-09-completion-rerun-ordered-finalization-per-V4_RELEASE_ENGINEERING-section-2",
+    "finalizer-x86_64-API35-golden-path-then-arm64-v8a-APK-SHA-256-artifact-30-days-then-v4-complete",
+    "no-release-gate-weakened-skipped-or-reinterpreted",
+    "V3-foundations-two-ledgers-zero-sum-explicit-only-cross-ledger-compensation-rate-snapshot-historical-unit-semantics-local-first-delta-only-bounded-cost-incremental-analytics-privacy-separation-preserved"
+  ]
+}
