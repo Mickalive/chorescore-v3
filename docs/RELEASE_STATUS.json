@@ -1,12 +1,12 @@
 {
   "schemaVersion": 1,
   "milestone": "v4-rc",
-  "lastCycle": "37876759565",
+  "lastCycle": "37878720176",
   "activeCriteria": [
     "V4-07"
   ],
   "pendingArtifact": null,
-  "progressSummary": "Audited V4-05 requires targeted repair; safe WIP retained and autonomous loop continues.",
+  "progressSummary": "Audited V4-07 requires targeted repair; safe WIP retained and autonomous loop continues.",
   "criteria": [
     {
       "id": "V4-01",
@@ -67,11 +67,68 @@
       "evidence": []
     }
   ],
-  "openFindings": [],
+  "openFindings": [
+    {
+      "path": "src/domain/entities/index.ts",
+      "problem": "SyncCollection type and SYNC_COLLECTIONS array missing 'categories' and 'invitations' collections. These V4-01/V3-06 entities will not participate in delta-only sync, violating V4-07 requirement 'delta-only préservé' and 'sync aux catégories, membres nommés, invitations'.",
+      "evidence": "SyncCollection type defines 8 collections: contribution_entries, expense_entries, settlements, todo_items, persistent_tasks, members, memberships, households. Categories and invitations are absent. syncEngine.ts iterates SYNC_COLLECTIONS for pull/push, so these collections are never synced.",
+      "mustFix": true,
+      "requiredFix": "Add 'categories' and 'invitations' to SyncCollection type and SYNC_COLLECTIONS array. Ensure repositories implement SyncStateRepository.applyDeltas/materialization for these collections. Add sync tests for categories and invitations.",
+      "verification": "Sync tests pass for categories and invitations; pullDeltas/pushDeltas materialize category and invitation records; cost budget 'sync-delta' updated to reflect 10 collections."
+    },
+    {
+      "path": "src/domain/services/costInstrumentation.ts",
+      "problem": "COST_BUDGETS missing budgets for category operations (create-category, update-category, delete-category) and todo-expense operations (create-todo-expense, complete-todo-expense). V4-07 requires 'cost gate étendu'.",
+      "evidence": "COST_BUDGETS defines 7 budgets: open-household, tab-switch, create-contribution, complete-todo, sync-delta, create-invitation, accept-invitation. No budgets for category CRUD or todo-expense completion.",
+      "mustFix": true,
+      "requiredFix": "Add cost budgets for: create-category (writes: 1), update-category (writes: 1), delete-category (writes: 1), create-todo-expense (writes: 1), complete-todo-expense (writes: 2: todo update + expense create). Update sync-delta budget reads/writes from 8 to 10 collections.",
+      "verification": "Cost gate tests pass with new budgets; costTracker.assertBudget enforces them; cost-gates-v3-08.test.ts extended with category and todo-expense budget tests."
+    },
+    {
+      "path": "src/infrastructure/repositories/index.ts",
+      "problem": "Missing pagination (getByHouseholdPaginated) for CategoryRepository, MemberRepository, InvitationRepository, PersistentTaskRepository, TodoRepository. V4-07 requires 'aucun N+1/full scan' and 'historique paginé'.",
+      "evidence": "Only ContributionEntryRepository, ExpenseEntryRepository, SettlementRepository have getByHouseholdPaginated. Categories, members, invitations, persistent_tasks, todos only have getByHousehold returning all items.",
+      "mustFix": true,
+      "requiredFix": "Add getByHouseholdPaginated to CategoryRepository, MemberRepository, InvitationRepository, PersistentTaskRepository, TodoRepository interfaces and implement in both InMemory and SQLite adapters. Use same cursor pattern (occurredAt DESC, id DESC) as existing paginated repos.",
+      "verification": "Pagination tests pass for all repositories; cost gate 'open-household' reads remain ≤5 with paginated access; no full scans on large collections."
+    },
+    {
+      "path": "src/domain/services/syncEngine.ts",
+      "problem": "sync-delta cost budget assumes 8 collections but will be 10 after adding categories and invitations. Budget must be updated to reflect actual collection count.",
+      "evidence": "COST_BUDGETS['sync-delta'] = { reads: 8, writes: 8, networkCalls: 2 } with comment '8 collections × pull + push'. SYNC_COLLECTIONS currently has 8 items; adding categories and invitations makes 10.",
+      "mustFix": true,
+      "requiredFix": "Update sync-delta budget to { reads: 10, writes: 10, networkCalls: 2 } after adding categories and invitations to SYNC_COLLECTIONS.",
+      "verification": "Cost gate test 'sync-delta budget limits reads to ≤8' updated to ≤10 and passes."
+    },
+    {
+      "path": "__tests__/domain/v3-06-sync-e2e.test.ts",
+      "problem": "No sync tests for categories and invitations collections. V4-07 requires 'conflicts déterministes' and 'tenant isolation' verified for all synced collections.",
+      "evidence": "v3-06-sync-e2e.test.ts tests pull/push for contribution_entries and expense_entries only. v3-06-groups-invitations-sync.test.ts tests invitation lifecycle but not sync engine integration.",
+      "mustFix": true,
+      "requiredFix": "Add sync E2E tests for categories and invitations: remote delta materializes into business repo, local write produces dirty record, push sends to remote, conflict resolution, cross-tenant isolation.",
+      "verification": "New sync tests pass; categories and invitations behave identically to contributions/expenses in sync pipeline."
+    },
+    {
+      "path": "__tests__/domain/cost-gates-v3-08.test.ts",
+      "problem": "Cost gate tests don't cover category operations or todo-expense operations. V4-07 requires 'cost gate étendu'.",
+      "evidence": "cost-gates-v3-08.test.ts has 10 gates covering open-household, tab-switch, sync-delta, create-contribution, create-expense, classification cache, privacy gate, cost budgets, offline, golden path, accessibility. No gates for category CRUD or todo-expense.",
+      "mustFix": true,
+      "requiredFix": "Add cost gate tests: Gate 11 - category create/update/delete are bounded writes (1 each, independent of history); Gate 12 - todo-expense create/complete are bounded writes; Gate 13 - sync-delta with 10 collections stays within budget.",
+      "verification": "Extended cost gate tests pass; all new budgets enforced by costTracker.assertBudget."
+    },
+    {
+      "path": "src/infrastructure/repositories/SqliteRepositories.ts",
+      "problem": "SQLite repositories for categories, invitations, members, persistent_tasks, todos lack pagination implementation. InMemory repositories also lack pagination for these collections.",
+      "evidence": "SqliteCategoryRepository, SqliteMemberRepository, SqliteInvitationRepository, SqlitePersistentTaskRepository, SqliteTodoRepository only implement getByHousehold, not getByHouseholdPaginated.",
+      "mustFix": true,
+      "requiredFix": "Implement getByHouseholdPaginated in all five SQLite repositories with proper SQL LIMIT/OFFSET or cursor-based pagination. Mirror InMemory implementation pattern.",
+      "verification": "Pagination tests pass for both InMemory and SQLite adapters; paginated queries return correct cursor and hasMore."
+    }
+  ],
   "factoryHealth": {
     "stalled": false,
-    "consecutiveNoProgress": 0,
-    "lastProductSha": "04a5f9b69321ddfa61c2cde5159ea8b149e3f3b6",
+    "consecutiveNoProgress": 1,
+    "lastProductSha": "e6978f4e780c87b13d29a2daa2d8a1290b5af75a",
     "reason": null
   }
 }
