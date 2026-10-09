@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "cycle": "37864743792",
+  "decision": "continue",
+  "reason": "V4-04 (Ajouter — Tâches, Dépenses, catégories, notes et photos) accepted with delta and no must-fix findings; all eight acceptance criteria verified with supporting tests and trusted verification green. Proceed to the next roadmap criterion V4-05 — Balances — historique, édition, suppression et partage: centraliser les deux ledgers et l'historique paginé, permettre l'ouverture/modification/suppression (replay/tombstone)/partage de toute Tâche ou Dépense depuis Balances, tout en préservant les périodes comme vues et la compensation V3.",
+  "progressEvidence": [
+    "auditDecision: accept",
+    "criterionId: V4-04",
+    "hasDelta: true",
+    "reports/audits/RUN_37864743792.json: decision=accept, findings=[]",
+    "Trusted verification exit code 0 (reports/audits/TRUSTED_37864743792.md)",
+    "typecheck PASS; 28 suites / 588 Jest tests PASS",
+    "privacy release contract PASS (71 focused tests); cost regression gates PASS (21 gates); i18n catalog parity PASS (9 tests, FR/EN with correct French accents)",
+    "Expo Android export PASS (bundled 1336 modules to v4-audit-android-export)",
+    "V4-04 acceptance verified: UI says Tâche|Task (no Contribution literal); zero seeded categories; safe category create/rename/delete with label snapshot; equal/category-default/custom task split with override precedence; exact integer-minor-unit expense split (equal/custom); optional note+photo on task and expense; Members section replaces old history; native share sheet reuse",
+    "Non-regression: V4-01, V4-02, V4-03 preserved; V3 invariants preserved (zero-sum ledgers, local-first, delta-only sync, materialized balances, classification cache, privacy separation, photos lazy/no bulk download, no chrono)"
+  ]
+}

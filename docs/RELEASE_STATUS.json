@@ -1,9 +1,9 @@
 {
   "schemaVersion": 1,
   "milestone": "v4-rc",
-  "lastCycle": "37858935787",
+  "lastCycle": "37864743792",
   "activeCriteria": [
-    "V4-04"
+    "V4-05"
   ],
   "pendingArtifact": null,
   "progressSummary": "Audited V4-02 requires targeted repair; safe WIP retained and autonomous loop continues.",
@@ -32,12 +32,14 @@
     },
     {
       "id": "V4-04",
-      "status": "in_progress",
-      "evidence": []
+      "status": "complete",
+      "evidence": [
+        "audit-accepted-37864743792"
+      ]
     },
     {
       "id": "V4-05",
-      "status": "pending",
+      "status": "in_progress",
       "evidence": []
     },
     {
@@ -65,7 +67,7 @@
   "factoryHealth": {
     "stalled": false,
     "consecutiveNoProgress": 0,
-    "lastProductSha": "0c733b59b7041eb5a4282a650c6c436d3c81fbfa",
+    "lastProductSha": "492334493e230c5ef5e20a1df9d4937b6aad069e",
     "reason": null
   }
 }
