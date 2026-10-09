@@ -22,8 +22,14 @@ export const E2E_AUTH_ENV_VALUE = '1';
 type EnvLike = Record<string, string | undefined>;
 
 function readProcessEnv(): EnvLike {
-  const globalProcess = (globalThis as { process?: { env?: EnvLike } }).process;
-  return globalProcess?.env ?? {};
+  // Static member access is required. Expo's Babel plugin
+  // (`babel-preset-expo/plugins/inline-env-vars`) only inlines
+  // `process.env.EXPO_PUBLIC_*` when the object is the literal `process`
+  // identifier. A dynamic key (or `globalThis.process`) is never inlined, so
+  // the production bundle would always see an empty env and the deterministic
+  // E2E session would never activate.
+  const value = process.env.EXPO_PUBLIC_E2E_AUTH;
+  return value === undefined ? {} : { [E2E_AUTH_ENV_VAR]: value };
 }
 
 /**

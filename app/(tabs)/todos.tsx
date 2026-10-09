@@ -654,6 +654,7 @@ export default function TodosScreen() {
               <View style={styles.inputGroup}>
                 <Text variant="caption">{t('todos.titleLabel')}</Text>
                 <TextInput
+                  testID="todos.createTitle"
                   style={styles.input}
                   value={createForm.title}
                   onChangeText={(value) => setCreateForm((p) => ({ ...p, title: value }))}
@@ -797,6 +798,7 @@ export default function TodosScreen() {
                   <Text variant="caption">{t('todos.plannedAmount')}</Text>
                   <View style={styles.amountRow}>
                     <TextInput
+                      testID="todos.createAmount"
                       style={[styles.input, styles.amountInput]}
                       value={createForm.expenseAmountRaw}
                       onChangeText={(value) => setCreateForm((p) => ({ ...p, expenseAmountRaw: value }))}
@@ -805,6 +807,7 @@ export default function TodosScreen() {
                       keyboardType="decimal-pad"
                     />
                     <TextInput
+                      testID="todos.createCurrency"
                       style={[styles.input, styles.currencyInput]}
                       value={createForm.expenseCurrency}
                       onChangeText={(value) => setCreateForm((p) => ({ ...p, expenseCurrency: value }))}
@@ -911,6 +914,7 @@ export default function TodosScreen() {
               <View style={styles.inputGroup}>
                 <Text variant="caption">{t('todos.notes')}</Text>
                 <TextInput
+                  testID="todos.createNotes"
                   style={styles.input}
                   value={createForm.notes}
                   onChangeText={(value) => setCreateForm((p) => ({ ...p, notes: value }))}
@@ -1000,6 +1004,7 @@ export default function TodosScreen() {
                     <Text variant="caption">{t('add.amount')}</Text>
                     <View style={styles.amountRow}>
                       <TextInput
+                        testID="todos.completeAmount"
                         style={[styles.input, styles.amountInput]}
                         value={completeForm.amountRaw}
                         onChangeText={(value) => setCompleteForm((p) => ({ ...p, amountRaw: value }))}
@@ -1008,6 +1013,7 @@ export default function TodosScreen() {
                         keyboardType="decimal-pad"
                       />
                       <TextInput
+                        testID="todos.completeCurrency"
                         style={[styles.input, styles.currencyInput]}
                         value={completeForm.currency}
                         onChangeText={(value) => setCompleteForm((p) => ({ ...p, currency: value }))}
@@ -1055,6 +1061,7 @@ export default function TodosScreen() {
                   <View style={styles.inputGroup}>
                     <Text variant="caption">{t('todos.value', { unit: unitLabel })}</Text>
                     <TextInput
+                      testID="todos.completeValue"
                       style={styles.input}
                       value={completeForm.value}
                       onChangeText={(value) => setCompleteForm((p) => ({ ...p, value }))}
@@ -1225,6 +1232,7 @@ export default function TodosScreen() {
               <View style={styles.inputGroup}>
                 <Text variant="caption">{t('add.noteOptional')}</Text>
                 <TextInput
+                  testID="todos.completeNote"
                   style={styles.input}
                   value={completeForm.note}
                   onChangeText={(value) => setCompleteForm((p) => ({ ...p, note: value }))}

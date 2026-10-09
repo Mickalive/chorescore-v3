@@ -17,6 +17,7 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { LocalAuthAdapter } from '../../infrastructure/local/LocalAuthAdapter';
 import { LocalSystemShareAdapter } from '../../infrastructure/local/LocalSystemShareAdapter';
+import { E2EShareAdapter } from '../../infrastructure/local/E2EShareAdapter';
 import { LocalNotificationAdapter } from '../../infrastructure/local/LocalNotificationAdapter';
 import { LocalCalendarAdapter } from '../../infrastructure/local/LocalCalendarAdapter';
 import { LocalSecureStorageAdapter } from '../../infrastructure/local/LocalSecureStorageAdapter';
@@ -31,7 +32,7 @@ import {
   AllRepositories,
 } from '../../infrastructure/repositories/RepositoryFactory';
 import { createScopedRepositories } from '../../infrastructure/repositories/ScopedRepositoryFacade';
-import { AuthUser, AttachmentGateway } from '../../application/ports';
+import { AuthUser, AttachmentGateway, SystemShareGateway } from '../../application/ports';
 import { Household, Member } from '../../domain/entities';
 import {
   addGroupMember,
@@ -92,7 +93,7 @@ interface AppState {
 
   // Services
   services: {
-    share: LocalSystemShareAdapter;
+    share: SystemShareGateway;
     notifications: LocalNotificationAdapter;
     calendar: LocalCalendarAdapter;
     /** V4-01: photo attachments behind an honest port (no provider faked). */
@@ -156,7 +157,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const servicesRef = useRef({
     auth: new LocalAuthAdapter({ secureStorage: new LocalSecureStorageAdapter() }),
-    share: new LocalSystemShareAdapter(),
+    // V4-09: the normal build uses the real native share sheet. The explicit,
+    // secretless E2E build gets a deterministic adapter so the share journey
+    // can be driven without a SystemUI sheet the harness cannot dismiss.
+    share: isE2EAuthEnabled() ? new E2EShareAdapter(true) : new LocalSystemShareAdapter(),
     notifications: new LocalNotificationAdapter(),
     calendar: new LocalCalendarAdapter(),
     secureStorage: new LocalSecureStorageAdapter(),

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# ChoreScore V3 — Finalizer E2E single-line invocation
+# ChoreScore V4 — Finalizer E2E single-line invocation
 #
 # This script runs inside the GitHub Actions android-emulator-runner
 # step. The action splits a multi-line `script:` block into separate
@@ -13,10 +13,19 @@
 # The E2E script (npm run e2e:android) already auto-locates the APK
 # and skips install when the package is present on the emulator, so
 # this wrapper only needs the same logic in one shell.
+#
+# V4-09: the trusted workflow builds the release APK without
+# EXPO_PUBLIC_E2E_AUTH, so the installed app would show the social
+# sign-in screen and the golden path could never reach Groups. Expo
+# inlines EXPO_PUBLIC_* at bundle time, so the flag cannot be enabled
+# at runtime. This wrapper rebuilds the x86_64 release APK with the
+# flag set, then clears the E2E-flagged bundle outputs before the
+# later arm64 release build so the final artifact never contains the
+# deterministic E2E session.
 
 set -euo pipefail
 
-echo "=== ChoreScore V3 finalizer E2E ==="
+echo "=== ChoreScore V4 finalizer E2E ==="
 echo "Time: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
 # Wait until Android's framework services are actually available, not merely
@@ -100,6 +109,55 @@ else
 fi
 echo "sys.boot_completed: $(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r' || echo 'unknown')"
 echo "ro.build.version.sdk: $(adb shell getprop ro.build.version.sdk 2>/dev/null | tr -d '\r' || echo 'unknown')"
+
+# ── Metro cache invalidation ───────────────────────────────────────────
+# Expo inlines EXPO_PUBLIC_* at Babel transform time, but Metro's transform
+# cache key does NOT include environment variables (see
+# @expo/metro-config/build/babel-transformer.js getCacheKey, which only hashes
+# Babel config files).  A warm cache from the earlier non-E2E build would
+# therefore be reused and the flag would be silently ignored, leaving the E2E
+# session inactive.  Clear the cache before any build whose EXPO_PUBLIC_*
+# environment differs from the previous build.
+clear_metro_cache() {
+  local cache_dir
+  cache_dir="$(node -e 'process.stdout.write(require("path").join(require("os").tmpdir(),"metro-cache"))' 2>/dev/null || true)"
+  if [ -z "$cache_dir" ]; then
+    cache_dir="/tmp/metro-cache"
+  fi
+  if [ -d "$cache_dir" ]; then
+    echo "Clearing Metro transform cache at $cache_dir (EXPO_PUBLIC_* is not part of the cache key)"
+    rm -rf "$cache_dir"
+  fi
+}
+
+# ── E2E session injection (V4-09) ──────────────────────────────────────
+# The trusted workflow builds the release APK without EXPO_PUBLIC_E2E_AUTH,
+# so the installed app would show the social sign-in screen and the golden
+# path could never reach Groups.  Expo inlines EXPO_PUBLIC_* at bundle time,
+# so the flag cannot be enabled at runtime.  Rebuild the x86_64 release APK
+# here with the flag set, forcing the JS bundle task to re-run (the native
+# compile stays cached).  The bundle outputs are deleted again after the E2E
+# so the later arm64 release build re-bundles WITHOUT the flag and the final
+# artifact never contains the E2E session.
+E2E_REBUILT=0
+if [ "${EXPO_PUBLIC_E2E_AUTH:-}" != "1" ]; then
+  echo "Rebuilding x86_64 release APK with EXPO_PUBLIC_E2E_AUTH=1..."
+  export EXPO_PUBLIC_E2E_AUTH=1
+  # Delete the JS bundle outputs so Gradle re-runs the bundle task.  Gradle
+  # does not track environment variables as task inputs, so without deleting
+  # the outputs the task would be UP-TO-DATE and the flag would be ignored.
+  rm -rf android/app/build/generated
+  rm -rf android/app/build/intermediates/assets
+  rm -rf android/app/build/intermediates/merged_assets
+  rm -f android/app/build/outputs/apk/release/*.apk
+  # Metro's transform cache is keyed independently of EXPO_PUBLIC_* env vars,
+  # so the earlier non-E2E build's cached transform of e2eAuthConfig.ts would
+  # otherwise be reused and the flag would never reach the bundle.
+  clear_metro_cache
+  ( cd android && ./gradlew :app:assembleRelease -PreactNativeArchitectures=x86_64 --no-daemon )
+  E2E_REBUILT=1
+  echo "E2E release APK rebuilt with the deterministic session."
+fi
 
 # 1. Locate the release APK
 apk=$(find android/app/build/outputs/apk/release -type f -name '*.apk' | head -1)
@@ -277,6 +335,23 @@ if [ "$E2E_EXIT" -ne 0 ]; then
   echo "═══════════════════════════════════════════════════════════════"
   echo ""
   echo "E2E FAILED — diagnostic evidence echoed to stdout for step logs" >&2
+fi
+
+# ── Prevent E2E session leak into the final artifact ───────────────────
+# The arm64 release build runs in a later workflow step.  Gradle does not
+# track environment variables as task inputs, so if the E2E-flagged bundle
+# outputs remain, the arm64 build would reuse the E2E JS bundle.  Delete the
+# bundle outputs so the arm64 build re-bundles without EXPO_PUBLIC_E2E_AUTH.
+if [ "${E2E_REBUILT:-0}" -eq 1 ]; then
+  echo "Clearing E2E-flagged bundle outputs before the arm64 release build..."
+  rm -rf android/app/build/generated
+  rm -rf android/app/build/intermediates/assets
+  rm -rf android/app/build/intermediates/merged_assets
+  rm -f android/app/build/outputs/apk/release/*.apk
+  # The arm64 build runs in a later workflow step with EXPO_PUBLIC_E2E_AUTH
+  # unset.  Metro's cache key ignores env vars, so the E2E-flagged transform
+  # must be evicted or the arm64 bundle would embed the E2E session.
+  clear_metro_cache
 fi
 
 exit "$E2E_EXIT"

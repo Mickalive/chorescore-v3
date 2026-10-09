@@ -2,10 +2,14 @@
 'use strict';
 
 /**
- * ChoreScore V3 — Android E2E golden path via adb
+ * ChoreScore V4 — Android E2E golden path via adb
  *
- * Adapted from V2 for V3 navigation: Ajouter | Balances | A faire.
- * No chrono, no premium. Three-tab navigation. Factual, mature design.
+ * V4 navigation: Ajouter | Balances | À faire. No chrono, no premium, no demo
+ * entry point. The explicit E2E build injects a deterministic local session so
+ * the app lands directly on Groups; the golden path then creates a group with
+ * named members, a free category, a task and an expense (custom splits, note,
+ * photo), adds a member, edits/shares from Balances, completes a todo task and
+ * a todo expense, and switches FR/EN.
  *
  * Expects to run inside the GitHub Actions android-emulator-runner
  * with adb available and the release APK already installed.
@@ -356,6 +360,8 @@ function inputKeyText(value) {
     if (/^[a-z]$/.test(ch)) return `KEYCODE_${ch.toUpperCase()}`;
     if (/^[0-9]$/.test(ch)) return `KEYCODE_${ch}`;
     if (ch === ' ') return 'KEYCODE_SPACE';
+    if (ch === '.') return 'KEYCODE_PERIOD';
+    if (ch === '-') return 'KEYCODE_MINUS';
     throw new Error(`Unsupported deterministic E2E input character: ${ch}`);
   };
   for (const ch of value.toLowerCase()) shell('input', 'keyevent', keyFor(ch));
@@ -375,6 +381,85 @@ function typeInto(label, value) {
   }
   const current = findVisible(label, { exact: true, scroll: false });
   throw new Error(`Text input failed for ${label}: expected ${value}, saw ${current.text || '<empty>'}`);
+}
+
+// ── testID (resource-id) helpers ────────────────────────────────
+// React Native maps a component's `testID` to the Android accessibility
+// node's `resource-id`.  Unlike placeholders (which uiautomator does not
+// expose as `text` for an empty EditText), resource-id is stable and
+// independent of the visible label, so the golden path can drive text
+// inputs deterministically.
+function findByTestId(testId, { scroll = true } = {}) {
+  const attempts = scroll ? 3 : 1;
+  for (let i = 0; i < attempts; i += 1) {
+    const dump = dumpUi();
+    const matches = dump.nodes.filter((n) => {
+      const rid = n['resource-id'] || '';
+      return rid === testId || rid.endsWith(`:id/${testId}`) || rid.endsWith(`/${testId}`);
+    });
+    if (matches.length) return matches;
+    if (scroll) {
+      try { swipeUp(); } catch (_) {}
+    }
+  }
+  throw new Error(`UI node not found by testID: ${testId}`);
+}
+
+function tapTestId(testId, waitMs = 550) {
+  const node = findByTestId(testId)[0];
+  tapNode(node, waitMs);
+  return node;
+}
+
+/** Clear a focused text field by moving to the end and deleting characters. */
+function clearFocusedField(maxChars = 40) {
+  shell('input', 'keyevent', 'KEYCODE_MOVE_END');
+  for (let i = 0; i < maxChars; i += 1) shell('input', 'keyevent', 'KEYCODE_DEL');
+  sleep(200);
+}
+
+/**
+ * Type into a field identified by testID.  Clears any existing value first
+ * (currency defaults, weight defaults) so the result is deterministic.
+ * `expected` overrides the verification string when the field transforms
+ * input (e.g. auto-uppercased currency).
+ */
+function typeIntoTestId(testId, value, { expected = value, scroll = true } = {}) {
+  const node = findByTestId(testId, { scroll })[0];
+  tapNode(node, 500);
+  const focused = findByTestId(testId, { scroll: false })[0];
+  if (focused.focused !== 'true') throw new Error(`Text input did not receive focus: ${testId}`);
+  clearFocusedField();
+  inputKeyText(value);
+  const until = Date.now() + 3000;
+  while (Date.now() < until) {
+    const current = findByTestId(testId, { scroll: false })[0];
+    if (current.text === expected) return;
+    sleep(150);
+  }
+  const current = findByTestId(testId, { scroll: false })[0];
+  throw new Error(`Text input failed for ${testId}: expected ${expected}, saw ${current.text || '<empty>'}`);
+}
+
+/** Type into the Nth field sharing a testID (e.g. repeated custom-share rows). */
+function typeIntoTestIdNth(testId, index, value, { expected = value } = {}) {
+  const nodes = findByTestId(testId);
+  if (nodes.length <= index) {
+    throw new Error(`Expected at least ${index + 1} nodes for testID ${testId}, found ${nodes.length}`);
+  }
+  tapNode(nodes[index], 500);
+  const focused = findByTestId(testId, { scroll: false })[index];
+  if (focused.focused !== 'true') throw new Error(`Text input did not receive focus: ${testId}[${index}]`);
+  clearFocusedField();
+  inputKeyText(value);
+  const until = Date.now() + 3000;
+  while (Date.now() < until) {
+    const current = findByTestId(testId, { scroll: false })[index];
+    if (current.text === expected) return;
+    sleep(150);
+  }
+  const current = findByTestId(testId, { scroll: false })[index];
+  throw new Error(`Text input failed for ${testId}[${index}]: expected ${expected}, saw ${current.text || '<empty>'}`);
 }
 
 function back() { shell('input', 'keyevent', 'KEYCODE_BACK'); sleep(500); }
@@ -760,6 +845,35 @@ function assertAbsent(label) {
   if (findNodes(label).length) throw new Error(`Expected ${label} to be absent`);
 }
 
+/** Exact-match absence check — avoids false positives on short tokens
+ *  (e.g. "Pro" inside "Profil"). */
+function assertAbsentExact(label) {
+  if (findNodes(label, true).length) throw new Error(`Expected ${label} to be absent`);
+}
+
+/**
+ * Tap the `targetLabel` control nearest (same row) to an `anchorLabel` node.
+ * Used for repeated list rows where several cards expose the same action
+ * button (e.g. multiple "Terminer" buttons in the todo list).
+ */
+function tapNear(anchorLabel, targetLabel, { exactAnchor = false } = {}) {
+  const dump = dumpUi();
+  const anchor = dump.nodes.find((n) => nodeMatches(n, anchorLabel, exactAnchor));
+  if (!anchor) throw new Error(`Anchor not found: ${anchorLabel}`);
+  const ab = bounds(anchor);
+  const candidates = dump.nodes.filter((n) => nodeMatches(n, targetLabel, true));
+  if (!candidates.length) throw new Error(`Target not found: ${targetLabel}`);
+  let best = null;
+  let bestDist = Infinity;
+  for (const c of candidates) {
+    const cb = bounds(c);
+    const dist = Math.abs(cb.y - ab.y);
+    if (dist < bestDist) { bestDist = dist; best = c; }
+  }
+  tapNode(best, 700);
+  return best;
+}
+
 function screenshot(name) {
   const prefix = `${String(checkpoints.length + 1).padStart(2, '0')}-${name}`;
   const file = path.join(outputDir, `${prefix}.png`);
@@ -967,7 +1081,7 @@ function launch() {
 }
 
 // ══════════════════════════════════════════════════════════════
-// V3 Golden Path
+// V4 Golden Path
 // ══════════════════════════════════════════════════════════════
 
 try {
@@ -1012,12 +1126,13 @@ try {
   try { shell('svc', 'data', 'enable'); } catch (_) {}
   sleep(1000);
 
-  // 1. Launch and sign in
+  // 1. Launch — the explicit E2E build injects a deterministic local session,
+  // so the app must land directly on Groups with no Demo/social sign-in screen.
   console.log('Launching app...');
   launch();
   // Diagnostic screenshot to capture the screen state after launch
   screenshot('diagnostic-post-launch');
-  console.log('Waiting for Demarrer button...');
+  console.log('Waiting for Groups (deterministic E2E session)...');
   // API 35 x86_64 cold start can be very slow — 1260s (21 min) timeout.
   // The dump cache (30s TTL, invalidated on tap/swipe) ensures rapid
   // same-screen checks share one dump (~30-60s each on slow emulators),
@@ -1027,107 +1142,224 @@ try {
   //
   // graceMs: suppress the stuck-app detector during cold start (first 7.5 min).
   // On slow emulators, the app process is alive and dumps return valid XML
-  // with nodes — just not "Demarrer" yet because Hermes is still initializing.
-  // Without grace, 4 consecutive empty dumps (2-4 min) fires before the
-  // documented 240s cold start completes, killing a healthy app.
+  // with nodes — just not the Groups screen yet because Hermes is still
+  // initializing.  Without grace, 4 consecutive empty dumps (2-4 min) fires
+  // before the documented 240s cold start completes, killing a healthy app.
   //
   // IMPORTANT: after a force-stop + relaunch mid-wait, the app needs a fresh
   // cold-start window (up to 240s).  The 1260s timeout ensures the relaunched
-  // app has enough time to cold-start AND appear before the timeout fires:
-  // worst case = 930s (450s grace + 480s stuck detection) + 17s (relaunch
-  // overhead) + 240s (relaunch cold start) + 60s (dump to detect Demarrer)
-  // = 1247s < 1260s.  Previous timeouts failed because:
-  //   - 900s: stuck detector fires AFTER timeout (930s > 900s)
-  //   - 1080s: recovery budget (1080-930-17=133s) < cold start (240s)
-  // 1260s provides 73s headroom and fits within the GitHub Actions
-  // step timeout (360 min).
-  waitFor('Demarrer', 1260000, { graceMs: COLD_START_GRACE_MS });
-  screenshot('01-login');
-  tapLabel('Demarrer', { exact: false });
-  console.log('Waiting for Appartement group...');
-  // 600s timeout: after tapping Demarrer, the app completes demo sign-in
-  // (which seeds the fixture via SQLite) and renders the groups list.  On
-  // a cold API 35 x86_64 emulator, sign-in + fixture seeding can take
-  // 30-60s, and the first uiautomator dump adds another 30-60s.  If the
-  // app crashes mid-path and relaunches, it needs a full cold start (240s).
-  // 600s gives headroom for crash-recovery cold starts AND the fresh
-  // global cold-start grace (450s) that protects the relaunched app.
-  waitFor('Appartement', 600000);
-  screenshot('02-groups');
+  // app has enough time to cold-start AND appear before the timeout fires.
+  waitFor('Créer un groupe', 1260000, { graceMs: COLD_START_GRACE_MS });
+  screenshot('01-groups');
+  // The E2E session is restored on launch; the demo fixture seeds the
+  // "Appartement" group.  A normal build would show the social sign-in
+  // screen instead — the absence of "Démarrer"/"Demo" below proves the
+  // session was injected without a demo entry point.
+  assertAbsentExact('Démarrer');
+  assertAbsentExact('Demo');
+  assertAbsentExact('Premium');
+  assertAbsentExact('Standard');
+  assertAbsentExact('Pro');
+  assertAbsent('abonnement');
+  assertAbsent('paywall');
+  assertAbsent('Contribution');
+  console.log('Groups reached directly — no demo/social sign-in screen.');
 
-  // Verify no premium/plan badges
-  assertAbsent('Premium');
-  assertAbsent('Essai');
-  assertAbsent('Standard');
-  assertAbsent('Pro');
-  assertAbsent('Gratuit');
+  // 2. Create a group with two named members.
+  console.log('Creating group with two named members...');
+  tapLabel('Créer un groupe', { exact: true });
+  waitFor('Créer', 120000);
+  typeIntoTestId('groups.nameInput', 'e2e group');
+  typeIntoTestId('groups.memberInput', 'alex');
+  tapLabel('Ajouter', { exact: true });
+  typeIntoTestId('groups.memberInput', 'sam');
+  tapLabel('Ajouter', { exact: true });
+  screenshot('02-create-group');
+  tapLabel('Créer', { exact: true });
+  console.log('Waiting for the new group card...');
+  waitFor('e2e group', 300000);
+  screenshot('03-group-created');
 
-  // 2. Open demo household
-  console.log('Opening Appartement group...');
-  tapLabel('Appartement', { exact: true });
-  console.log('Waiting for tabs (Ajouter, Balances, A faire)...');
+  // 3. Open the new group and verify the three exact tabs.
+  console.log('Opening e2e group...');
+  tapLabel('e2e group', { exact: true });
+  console.log('Waiting for tabs (Ajouter, Balances, À faire)...');
   // 300s timeout: a single uiautomator dump takes 30-60s on slow
   // emulators.  If the app crashed and relaunched, it needs a full cold
   // start (240s) before the tabs appear.  300s gives headroom for that.
   waitFor('Ajouter', 300000);
   waitFor('Balances', 300000);
-  waitFor('A faire', 300000);
-  screenshot('03-tabs');
+  waitFor('À faire', 300000);
+  screenshot('04-tabs');
 
   // Verify three tabs are present
   const tabNodes = findNodes('Ajouter');
   if (tabNodes.length < 1) throw new Error('Ajouter tab not found');
-  console.log('Tabs verified: Ajouter, Balances, A faire');
+  console.log('Tabs verified: Ajouter, Balances, À faire');
 
-  // 3. Verify existing demo contribution is visible
-  console.log('Waiting for demo contribution "Vaisselle du soir"...');
-  // 300s: single dump takes 30-60s on slow emulators; crash-relaunch adds 240s.
-  waitFor('Vaisselle du soir', 300000);
-  screenshot('04-add-tab');
+  // 4. Create a free category (no imposed taxonomy).
+  console.log('Creating a free category...');
+  tapLabel('Gérer les catégories', { exact: true });
+  waitFor('Créer la catégorie', 120000);
+  typeIntoTestId('add.categoryName', 'e2e cat');
+  tapLabel('Créer la catégorie', { exact: true });
+  waitFor('e2e cat', 120000);
+  // Close the manager so the category chip is reachable at the top.
+  tapLabel('Gérer les catégories', { exact: true });
+  swipeToTop();
+  screenshot('05-category');
 
-  // 4. Verify contribution form fields exist (V3: no chrono!)
+  // 5. Add a Task with a custom split, note and photo.
+  console.log('Adding a task with custom split...');
+  typeIntoTestId('add.taskLabel', 'e2e task');
+  typeIntoTestId('add.taskValue', '30');
+  tapLabel('e2e cat', { exact: true });
+  tapLabel('Personnalisé', { exact: true });
+  typeIntoTestId('add.taskNote', 'e2e note');
+  tapLabel('Ajouter une photo', { exact: true });
+  waitFor('Photo jointe', 120000);
+  screenshot('06-task-form');
+  tapLabel('Ajouter la tâche', { exact: true });
+  console.log('Waiting for task confirmation...');
+  waitFor('Tâche ajoutée.', 300000);
+  screenshot('07-task-added');
+
+  // 6. Trigger the native share for the last created task.
+  // The E2E build uses a deterministic share adapter (no SystemUI sheet), so
+  // this exercises the real share call without a sheet the harness cannot
+  // dismiss.  A normal build keeps the honest native share sheet.
+  console.log('Triggering share for the task...');
+  tapLabel('Partager', { exact: true });
+  sleep(1500);
+
+  // 7. Add an Expense with a custom split, note and photo.
+  console.log('Switching to expense mode...');
+  tapLabel('Saisir une dépense', { exact: true });
+  waitFor('Ajouter la dépense', 120000);
+  typeIntoTestId('add.expenseTitle', 'e2e expense');
+  typeIntoTestId('add.expenseAmount', '40.00');
+  tapLabel('Personnalisé', { exact: true });
+  waitFor('Parts par personne', 120000);
+  typeIntoTestIdNth('add.expenseShare', 0, '20.00');
+  typeIntoTestIdNth('add.expenseShare', 1, '20.00');
+  typeIntoTestId('add.expenseNote', 'e2e note');
+  tapLabel('Ajouter une photo', { exact: true });
+  waitFor('Photo jointe', 120000);
+  screenshot('08-expense-form');
+  tapLabel('Ajouter la dépense', { exact: true });
+  console.log('Waiting for expense confirmation...');
+  waitFor('Dépense ajoutée.', 300000);
+  screenshot('09-expense-added');
+  tapLabel('Partager', { exact: true });
+  sleep(1500);
+
+  // 8. Add a member after group creation.
+  console.log('Adding a member after creation...');
+  swipeToTop();
+  typeIntoTestId('add.memberName', 'chris');
+  tapLabel('Ajouter', { exact: true });
+  waitFor('chris', 120000);
+  screenshot('10-member-added');
+
+  // 9. Balances shows both ledgers.
+  console.log('Switching to Balances...');
+  tapTab('Balances');
+  waitFor('Tâches', 300000);
+  waitFor('Argent', 300000);
+  waitFor('e2e task', 300000);
+  screenshot('11-balances');
+  console.log('Both ledgers visible: Tâches + Argent.');
+
+  // 10. Edit an entry from Balances.
+  console.log('Editing the task from Balances...');
+  tapLabel('e2e task', { exact: false });
+  waitFor('Modifier la tâche', 120000);
+  tapLabel('Modifier la tâche', { exact: true });
+  waitFor('Mettre à jour', 300000);
+  typeIntoTestId('add.taskValue', '45');
+  tapLabel('Mettre à jour', { exact: true });
+  console.log('Waiting for Balances after edit...');
+  waitFor('Tâches', 300000);
+  screenshot('12-balances-after-edit');
+
+  // 11. Share an entry from Balances.
+  console.log('Sharing an entry from Balances...');
+  tapLabel('e2e task', { exact: false });
+  waitFor('Partager', 120000);
+  tapLabel('Partager', { exact: true });
+  sleep(1500);
+
+  // 12. Create and complete a Todo Task.
+  console.log('Switching to À faire...');
+  tapTab('À faire');
+  waitFor('Nouvel élément', 300000);
+  tapLabel('Nouvel élément', { exact: true });
+  waitFor('Créer', 120000);
+  typeIntoTestId('todos.createTitle', 'e2e todo task');
+  tapLabel('Créer', { exact: true });
+  waitFor('e2e todo task', 300000);
+  tapNear('e2e todo task', 'Terminer');
+  waitFor('Terminer la tâche', 120000);
+  typeIntoTestId('todos.completeValue', '20');
+  tapLabel('Confirmer', { exact: true });
+  console.log('Waiting for todo list after task completion...');
+  waitFor('Nouvel élément', 300000);
+  screenshot('13-todo-task-completed');
+
+  // 13. Create and complete a Todo Expense.
+  console.log('Creating a todo expense...');
+  tapLabel('Nouvel élément', { exact: true });
+  waitFor('Créer', 120000);
+  tapLabel('Dépense', { exact: true });
+  typeIntoTestId('todos.createTitle', 'e2e todo expense');
+  typeIntoTestId('todos.createAmount', '10.00');
+  tapLabel('Créer', { exact: true });
+  waitFor('e2e todo expense', 300000);
+  tapNear('e2e todo expense', 'Terminer');
+  waitFor('Terminer la dépense', 120000);
+  tapLabel('Confirmer', { exact: true });
+  console.log('Waiting for todo list after expense completion...');
+  waitFor('Nouvel élément', 300000);
+  screenshot('14-todo-expense-completed');
+
+  // 14. FR/EN switch and back to FR.
+  console.log('Returning to Groups for the language switch...');
+  back();
+  waitFor('Créer un groupe', 300000);
+  tapLabel('Options générales', { exact: true });
+  waitFor('English', 120000);
+  tapLabel('English', { exact: true });
+  waitFor('General options', 120000);
+  screenshot('15-english');
+  tapLabel('Français', { exact: true });
+  waitFor('Options générales', 120000);
+  screenshot('16-french');
+  back();
+  waitFor('Créer un groupe', 300000);
+
+  // 15. Final forbidden-label sweep on the Groups root.
+  assertAbsentExact('Démarrer');
+  assertAbsentExact('Demo');
+  assertAbsentExact('Premium');
+  assertAbsentExact('Standard');
+  assertAbsentExact('Pro');
+  assertAbsent('abonnement');
+  assertAbsent('paywall');
+  assertAbsent('Contribution');
   assertAbsent('Chrono');
   assertAbsent('Chronometre');
   assertAbsent('Duree reelle');
-
-  // 5. Switch to Balances tab
-  console.log('Switching to Balances tab...');
-  tapTab('Balances');
-  // 300s: single dump takes 30-60s on slow emulators; crash-relaunch adds 240s.
-  waitFor('Alex', 300000);
-  waitFor('Sam', 300000);
-  screenshot('05-balances');
-
-  // 6. Verify dual ledger sections
-  console.log('Verifying Contribution section...');
-  waitFor('Contribution', 300000);
-  screenshot('06-balances-detail');
-
-  // 7. Switch to A faire tab
-  console.log('Switching to A faire tab...');
-  tapTab('A faire');
-  console.log('Waiting for demo todo "Sortir les poubelles"...');
-  // 300s: single dump takes 30-60s on slow emulators; crash-relaunch adds 240s.
-  waitFor('Sortir les poubelles', 300000);
-  screenshot('07-todos');
-
-  // 8. Switch back to Ajouter to verify tab switching doesn't reload
-  tapTab('Ajouter');
-  // 300s: single dump takes 30-60s on slow emulators; crash-relaunch adds 240s.
-  waitFor('Vaisselle du soir', 300000);
-  screenshot('08-back-to-add');
-
-  // 9. Verify no warm V2 aesthetic
   assertAbsent('self-care');
   assertAbsent('Bravo');
-  assertAbsent('Tu as assured');
   assertAbsent('streak');
   assertAbsent('badge');
+  assertAbsent('Essai');
+  assertAbsent('Gratuit');
 
   writeResult('pass');
-  console.log(`V3 Android golden path PASS — ${outputDir}`);
+  console.log(`V4 Android golden path PASS — ${outputDir}`);
 } catch (error) {
-  console.error(`V3 Android golden path FAIL: ${error.message}`);
+  console.error(`V4 Android golden path FAIL: ${error.message}`);
   // Capture logcat for post-mortem diagnosis
   try {
     const logcat = adb(['logcat', '-d', '-t', '200'], { timeoutMs: 10_000 });

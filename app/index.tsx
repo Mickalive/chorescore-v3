@@ -233,6 +233,7 @@ export default function HomeScreen() {
           <View style={styles.inputGroup}>
             <Text variant="caption">{t('groups.nameLabel')}</Text>
             <TextInput
+              testID="groups.nameInput"
               style={styles.input}
               value={newGroupName}
               onChangeText={setNewGroupName}
@@ -245,6 +246,7 @@ export default function HomeScreen() {
             <Text variant="caption">{t('groups.membersLabel')}</Text>
             <View style={styles.memberInputRow}>
               <TextInput
+                testID="groups.memberInput"
                 style={[styles.input, styles.memberInput]}
                 value={memberInput}
                 onChangeText={setMemberInput}

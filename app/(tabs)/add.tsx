@@ -920,6 +920,7 @@ export default function AddScreen() {
     <View style={styles.managerSection}>
       <Text variant="caption">{t('add.categoryCreate')}</Text>
       <TextInput
+        testID="add.categoryName"
         style={styles.input}
         value={categoryDraft.name}
         onChangeText={(value) => setCategoryDraft((prev) => ({ ...prev, name: value }))}
@@ -1120,6 +1121,7 @@ export default function AddScreen() {
           <View style={styles.inputGroup}>
             <Text variant="caption">{t('add.label')}</Text>
             <TextInput
+              testID="add.taskLabel"
               style={styles.input}
               value={taskForm.label}
               onChangeText={(value) => setTaskForm((prev) => ({ ...prev, label: value }))}
@@ -1172,6 +1174,7 @@ export default function AddScreen() {
           <View style={styles.inputGroup}>
             <Text variant="caption">{t('add.value', { unit: unitLabel })}</Text>
             <TextInput
+              testID="add.taskValue"
               style={styles.input}
               value={taskForm.value}
               onChangeText={(value) => setTaskForm((prev) => ({ ...prev, value }))}
@@ -1317,6 +1320,7 @@ export default function AddScreen() {
           <View style={styles.inputGroup}>
             <Text variant="caption">{t('add.noteOptional')}</Text>
             <TextInput
+              testID="add.taskNote"
               style={styles.input}
               value={taskForm.note}
               onChangeText={(value) => setTaskForm((prev) => ({ ...prev, note: value }))}
@@ -1382,6 +1386,7 @@ export default function AddScreen() {
           <View style={styles.inputGroup}>
             <Text variant="caption">{t('add.titleLabel')}</Text>
             <TextInput
+              testID="add.expenseTitle"
               style={styles.input}
               value={expenseForm.title}
               onChangeText={(value) => setExpenseForm((prev) => ({ ...prev, title: value }))}
@@ -1394,6 +1399,7 @@ export default function AddScreen() {
             <Text variant="caption">{t('add.amount')}</Text>
             <View style={styles.amountRow}>
               <TextInput
+                testID="add.expenseAmount"
                 style={[styles.input, styles.amountInput]}
                 value={expenseForm.amountRaw}
                 onChangeText={(value) => setExpenseForm((prev) => ({ ...prev, amountRaw: value }))}
@@ -1402,6 +1408,7 @@ export default function AddScreen() {
                 keyboardType="decimal-pad"
               />
               <TextInput
+                testID="add.expenseCurrency"
                 style={[styles.input, styles.currencyInput]}
                 value={expenseForm.currency}
                 onChangeText={(value) =>
@@ -1504,6 +1511,7 @@ export default function AddScreen() {
                     {memberName(memberId)}
                   </Text>
                   <TextInput
+                    testID="add.expenseShare"
                     style={[styles.input, styles.shareInput]}
                     value={expenseForm.customShares[memberId] || ''}
                     onChangeText={(value) =>
@@ -1533,6 +1541,7 @@ export default function AddScreen() {
           <View style={styles.inputGroup}>
             <Text variant="caption">{t('add.noteOptional')}</Text>
             <TextInput
+              testID="add.expenseNote"
               style={styles.input}
               value={expenseForm.note}
               onChangeText={(value) => setExpenseForm((prev) => ({ ...prev, note: value }))}
@@ -1638,6 +1647,7 @@ export default function AddScreen() {
 
         <View style={styles.memberAddRow}>
           <TextInput
+            testID="add.memberName"
             style={[styles.input, styles.memberAddInput]}
             value={newMemberName}
             onChangeText={setNewMemberName}

@@ -129,10 +129,10 @@ describe('V3-08 finalizer wrapper contract', () => {
     expect(e2e).toContain("'android', 'app', 'build', 'outputs', 'apk', 'release'");
     // Install only when the package is absent (idempotent re-runs).
     expect(e2e).toContain("pm', 'list', 'packages'");
-    // Golden path must assert the three V3 tabs and the demo fixture labels.
+    // Golden path must assert the three V4 tabs and the demo fixture labels.
     expect(e2e).toContain("'Ajouter'");
     expect(e2e).toContain("'Balances'");
-    expect(e2e).toContain("'A faire'");
+    expect(e2e).toContain("'À faire'");
   });
 
   test('e2e script install timeout is >= 300s and has push + pm fallback', () => {
@@ -393,11 +393,11 @@ describe('V3-08 finalizer wrapper contract', () => {
     expect(graceMs).toBeLessThanOrEqual(1260_000);   // Not more than the Demarrer timeout
     // waitFor must accept a graceMs option
     expect(e2e).toContain('{ graceMs = 0 }');
-    // The Demarrer waitFor must pass COLD_START_GRACE_MS
+    // The first Groups waitFor must pass COLD_START_GRACE_MS
     // 1260s timeout provides recovery headroom: worst case 930s (stuck
     // detection) + 17s (force-stop + monkey) + 240s (cold start) +
-    // 60s (dump to detect Demarrer) = 1247s < 1260s (73s headroom).
-    expect(e2e).toContain("waitFor('Demarrer', 1260000, { graceMs: COLD_START_GRACE_MS })");
+    // 60s (dump to detect the Groups screen) = 1247s < 1260s (73s headroom).
+    expect(e2e).toContain("waitFor('Créer un groupe', 1260000, { graceMs: COLD_START_GRACE_MS })");
     // During grace period, the stuck detector must NOT increment the counter
     expect(e2e).toContain('elapsedMs < graceMs');
     // After grace period, the counter must increment normally
@@ -441,6 +441,30 @@ describe('V3-08 finalizer wrapper contract', () => {
     // The screenshot function should check cache freshness before dumping
     expect(e2e).toMatch(/function screenshot[\s\S]*cacheFresh/);
     expect(e2e).toMatch(/function screenshot[\s\S]*_dumpCacheTime/);
+  });
+
+  test('finalizer clears the Metro cache around the E2E-flagged rebuild', () => {
+    // Expo inlines EXPO_PUBLIC_* at Babel transform time, but Metro's
+    // transform cache key does NOT include environment variables
+    // (@expo/metro-config babel-transformer getCacheKey only hashes Babel
+    // config files).  Without clearing the cache, the flagged rebuild would
+    // reuse the earlier non-E2E transform of e2eAuthConfig.ts and the E2E
+    // session would never activate.  The cache must also be evicted after the
+    // E2E so the later arm64 build cannot embed the E2E session.
+    const wrapper = readRepo('scripts/finalizer-e2e.sh');
+    expect(wrapper).toContain('clear_metro_cache()');
+    expect(wrapper).toContain('require("os").tmpdir()');
+    // Called before the flagged x86_64 rebuild...
+    const rebuildIdx = wrapper.indexOf('assembleRelease -PreactNativeArchitectures=x86_64');
+    const firstClearIdx = wrapper.indexOf('clear_metro_cache\n');
+    expect(rebuildIdx).toBeGreaterThan(-1);
+    expect(firstClearIdx).toBeGreaterThan(-1);
+    expect(firstClearIdx).toBeLessThan(rebuildIdx);
+    // ...and again in the post-E2E cleanup before the arm64 build.
+    const cleanupIdx = wrapper.indexOf('Clearing E2E-flagged bundle outputs');
+    const lastClearIdx = wrapper.lastIndexOf('clear_metro_cache\n');
+    expect(cleanupIdx).toBeGreaterThan(-1);
+    expect(lastClearIdx).toBeGreaterThan(cleanupIdx);
   });
 });
 
@@ -534,7 +558,12 @@ describe('V4 golden-path label sourcing', () => {
     for (const forbidden of ['Chrono', 'Chronometre', 'Duree reelle']) {
       expect(e2e).toContain(`assertAbsent('${forbidden}')`);
     }
-    for (const forbidden of ['Premium', 'Essai', 'Standard', 'Pro', 'Gratuit']) {
+    // Short plan tokens use the exact-match helper so "Pro" does not
+    // false-positive on "Profil" in the Groups options.
+    for (const forbidden of ['Premium', 'Standard', 'Pro']) {
+      expect(e2e).toContain(`assertAbsentExact('${forbidden}')`);
+    }
+    for (const forbidden of ['Essai', 'Gratuit']) {
       expect(e2e).toContain(`assertAbsent('${forbidden}')`);
     }
   });
