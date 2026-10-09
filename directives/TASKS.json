@@ -3,25 +3,27 @@
   "milestone": "v4-rc",
   "builder": {
     "enabled": true,
-    "criterionId": "V4-06",
-    "objective": "Implement V4-06 — À faire — Tâche ou Dépense. À faire crée des items typés Tâche ou Dépense et leur complétion produit exactement une écriture ledger correspondante avec les champs nécessaires, offline-safe et atomique.",
-    "scope": "Work only on V4-06 and directly necessary migrations/repairs. Preserve validated V3 foundations and every completed V4 criterion.",
+    "criterionId": "V4-07",
+    "objective": "Implement V4-07 — Sync, pièces jointes, privacy et coût. Étendre le backend frugal V3 aux catégories, membres nommés, invitations, notes/photos et todo-expense sans full scans ni fuite privacy. Photos lazy, métadonnées bornées, analytics sans texte/note/photo/IDs.",
+    "scope": "Work only on V4-07 and directly necessary migrations/repairs. Preserve validated V3 foundations and every completed V4 criterion.",
     "acceptance": [
-      "todo task",
-      "todo expense",
-      "complétion task exactement une écriture",
-      "complétion expense exactement une écriture",
-      "montant/devise confirmés pour expense",
-      "split/bénéficiaires confirmés",
-      "note/photo compatibles",
-      "offline atomicité"
+      "delta-only préservé",
+      "aucun N+1/full scan",
+      "photos lazy sans bulk history download",
+      "conflicts déterministes",
+      "tenant isolation",
+      "notes/photos exclus analytics",
+      "catégories normalisées downstream sans raw export",
+      "privacy gate vert",
+      "cost gate étendu"
     ],
     "previousCriteriaPreserved": [
       "V4-01: accepted and must not regress",
       "V4-02: accepted and must not regress",
       "V4-03: accepted and must not regress",
       "V4-04: accepted and must not regress",
-      "V4-05: accepted and must not regress"
+      "V4-05: accepted and must not regress",
+      "V4-06: accepted and must not regress"
     ]
   }
 }
