@@ -316,6 +316,14 @@ function findVisible(label, { exact = false, scroll = true, last = false } = {})
   //    visible but appears later in the DOM.
   let matches = findNodes(label, exact);
   if (matches.length) return pick(matches);
+  // A transient infra ANR dialog (launcher/SystemUI/system) can cover the app
+  // and hide every real node.  Dismiss it once and re-read the real screen
+  // before scrolling, so a strict lookup does not fail on a healthy app and a
+  // scroll-aware lookup does not swipe the dialog instead of the app.
+  if (dismissAnrOverlay()) {
+    matches = findNodes(label, exact);
+    if (matches.length) return pick(matches);
+  }
   if (!scroll) throw new Error(`UI node not found: ${label}`);
   // 2. Scroll down to reveal content below the current position.  Each dump
   //    takes 30-60s on slow emulators; the dump cache prevents redundant
@@ -405,13 +413,20 @@ function typeInto(label, value) {
 // inputs deterministically.
 function findByTestId(testId, { scroll = true } = {}) {
   const attempts = scroll ? 3 : 1;
-  for (let i = 0; i < attempts; i += 1) {
-    const dump = dumpUi();
-    const matches = dump.nodes.filter((n) => {
+  const matchesTestId = () =>
+    dumpUi().nodes.filter((n) => {
       const rid = n['resource-id'] || '';
       return rid === testId || rid.endsWith(`:id/${testId}`) || rid.endsWith(`/${testId}`);
     });
+  for (let i = 0; i < attempts; i += 1) {
+    let matches = matchesTestId();
     if (matches.length) return matches;
+    // Infra ANR dialog covering the app: dismiss it and re-read the real
+    // screen before scrolling into the dialog.
+    if (dismissAnrOverlay()) {
+      matches = matchesTestId();
+      if (matches.length) return matches;
+    }
     if (scroll) {
       try { swipeUp(); } catch (_) {}
     }
@@ -480,20 +495,27 @@ function back() { shell('input', 'keyevent', 'KEYCODE_BACK'); sleep(500); }
 
 /**
  * Dismiss a transient Android ANR overlay that can cover the app on
- * heavily loaded GitHub API 35 emulators.  Handles BOTH:
- *   - System UI ANR ("System UI isn't responding") — emulator/system failure
- *   - App-specific ANR ("ChoreScore isn't responding") — cold-start transient
+ * heavily loaded GitHub API 35 emulators.  Two classes of ANR must be
+ * distinguished, because they require opposite remediation:
  *
- * On degraded API 35 x86_64 emulators under React Native cold-start load,
- * the app process can ANR during Hermes init / SQLite schema creation /
- * demo fixture seeding.  The ANR dialog covers the entire app, so
- * waitFor() can never find the target label until the dialog is dismissed.
- * For SystemUI ANRs, we tap "Wait" so the system recovers.
- * For app ANRs, we tap "Wait" and then force-stop + relaunch because
- * the app's main thread is likely blocked and won't recover within the
- * 5-second Wait grace.  Without the force-stop, the dialog reappears
- * immediately, creating a Wait→ANR→Wait loop that burns the entire
- * 1260 s Demarrer timeout.
+ *   - APP ANR ("ChoreScore isn't responding") — the app's own main thread
+ *     is blocked during Hermes init / SQLite schema creation / fixture
+ *     seeding.  Tap "Wait", then force-stop + relaunch to clear it.
+ *   - INFRA ANR ("Quickstep isn't responding", "System UI isn't
+ *     responding", "Process system isn't responding",
+ *     "com.android.phone isn't responding") — the unaccelerated emulator
+ *     launcher/SystemUI/system_server is starved under React Native
+ *     cold-start load.  Tap "Wait" so the system recovers, but NEVER
+ *     touch the app: it is healthy and simply needs uninterrupted time
+ *     to finish its cold start.
+ *
+ * Trusted finalizer run 37946700758 exposed the previous heuristic
+ * (`isAppAnr = !title.includes('System UI')`), which classified the
+ * recurring "Quickstep isn't responding" launcher ANR as an app ANR and
+ * force-stopped the healthy app every ~90 s.  Each relaunch reset the
+ * native-library load from zero, so the app never reached Groups within
+ * the 1260 s window.  Detection is now based on the dialog naming the
+ * app (label "ChoreScore" or package `app.chorescore.v3`).
  *
  * Returns true when ANY ANR dialog was detected and dismissed.
  */
@@ -512,8 +534,12 @@ function dismissAnrOverlay() {
   });
   if (!anrTitle) return false;
 
-  const isAppAnr = !(anrTitle.text || '').includes('System UI');
-  console.log(`  ANR overlay detected (${isAppAnr ? 'app' : 'SystemUI'}: "${anrTitle.text}") — dismissing`);
+  const title = anrTitle.text || '';
+  // Only a dialog naming OUR app is an app ANR.  Launcher/SystemUI/system/
+  // phone ANRs are emulator infrastructure faults and must not cause a
+  // force-stop of the app under test.
+  const isAppAnr = /chorescore/i.test(title) || title.includes(packageName);
+  console.log(`  ANR overlay detected (${isAppAnr ? 'app' : 'infra'}: "${title}") — dismissing`);
 
   const waitNode = dump.nodes.find(
     (n) => (n['resource-id'] || '') === 'android:id/aerr_wait' || (n.text || '') === 'Wait'
@@ -529,11 +555,9 @@ function dismissAnrOverlay() {
   }
   _dumpCache = null;
 
-  // For app ANRs: force-stop and relaunch.  The app's main thread is
-  // likely blocked and won't recover within the 5-second Wait grace.
-  // Without force-stop the ANR dialog reappears immediately, creating
-  // a loop that burns the entire 1260s timeout.
   if (isAppAnr) {
+    // The app's main thread is blocked and won't recover within the
+    // 5-second Wait grace.  Force-stop + relaunch to clear it.
     console.log('  App ANR — force-stopping and relaunching to clear blocked main thread');
     globalThis._lastForceStopTime = Date.now();
     globalThis._appLaunchTime = Date.now();
@@ -541,9 +565,14 @@ function dismissAnrOverlay() {
     sleep(1000);
     try { shell('monkey', '-p', packageName, '-c', 'android.intent.category.LAUNCHER', '1'); } catch (_) {}
     sleep(15000); // Give the relaunched app time to initialize
+  } else {
+    // Infra ANR: the app is alive and cold-starting.  Re-assert it as the
+    // foreground task without a force-stop so its native-library load and
+    // JS bundle evaluation continue uninterrupted.
+    try { shell('am', 'start', '-n', `${packageName}/.MainActivity`); } catch (_) {}
+    sleep(2000);
   }
 
-  sleep(2000);
   return true;
 }
 

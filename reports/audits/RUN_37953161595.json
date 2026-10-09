@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "cycle": "37953161595",
+  "role": "builder",
+  "decision": "accept",
+  "summary": "Trusted verification passed (exit code 0). All V4 gates green: typecheck, 658 tests, privacy (71), cost (29), i18n (9), Expo Android/iOS exports, Android prebuild/debug compile (BUILD SUCCESSFUL). The only delta vs pristine accepted tree is a targeted repair to scripts/e2e-android.js fixing the ANR detection heuristic that caused the V4-09 finalizer failure in run 37946700758. The fix correctly distinguishes app ANRs (ChoreScore) from infra ANRs (Quickstep/launcher/SystemUI), preventing force-stop loops during cold start. No V4-01..V4-08 regressions. No must-fix findings remain.",
+  "checks": [
+    "typecheck: PASS",
+    "tests: 658 passed",
+    "privacy:check: PASS (71 tests)",
+    "cost:check: PASS (29 tests)",
+    "i18n:check: PASS (9 tests)",
+    "Expo Android export: PASS",
+    "Expo iOS export: PASS",
+    "Android prebuild/debug compile: BUILD SUCCESSFUL",
+    "Trusted verification exit code: 0"
+  ],
+  "findings": [
+    {
+      "path": "scripts/e2e-android.js",
+      "problem": "Previous ANR heuristic (isAppAnr = !title.includes('System UI')) misclassified launcher ANRs (\"Quickstep isn't responding\") as app ANRs, causing force-stop loops that prevented the app from reaching Groups within the 1260s window.",
+      "evidence": "Trusted finalizer run 37946700758 failure; code comment in current e2e-android.js lines 512-518 documents the root cause.",
+      "mustFix": false,
+      "requiredFix": "Already fixed in candidate: detection now checks for \"ChoreScore\" label or package name app.chorescore.v3. Infra ANRs re-assert app foreground without force-stop.",
+      "verification": "Trusted verification passed; all gates green; Android debug build successful."
+    }
+  ]
+}
