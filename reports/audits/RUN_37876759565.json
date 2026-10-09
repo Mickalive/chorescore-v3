@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "cycle": "37876759565",
+  "role": "builder",
+  "decision": "accept",
+  "summary": "V4-06 — À faire (Tâche ou Dépense) is fully implemented and verified. The TodosScreen now supports creating typed todo items (task/expense), completing them with confirmed fields (performer/value/beneficiaries for tasks; payer/amount/currency/participants for expenses), equal/custom splits, optional notes and photos, and atomic offline-safe completion via completeTodoAtomic. All 619 tests pass including 14 dedicated V4-06 tests covering screen wiring, i18n, typed creation, exact-one-entry completion, and failure-injection atomicity. No regressions in V4-01 through V4-05 or V3 foundations. Trusted verification exit code 0.",
+  "checks": [
+    "typecheck",
+    "test (619 passed)",
+    "privacy:check (71 passed)",
+    "cost:check (21 passed)",
+    "i18n:check (9 passed)",
+    "Expo export Android",
+    "Trusted verification exit code 0"
+  ],
+  "findings": []
+}

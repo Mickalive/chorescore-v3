@@ -1,21 +1,23 @@
 /**
- * ChoreScore V3 — A faire Tab
+ * ChoreScore V4 — À faire Tab
  *
- * Todo list. Free for all. No premium gating, no chrono.
+ * To-do list. Free for all. No gating.
  *
- * V3-05 features:
- *   - Full creation form: title, assignee, beneficiaries, dueAt,
- *     reminderAt, notes, persistentTask.
- *   - Completion mini-form: confirm performer, value (household unit),
- *     beneficiaries → atomic ContributionEntry.
+ * V4-06 features:
+ *   - Creation form lets an item be typed as a Tâche or a Dépense.
+ *   - Completing a task confirms performer, value, beneficiaries and split,
+ *     then atomically writes exactly one task ledger entry.
+ *   - Completing an expense confirms amount, currency, payer, participants and
+ *     split, then atomically writes exactly one expense ledger entry.
+ *   - Optional note + photo on both kinds.
  *   - Delete todo (free, with confirmation).
  *   - Reminder via notification port (honest: no-op if unavailable).
  *   - Calendar event via calendar port (honest: no-op if unavailable).
  *   - Data-change signals for cross-tab refresh.
- *   - Optimistic local writes; offline-coherent.
+ *   - Optimistic local writes; offline-coherent atomic completion.
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   View,
   StyleSheet,
@@ -33,14 +35,30 @@ import { Card } from '../../src/ui/components/Card';
 import { colors, spacing, borderRadius } from '../../src/ui/design-system/theme';
 import { useApp } from '../../src/features/app/AppContext';
 import { useI18n } from '../../src/i18n';
-import { TodoItem, Member, Household, ContributionUnit, PersistentTask } from '../../src/domain/entities';
+import {
+  Attachment,
+  ExpenseSplitMode,
+  Household,
+  Member,
+  PersistentTask,
+  TodoItem,
+  TodoKind,
+} from '../../src/domain/entities';
 import { completeTodoAtomic } from '../../src/application/use-cases/completeTodoAtomic';
+import {
+  expenseSharesFromRaw,
+  parseAmountToMinor,
+  parsePositiveNumber,
+  taskWeightsFromRaw,
+} from '../../src/domain/services/addEntryService';
 
 // ── Types ──────────────────────────────────────────────────────
 
 type TodoView = 'list' | 'create' | 'complete';
+type TodoTaskSplit = 'equal' | 'custom';
 
 interface CreateFormData {
+  kind: TodoKind;
   title: string;
   assigneeMemberId: string | null;
   beneficiaryMemberIds: string[];
@@ -48,15 +66,28 @@ interface CreateFormData {
   reminderAt: Date | null;
   notes: string;
   persistentTaskId: string | null;
+  expenseAmountRaw: string;
+  expenseCurrency: string;
 }
 
 interface CompleteFormData {
   performerMemberId: string;
   value: string;
+  paidByMemberId: string;
+  amountRaw: string;
+  currency: string;
   beneficiaryMemberIds: string[];
+  taskSplitChoice: TodoTaskSplit;
+  taskWeightsRaw: Record<string, string>;
+  expenseSplitMode: ExpenseSplitMode;
+  customShares: Record<string, string>;
+  note: string;
+  attachments: Attachment[];
 }
 
 // ── Helpers ────────────────────────────────────────────────────
+
+const DEFAULT_CURRENCY = 'CHF';
 
 function formatDateShort(iso: string): string {
   const d = new Date(iso);
@@ -71,6 +102,24 @@ function formatDateTimeShort(d: Date): string {
   const hours = d.getHours().toString().padStart(2, '0');
   const minutes = d.getMinutes().toString().padStart(2, '0');
   return `${day}/${month} ${hours}:${minutes}`;
+}
+
+/** Render integer minor units back into a plain decimal string for the form. */
+function amountMinorToRaw(amountMinor: number): string {
+  const whole = Math.floor(amountMinor / 100);
+  const cents = amountMinor % 100;
+  return `${whole}.${cents.toString().padStart(2, '0')}`;
+}
+
+/** Display integer minor units with their currency, e.g. "CHF 12.50". */
+function formatAmountMinor(amountMinor: number, currency: string): string {
+  return `${currency} ${(amountMinor / 100).toFixed(2)}`;
+}
+
+/** Keep a stored currency valid without throwing on a half-typed create form. */
+function safeCurrency(currency: string): string {
+  const normalized = currency.trim().toUpperCase();
+  return /^[A-Z]{3}$/.test(normalized) ? normalized : DEFAULT_CURRENCY;
 }
 
 // ── Component ──────────────────────────────────────────────────
@@ -88,6 +137,7 @@ export default function TodosScreen() {
 
   // Create form state
   const [createForm, setCreateForm] = useState<CreateFormData>({
+    kind: 'task',
     title: '',
     assigneeMemberId: null,
     beneficiaryMemberIds: [],
@@ -95,16 +145,31 @@ export default function TodosScreen() {
     reminderAt: null,
     notes: '',
     persistentTaskId: null,
+    expenseAmountRaw: '',
+    expenseCurrency: DEFAULT_CURRENCY,
   });
 
   // Complete form state
   const [completeForm, setCompleteForm] = useState<CompleteFormData>({
     performerMemberId: '',
     value: '',
+    paidByMemberId: '',
+    amountRaw: '',
+    currency: DEFAULT_CURRENCY,
     beneficiaryMemberIds: [],
+    taskSplitChoice: 'equal',
+    taskWeightsRaw: {},
+    expenseSplitMode: 'equal',
+    customShares: {},
+    note: '',
+    attachments: [],
   });
 
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const attachmentSeqRef = useRef(0);
+  // Synchronous guard: a rapid double-tap must never launch two completions
+  // before React re-renders the disabled button.
+  const submittingRef = useRef(false);
 
   // ── Load data ──────────────────────────────────────────────
 
@@ -117,7 +182,7 @@ export default function TodosScreen() {
       repos.tasks.getByHousehold(currentHouseholdId),
     ]);
     setMembers(householdMembers);
-    setTodos(householdTodos.filter((t) => t.status !== 'completed'));
+    setTodos(householdTodos.filter((todo) => todo.status !== 'completed'));
     setHousehold(householdData);
     setPersistentTasks(tasks);
 
@@ -138,11 +203,24 @@ export default function TodosScreen() {
     loadData();
   }, [loadData]);
 
-  // ── Create todo ────────────────────────────────────────────
+  // ── Create todo (task or expense) ──────────────────────────
 
   const handleCreate = async () => {
+    if (submittingRef.current) return;
     if (!currentHouseholdId || !createForm.title.trim()) return;
 
+    const kind = createForm.kind;
+    let expenseAmountMinor: number | undefined;
+    if (kind === 'expense' && createForm.expenseAmountRaw.trim()) {
+      const parsed = parseAmountToMinor(createForm.expenseAmountRaw);
+      if (parsed === null) {
+        Alert.alert(t('state.error'), t('add.errorAmount'));
+        return;
+      }
+      expenseAmountMinor = parsed;
+    }
+
+    submittingRef.current = true;
     setIsSubmitting(true);
     try {
       const created = await repos.todos.create({
@@ -153,8 +231,16 @@ export default function TodosScreen() {
         dueAt: createForm.dueAt?.toISOString() || null,
         reminderAt: createForm.reminderAt?.toISOString() || null,
         notes: createForm.notes.trim(),
-        persistentTaskId: createForm.persistentTaskId,
+        persistentTaskId: kind === 'task' ? createForm.persistentTaskId : null,
         status: 'todo',
+        kind,
+        categoryId: null,
+        ...(kind === 'expense'
+          ? {
+              expenseAmountMinor,
+              expenseCurrency: safeCurrency(createForm.expenseCurrency),
+            }
+          : {}),
       });
 
       // Schedule reminder if set and notification port is available
@@ -181,19 +267,21 @@ export default function TodosScreen() {
       }
 
       // Reset form and go back to list
-      resetCreateForm();
+      resetCreateForm(kind);
       setView('list');
       await loadData();
       emitDataChange('todo', currentHouseholdId);
     } catch {
       Alert.alert(t('state.error'), t('todos.errorCreate'));
     } finally {
+      submittingRef.current = false;
       setIsSubmitting(false);
     }
   };
 
-  const resetCreateForm = () => {
+  const resetCreateForm = (kind: TodoKind = 'task') => {
     setCreateForm({
+      kind,
       title: '',
       assigneeMemberId: members[0]?.id || null,
       beneficiaryMemberIds: members.map((m) => m.id),
@@ -201,45 +289,148 @@ export default function TodosScreen() {
       reminderAt: null,
       notes: '',
       persistentTaskId: null,
+      expenseAmountRaw: '',
+      expenseCurrency: DEFAULT_CURRENCY,
     });
   };
 
   // ── Start completion ───────────────────────────────────────
 
   const startComplete = (todo: TodoItem) => {
+    const kind: TodoKind = todo.kind ?? 'task';
+    const beneficiaryMemberIds =
+      todo.beneficiaryMemberIds.length > 0
+        ? todo.beneficiaryMemberIds
+        : members.map((m) => m.id);
     setSelectedTodo(todo);
     setCompleteForm({
       performerMemberId: todo.assigneeMemberId || members[0]?.id || '',
-      value: '', // User must confirm
-      beneficiaryMemberIds:
-        todo.beneficiaryMemberIds.length > 0
-          ? todo.beneficiaryMemberIds
-          : members.map((m) => m.id),
+      value: '',
+      paidByMemberId: todo.assigneeMemberId || members[0]?.id || '',
+      amountRaw:
+        kind === 'expense' && todo.expenseAmountMinor !== undefined
+          ? amountMinorToRaw(todo.expenseAmountMinor)
+          : '',
+      currency: todo.expenseCurrency || DEFAULT_CURRENCY,
+      beneficiaryMemberIds,
+      taskSplitChoice: 'equal',
+      taskWeightsRaw: {},
+      expenseSplitMode: 'equal',
+      customShares: {},
+      note: '',
+      attachments: [],
     });
     setView('complete');
   };
 
+  // ── Derived completion values ──────────────────────────────
+
+  const completeKind: TodoKind = selectedTodo?.kind ?? 'task';
+
+  const taskWeightRaw = useMemo(() => {
+    const raw: Record<string, string> = { ...completeForm.taskWeightsRaw };
+    for (const id of completeForm.beneficiaryMemberIds) {
+      if (raw[id] === undefined) raw[id] = '1';
+    }
+    return raw;
+  }, [completeForm.taskWeightsRaw, completeForm.beneficiaryMemberIds]);
+
+  const customTaskWeights = useMemo(
+    () => taskWeightsFromRaw(completeForm.beneficiaryMemberIds, taskWeightRaw),
+    [completeForm.beneficiaryMemberIds, taskWeightRaw],
+  );
+
+  const completeParsedAmountMinor = useMemo(
+    () => parseAmountToMinor(completeForm.amountRaw),
+    [completeForm.amountRaw],
+  );
+
+  const completeExpenseShares = useMemo(
+    () => expenseSharesFromRaw(completeForm.beneficiaryMemberIds, completeForm.customShares),
+    [completeForm.beneficiaryMemberIds, completeForm.customShares],
+  );
+
+  const completeExpenseTotal = useMemo(
+    () => (completeExpenseShares ?? []).reduce((sum, share) => sum + share.amountMinor, 0),
+    [completeExpenseShares],
+  );
+
+  const completeExpenseCustomValid =
+    completeForm.expenseSplitMode !== 'custom' ||
+    (completeExpenseShares !== null &&
+      completeParsedAmountMinor !== null &&
+      completeExpenseTotal === completeParsedAmountMinor);
+
   // ── Confirm completion (atomic) ────────────────────────────
 
   const handleComplete = async () => {
+    if (submittingRef.current) return;
     if (!selectedTodo || !household || !currentUser) return;
-
-    const numericValue = parseFloat(completeForm.value);
-    if (isNaN(numericValue) || numericValue <= 0) {
-      Alert.alert(t('state.error'), t('todos.errorValue'));
-      return;
-    }
 
     if (completeForm.beneficiaryMemberIds.length === 0) {
       Alert.alert(t('state.error'), t('todos.errorBeneficiary'));
       return;
     }
 
+    if (completeKind === 'expense') {
+      if (completeParsedAmountMinor === null) {
+        Alert.alert(t('state.error'), t('add.errorAmount'));
+        return;
+      }
+      if (completeForm.expenseSplitMode === 'custom' && !completeExpenseCustomValid) {
+        Alert.alert(t('state.error'), t('add.errorSplit'));
+        return;
+      }
+
+      submittingRef.current = true;
+      setIsSubmitting(true);
+      try {
+        // Single atomic operation: todo status update + exactly one
+        // ExpenseEntry commit together or roll back together. A retry after a
+        // failure can never produce a second expense.
+        await completeTodoAtomic(repos, {
+          todo: selectedTodo,
+          household,
+          paidByMemberId: completeForm.paidByMemberId,
+          amountMinor: completeParsedAmountMinor,
+          currency: completeForm.currency,
+          participantMemberIds: completeForm.beneficiaryMemberIds,
+          completedByUserId: currentUser.userId,
+          categoryId: selectedTodo.categoryId ?? null,
+          customShares:
+            completeForm.expenseSplitMode === 'custom' ? completeExpenseShares ?? undefined : undefined,
+          note: completeForm.note,
+          attachments: completeForm.attachments,
+        });
+
+        emitDataChange('expense', currentHouseholdId!);
+        emitDataChange('todo', currentHouseholdId!);
+        setSelectedTodo(null);
+        setView('list');
+        await loadData();
+      } catch {
+        Alert.alert(t('state.error'), t('todos.errorComplete'));
+      } finally {
+        submittingRef.current = false;
+        setIsSubmitting(false);
+      }
+      return;
+    }
+
+    const numericValue = parsePositiveNumber(completeForm.value);
+    if (numericValue === null) {
+      Alert.alert(t('state.error'), t('todos.errorValue'));
+      return;
+    }
+    if (completeForm.taskSplitChoice === 'custom' && customTaskWeights === null) {
+      Alert.alert(t('state.error'), t('add.taskSplitMissingWeight'));
+      return;
+    }
+
+    submittingRef.current = true;
     setIsSubmitting(true);
     try {
-      // Single atomic operation: todo status update + ContributionEntry
-      // creation commit together or roll back together. A retry after a
-      // failure can never produce a second ContributionEntry.
+      // Single atomic operation: todo status update + exactly one task entry.
       await completeTodoAtomic(repos, {
         todo: selectedTodo,
         household,
@@ -247,25 +438,22 @@ export default function TodosScreen() {
         value: numericValue,
         beneficiaryMemberIds: completeForm.beneficiaryMemberIds,
         completedByUserId: currentUser.userId,
+        categoryId: selectedTodo.categoryId ?? null,
+        overrideSplitWeights:
+          completeForm.taskSplitChoice === 'custom' ? customTaskWeights : null,
+        note: completeForm.note,
+        attachments: completeForm.attachments,
       });
 
-      // Cancel reminder if exists
-      if (selectedTodo.reminderAt && services.notifications.isAvailable()) {
-        // Note: we don't have the notification id stored; this is a best-effort cancel.
-        // In a production system, the notification id would be stored on the TodoItem.
-      }
-
-      // Notify other screens (Balances, Add history)
       emitDataChange('contribution', currentHouseholdId!);
       emitDataChange('todo', currentHouseholdId!);
-
-      // Return to list
       setSelectedTodo(null);
       setView('list');
       await loadData();
-    } catch (err) {
+    } catch {
       Alert.alert(t('state.error'), t('todos.errorComplete'));
     } finally {
+      submittingRef.current = false;
       setIsSubmitting(false);
     }
   };
@@ -281,7 +469,7 @@ export default function TodosScreen() {
         onPress: async () => {
           try {
             await repos.todos.delete(todo.id);
-            setTodos((prev) => prev.filter((t) => t.id !== todo.id));
+            setTodos((prev) => prev.filter((item) => item.id !== todo.id));
             emitDataChange('todo', currentHouseholdId!);
           } catch {
             Alert.alert(t('state.error'), t('todos.errorDelete'));
@@ -289,6 +477,45 @@ export default function TodosScreen() {
         },
       },
     ]);
+  };
+
+  // ── Photos ─────────────────────────────────────────────────
+
+  const attachmentsAvailable = services.attachments.isAvailable();
+
+  const addPhoto = async () => {
+    if (!currentHouseholdId) return;
+    try {
+      const source = await services.attachments.pickPhoto();
+      if (!source) return;
+      const handle = await services.attachments.save(source, currentHouseholdId);
+      attachmentSeqRef.current += 1;
+      setCompleteForm((prev) => ({
+        ...prev,
+        attachments: [
+          ...prev.attachments,
+          {
+            id: `att-${Date.now()}-${attachmentSeqRef.current}`,
+            kind: 'photo',
+            ref: handle.ref,
+            mimeType: handle.mimeType,
+            byteSize: handle.byteSize,
+            width: handle.width,
+            height: handle.height,
+            createdAt: new Date().toISOString(),
+          },
+        ],
+      }));
+    } catch {
+      Alert.alert(t('state.error'), t('add.photoError'));
+    }
+  };
+
+  const removePhoto = (id: string) => {
+    setCompleteForm((prev) => ({
+      ...prev,
+      attachments: prev.attachments.filter((attachment) => attachment.id !== id),
+    }));
   };
 
   // ── Helpers ────────────────────────────────────────────────
@@ -319,6 +546,16 @@ export default function TodosScreen() {
     });
   };
 
+  const completeDisabled =
+    isSubmitting ||
+    completeForm.beneficiaryMemberIds.length === 0 ||
+    (completeKind === 'expense'
+      ? completeParsedAmountMinor === null ||
+        (completeForm.expenseSplitMode === 'custom' && !completeExpenseCustomValid)
+      : !completeForm.value ||
+        parsePositiveNumber(completeForm.value) === null ||
+        (completeForm.taskSplitChoice === 'custom' && customTaskWeights === null));
+
   // ── Render ─────────────────────────────────────────────────
 
   return (
@@ -338,10 +575,10 @@ export default function TodosScreen() {
             <>
               <View style={styles.actions}>
                 <Button
-                  title={t('todos.new')}
+                  title={t('todos.newItem')}
                   variant="primary"
                   onPress={() => {
-                    resetCreateForm();
+                    resetCreateForm('task');
                     setView('create');
                   }}
                 />
@@ -358,40 +595,54 @@ export default function TodosScreen() {
                 </View>
               ) : (
                 <View style={styles.todoList}>
-                  {todos.map((todo) => (
-                    <Card key={todo.id} style={styles.todoCard}>
-                      <View style={styles.todoRow}>
-                        <View style={styles.todoInfo}>
-                          <Text variant="bodyBold">{todo.title}</Text>
-                          <Text variant="caption">
-                            {memberName(todo.assigneeMemberId)}
-                            {todo.dueAt
-                              ? ` ${t('todos.dueLabel', { date: formatDateShort(todo.dueAt) })}`
-                              : ''}
-                          </Text>
-                          {todo.notes ? (
-                            <Text variant="caption" numberOfLines={1} style={styles.todoNotes}>
-                              {todo.notes}
+                  {todos.map((todo) => {
+                    const kind: TodoKind = todo.kind ?? 'task';
+                    return (
+                      <Card key={todo.id} style={styles.todoCard}>
+                        <View style={styles.todoRow}>
+                          <View style={styles.todoInfo}>
+                            <Text variant="caption" color={colors.textSecondary}>
+                              {kind === 'expense' ? t('todos.kindExpense') : t('todos.kindTask')}
                             </Text>
-                          ) : null}
+                            <Text variant="bodyBold">{todo.title}</Text>
+                            <Text variant="caption">
+                              {memberName(todo.assigneeMemberId)}
+                              {todo.dueAt
+                                ? ` ${t('todos.dueLabel', { date: formatDateShort(todo.dueAt) })}`
+                                : ''}
+                            </Text>
+                            {kind === 'expense' && todo.expenseAmountMinor !== undefined ? (
+                              <Text variant="caption" color={colors.textSecondary}>
+                                {formatAmountMinor(
+                                  todo.expenseAmountMinor,
+                                  todo.expenseCurrency || DEFAULT_CURRENCY,
+                                )}
+                              </Text>
+                            ) : null}
+                            {todo.notes ? (
+                              <Text variant="caption" numberOfLines={1} style={styles.todoNotes}>
+                                {todo.notes}
+                              </Text>
+                            ) : null}
+                          </View>
+                          <View style={styles.todoActions}>
+                            <Button
+                              title={t('todos.complete')}
+                              variant="primary"
+                              onPress={() => startComplete(todo)}
+                              size="small"
+                            />
+                            <Button
+                              title={t('action.deleteShort')}
+                              variant="ghost"
+                              onPress={() => handleDelete(todo)}
+                              size="small"
+                            />
+                          </View>
                         </View>
-                        <View style={styles.todoActions}>
-                          <Button
-                            title={t('todos.complete')}
-                            variant="primary"
-                            onPress={() => startComplete(todo)}
-                            size="small"
-                          />
-                          <Button
-                            title={t('action.deleteShort')}
-                            variant="ghost"
-                            onPress={() => handleDelete(todo)}
-                            size="small"
-                          />
-                        </View>
-                      </View>
-                    </Card>
-                  ))}
+                      </Card>
+                    );
+                  })}
                 </View>
               )}
             </>
@@ -411,8 +662,41 @@ export default function TodosScreen() {
                 />
               </View>
 
-              {/* PersistentTask shortcuts */}
-              {persistentTasks.length > 0 && (
+              {/* Kind: Tâche | Dépense */}
+              <View style={styles.inputGroup}>
+                <Text variant="caption">{t('todos.kind')}</Text>
+                <View style={styles.splitRow}>
+                  <TouchableOpacity
+                    style={[styles.splitButton, createForm.kind === 'task' && styles.splitButtonActive]}
+                    onPress={() => setCreateForm((p) => ({ ...p, kind: 'task' }))}
+                    accessibilityRole="button"
+                    accessibilityState={{ selected: createForm.kind === 'task' }}
+                  >
+                    <Text
+                      variant="caption"
+                      color={createForm.kind === 'task' ? colors.textOnPrimary : colors.textSecondary}
+                    >
+                      {t('todos.kindTask')}
+                    </Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.splitButton, createForm.kind === 'expense' && styles.splitButtonActive]}
+                    onPress={() => setCreateForm((p) => ({ ...p, kind: 'expense' }))}
+                    accessibilityRole="button"
+                    accessibilityState={{ selected: createForm.kind === 'expense' }}
+                  >
+                    <Text
+                      variant="caption"
+                      color={createForm.kind === 'expense' ? colors.textOnPrimary : colors.textSecondary}
+                    >
+                      {t('todos.kindExpense')}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+
+              {/* PersistentTask shortcuts (task only) */}
+              {createForm.kind === 'task' && persistentTasks.length > 0 && (
                 <View style={styles.inputGroup}>
                   <Text variant="caption">{t('add.shortcuts')}</Text>
                   <View style={styles.memberRow}>
@@ -451,9 +735,11 @@ export default function TodosScreen() {
                 </View>
               )}
 
-              {/* Assignee */}
+              {/* Assignee / Payer */}
               <View style={styles.inputGroup}>
-                <Text variant="caption">{t('todos.assignee')}</Text>
+                <Text variant="caption">
+                  {createForm.kind === 'expense' ? t('add.paidBy') : t('todos.assignee')}
+                </Text>
                 <View style={styles.memberRow}>
                   {members.map((m) => (
                     <TouchableOpacity
@@ -479,9 +765,11 @@ export default function TodosScreen() {
                 </View>
               </View>
 
-              {/* Beneficiaries */}
+              {/* Beneficiaries / Participants */}
               <View style={styles.inputGroup}>
-                <Text variant="caption">{t('todos.beneficiaries')}</Text>
+                <Text variant="caption">
+                  {createForm.kind === 'expense' ? t('add.participants') : t('todos.beneficiaries')}
+                </Text>
                 <View style={styles.memberRow}>
                   {members.map((m) => {
                     const selected = createForm.beneficiaryMemberIds.includes(m.id);
@@ -502,6 +790,32 @@ export default function TodosScreen() {
                   })}
                 </View>
               </View>
+
+              {/* Expense amount + currency */}
+              {createForm.kind === 'expense' && (
+                <View style={styles.inputGroup}>
+                  <Text variant="caption">{t('todos.plannedAmount')}</Text>
+                  <View style={styles.amountRow}>
+                    <TextInput
+                      style={[styles.input, styles.amountInput]}
+                      value={createForm.expenseAmountRaw}
+                      onChangeText={(value) => setCreateForm((p) => ({ ...p, expenseAmountRaw: value }))}
+                      placeholder="0.00"
+                      placeholderTextColor={colors.textMuted}
+                      keyboardType="decimal-pad"
+                    />
+                    <TextInput
+                      style={[styles.input, styles.currencyInput]}
+                      value={createForm.expenseCurrency}
+                      onChangeText={(value) => setCreateForm((p) => ({ ...p, expenseCurrency: value }))}
+                      placeholder={DEFAULT_CURRENCY}
+                      placeholderTextColor={colors.textMuted}
+                      autoCapitalize="characters"
+                      maxLength={3}
+                    />
+                  </View>
+                </View>
+              )}
 
               {/* Due date */}
               <View style={styles.inputGroup}>
@@ -619,7 +933,7 @@ export default function TodosScreen() {
                   variant="ghost"
                   onPress={() => {
                     setView('list');
-                    resetCreateForm();
+                    resetCreateForm(createForm.kind);
                   }}
                   size="small"
                 />
@@ -631,7 +945,11 @@ export default function TodosScreen() {
           {view === 'complete' && selectedTodo && (
             <Card style={styles.formCard}>
               <View style={styles.editBanner}>
-                <Text variant="sectionTitle">{t('todos.completeTitle')}</Text>
+                <Text variant="sectionTitle">
+                  {completeKind === 'expense'
+                    ? t('todos.completeExpenseTitle')
+                    : t('todos.completeTaskTitle')}
+                </Text>
                 <Button
                   title={t('action.cancel')}
                   variant="ghost"
@@ -647,54 +965,112 @@ export default function TodosScreen() {
                 {selectedTodo.title}
               </Text>
 
-              {/* Performer */}
-              <View style={styles.inputGroup}>
-                <Text variant="caption">{t('todos.performedBy')}</Text>
-                <View style={styles.memberRow}>
-                  {members.map((m) => (
-                    <TouchableOpacity
-                      key={m.id}
-                      style={[
-                        styles.memberChip,
-                        completeForm.performerMemberId === m.id && styles.memberChipActive,
-                      ]}
-                      onPress={() =>
-                        setCompleteForm((p) => ({ ...p, performerMemberId: m.id }))
-                      }
-                    >
-                      <Text
-                        variant="caption"
-                        color={
-                          completeForm.performerMemberId === m.id
-                            ? colors.textOnPrimary
-                            : colors.textSecondary
-                        }
-                      >
-                        {m.name}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-              </View>
+              {completeKind === 'expense' ? (
+                <>
+                  {/* Payer */}
+                  <View style={styles.inputGroup}>
+                    <Text variant="caption">{t('add.paidBy')}</Text>
+                    <View style={styles.memberRow}>
+                      {members.map((m) => (
+                        <TouchableOpacity
+                          key={m.id}
+                          style={[
+                            styles.memberChip,
+                            completeForm.paidByMemberId === m.id && styles.memberChipActive,
+                          ]}
+                          onPress={() => setCompleteForm((p) => ({ ...p, paidByMemberId: m.id }))}
+                        >
+                          <Text
+                            variant="caption"
+                            color={
+                              completeForm.paidByMemberId === m.id
+                                ? colors.textOnPrimary
+                                : colors.textSecondary
+                            }
+                          >
+                            {m.name}
+                          </Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  </View>
 
-              {/* Value */}
+                  {/* Amount + currency confirmed at completion */}
+                  <View style={styles.inputGroup}>
+                    <Text variant="caption">{t('add.amount')}</Text>
+                    <View style={styles.amountRow}>
+                      <TextInput
+                        style={[styles.input, styles.amountInput]}
+                        value={completeForm.amountRaw}
+                        onChangeText={(value) => setCompleteForm((p) => ({ ...p, amountRaw: value }))}
+                        placeholder="0.00"
+                        placeholderTextColor={colors.textMuted}
+                        keyboardType="decimal-pad"
+                      />
+                      <TextInput
+                        style={[styles.input, styles.currencyInput]}
+                        value={completeForm.currency}
+                        onChangeText={(value) => setCompleteForm((p) => ({ ...p, currency: value }))}
+                        placeholder={DEFAULT_CURRENCY}
+                        placeholderTextColor={colors.textMuted}
+                        autoCapitalize="characters"
+                        maxLength={3}
+                      />
+                    </View>
+                  </View>
+                </>
+              ) : (
+                <>
+                  {/* Performer */}
+                  <View style={styles.inputGroup}>
+                    <Text variant="caption">{t('todos.performedBy')}</Text>
+                    <View style={styles.memberRow}>
+                      {members.map((m) => (
+                        <TouchableOpacity
+                          key={m.id}
+                          style={[
+                            styles.memberChip,
+                            completeForm.performerMemberId === m.id && styles.memberChipActive,
+                          ]}
+                          onPress={() =>
+                            setCompleteForm((p) => ({ ...p, performerMemberId: m.id }))
+                          }
+                        >
+                          <Text
+                            variant="caption"
+                            color={
+                              completeForm.performerMemberId === m.id
+                                ? colors.textOnPrimary
+                                : colors.textSecondary
+                            }
+                          >
+                            {m.name}
+                          </Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  </View>
+
+                  {/* Value */}
+                  <View style={styles.inputGroup}>
+                    <Text variant="caption">{t('todos.value', { unit: unitLabel })}</Text>
+                    <TextInput
+                      style={styles.input}
+                      value={completeForm.value}
+                      onChangeText={(value) => setCompleteForm((p) => ({ ...p, value }))}
+                      placeholder={household?.contributionUnit === 'points' ? '3' : '15'}
+                      placeholderTextColor={colors.textMuted}
+                      keyboardType="numeric"
+                    />
+                  </View>
+                </>
+              )}
+
+              {/* Beneficiaries / Participants */}
               <View style={styles.inputGroup}>
                 <Text variant="caption">
-                  {t('todos.value', { unit: unitLabel })}
+                  {completeKind === 'expense' ? t('add.participants') : t('todos.beneficiaries')}
                 </Text>
-                <TextInput
-                  style={styles.input}
-                  value={completeForm.value}
-                  onChangeText={(value) => setCompleteForm((p) => ({ ...p, value }))}
-                  placeholder={household?.contributionUnit === 'points' ? '3' : '15'}
-                  placeholderTextColor={colors.textMuted}
-                  keyboardType="numeric"
-                />
-              </View>
-
-              {/* Beneficiaries */}
-              <View style={styles.inputGroup}>
-                <Text variant="caption">{t('todos.beneficiaries')}</Text>
                 <View style={styles.memberRow}>
                   {members.map((m) => {
                     const selected = completeForm.beneficiaryMemberIds.includes(m.id);
@@ -716,16 +1092,183 @@ export default function TodosScreen() {
                 </View>
               </View>
 
+              {/* Split: equal or custom */}
+              <View style={styles.inputGroup}>
+                <Text variant="caption">{t('add.split')}</Text>
+                <View style={styles.splitRow}>
+                  <TouchableOpacity
+                    style={[
+                      styles.splitButton,
+                      (completeKind === 'expense'
+                        ? completeForm.expenseSplitMode === 'equal'
+                        : completeForm.taskSplitChoice === 'equal') && styles.splitButtonActive,
+                    ]}
+                    onPress={() =>
+                      setCompleteForm((p) =>
+                        completeKind === 'expense'
+                          ? { ...p, expenseSplitMode: 'equal' }
+                          : { ...p, taskSplitChoice: 'equal' },
+                      )
+                    }
+                  >
+                    <Text
+                      variant="caption"
+                      color={
+                        (completeKind === 'expense'
+                          ? completeForm.expenseSplitMode === 'equal'
+                          : completeForm.taskSplitChoice === 'equal')
+                          ? colors.textOnPrimary
+                          : colors.textSecondary
+                      }
+                    >
+                      {t('add.splitEqual')}
+                    </Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[
+                      styles.splitButton,
+                      (completeKind === 'expense'
+                        ? completeForm.expenseSplitMode === 'custom'
+                        : completeForm.taskSplitChoice === 'custom') && styles.splitButtonActive,
+                    ]}
+                    onPress={() =>
+                      setCompleteForm((p) =>
+                        completeKind === 'expense'
+                          ? { ...p, expenseSplitMode: 'custom' }
+                          : { ...p, taskSplitChoice: 'custom' },
+                      )
+                    }
+                  >
+                    <Text
+                      variant="caption"
+                      color={
+                        (completeKind === 'expense'
+                          ? completeForm.expenseSplitMode === 'custom'
+                          : completeForm.taskSplitChoice === 'custom')
+                          ? colors.textOnPrimary
+                          : colors.textSecondary
+                      }
+                    >
+                      {t('add.splitCustom')}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+
+              {/* Custom split details */}
+              {completeKind === 'expense' && completeForm.expenseSplitMode === 'custom' && (
+                <View style={styles.inputGroup}>
+                  <Text variant="caption">{t('add.customShares')}</Text>
+                  {completeForm.beneficiaryMemberIds.map((memberId) => (
+                    <View key={memberId} style={styles.shareRow}>
+                      <Text variant="body" style={styles.shareName}>
+                        {memberName(memberId)}
+                      </Text>
+                      <TextInput
+                        style={[styles.input, styles.shareInput]}
+                        value={completeForm.customShares[memberId] || ''}
+                        onChangeText={(value) =>
+                          setCompleteForm((prev) => ({
+                            ...prev,
+                            customShares: { ...prev.customShares, [memberId]: value },
+                          }))
+                        }
+                        placeholder="0.00"
+                        placeholderTextColor={colors.textMuted}
+                        keyboardType="decimal-pad"
+                      />
+                    </View>
+                  ))}
+                  {!completeExpenseCustomValid && completeParsedAmountMinor !== null && (
+                    <Text variant="caption" color={colors.balanceNegative} style={styles.hint}>
+                      {t('add.customSplitMismatch', {
+                        shares: (completeExpenseTotal / 100).toFixed(2),
+                        amount: (completeParsedAmountMinor / 100).toFixed(2),
+                      })}
+                    </Text>
+                  )}
+                </View>
+              )}
+
+              {completeKind === 'task' && completeForm.taskSplitChoice === 'custom' && (
+                <View style={styles.inputGroup}>
+                  <Text variant="caption">{t('add.weights')}</Text>
+                  {completeForm.beneficiaryMemberIds.map((memberId) => (
+                    <View key={memberId} style={styles.shareRow}>
+                      <Text variant="body" style={styles.shareName}>
+                        {memberName(memberId)}
+                      </Text>
+                      <TextInput
+                        style={[styles.input, styles.shareInput]}
+                        value={taskWeightRaw[memberId] ?? '1'}
+                        onChangeText={(value) =>
+                          setCompleteForm((prev) => ({
+                            ...prev,
+                            taskWeightsRaw: { ...prev.taskWeightsRaw, [memberId]: value },
+                          }))
+                        }
+                        keyboardType="numeric"
+                        placeholder="1"
+                        placeholderTextColor={colors.textMuted}
+                      />
+                    </View>
+                  ))}
+                  {completeForm.beneficiaryMemberIds.length > 0 && customTaskWeights === null && (
+                    <Text variant="caption" color={colors.balanceNegative} style={styles.hint}>
+                      {t('add.taskSplitMissingWeight')}
+                    </Text>
+                  )}
+                </View>
+              )}
+
+              {/* Note */}
+              <View style={styles.inputGroup}>
+                <Text variant="caption">{t('add.noteOptional')}</Text>
+                <TextInput
+                  style={styles.input}
+                  value={completeForm.note}
+                  onChangeText={(value) => setCompleteForm((p) => ({ ...p, note: value }))}
+                  placeholder={t('add.notePlaceholder')}
+                  placeholderTextColor={colors.textMuted}
+                  multiline
+                />
+              </View>
+
+              {/* Photo */}
+              <View style={styles.inputGroup}>
+                <Text variant="caption">{t('add.photoOptional')}</Text>
+                {completeForm.attachments.map((attachment) => (
+                  <View key={attachment.id} style={styles.shareRow}>
+                    <Text variant="body" style={styles.shareName}>
+                      {t('add.photoAttached')}
+                    </Text>
+                    <TouchableOpacity onPress={() => removePhoto(attachment.id)}>
+                      <Text variant="caption" color={colors.balanceNegative}>
+                        {t('add.photoRemove')}
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                ))}
+                {attachmentsAvailable ? (
+                  <Button
+                    title={t('add.photoAdd')}
+                    variant="secondary"
+                    size="small"
+                    onPress={addPhoto}
+                    style={styles.photoButton}
+                  />
+                ) : (
+                  <Text variant="caption" color={colors.textMuted} style={styles.hint}>
+                    {t('add.photoUnavailable')}
+                  </Text>
+                )}
+              </View>
+
               <Button
                 title={t('action.confirm')}
                 variant="primary"
                 onPress={handleComplete}
-                disabled={
-                  !completeForm.value ||
-                  parseFloat(completeForm.value) <= 0 ||
-                  completeForm.beneficiaryMemberIds.length === 0 ||
-                  isSubmitting
-                }
+                disabled={completeDisabled}
                 loading={isSubmitting}
                 style={styles.submitButton}
               />
@@ -809,6 +1352,18 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: colors.text,
   },
+  amountRow: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+    marginTop: spacing.xs,
+  },
+  amountInput: {
+    flex: 1,
+  },
+  currencyInput: {
+    width: 70,
+    textAlign: 'center',
+  },
   memberRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -826,6 +1381,39 @@ const styles = StyleSheet.create({
   memberChipActive: {
     backgroundColor: colors.primary,
     borderColor: colors.primary,
+  },
+  splitRow: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+    marginTop: spacing.xs,
+  },
+  splitButton: {
+    flex: 1,
+    alignItems: 'center',
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.xs,
+    borderRadius: borderRadius.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+  },
+  splitButtonActive: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
+  },
+  shareRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    marginTop: spacing.xs,
+  },
+  shareName: {
+    flex: 1,
+  },
+  shareInput: {
+    width: 80,
+    textAlign: 'right',
+    marginTop: 0,
   },
   dateTimeButton: {
     backgroundColor: colors.background,
@@ -845,5 +1433,12 @@ const styles = StyleSheet.create({
   },
   submitButton: {
     marginTop: spacing.sm,
+  },
+  hint: {
+    marginTop: spacing.xs,
+  },
+  photoButton: {
+    marginTop: spacing.sm,
+    alignSelf: 'flex-start',
   },
 });
