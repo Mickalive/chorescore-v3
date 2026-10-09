@@ -1,0 +1,36 @@
+{
+  "schemaVersion": 1,
+  "cycle": "37967732186",
+  "role": "builder",
+  "decision": "accept",
+  "summary": "Trusted verification passed (exit code 0). All V4 gates green: typecheck (0 errors), 658 tests, privacy contract (71), cost regression (29), i18n (9), Expo Android/iOS exports, Android prebuild/debug compile (BUILD SUCCESSFUL). Candidate repairs V4-09 finalizer infrastructure failure from run 37962372613: adds hide_error_dialogs=1 to suppress recurring SystemUI/Quickstep/launcher ANR dialogs on unaccelerated API 35 x86_64 runners that covered app UI and timed out the golden path despite healthy app process. No V4-01..V4-08 regressions. No must-fix findings remain.",
+  "checks": [
+    "typecheck: PASS",
+    "tests: 658 passed (31 suites)",
+    "privacy:check: PASS (71 tests)",
+    "cost:check: PASS (29 gates)",
+    "i18n:check: PASS (9 tests)",
+    "Expo Android export: PASS",
+    "Expo iOS export: PASS",
+    "Android prebuild/debug compile: BUILD SUCCESSFUL (374 tasks)",
+    "Trusted verification exit code: 0"
+  ],
+  "findings": [
+    {
+      "path": "scripts/e2e-android.js",
+      "problem": "Infrastructure ANR dialogs (SystemUI/Quickstep/launcher) recur every ~30s on unaccelerated API 35 x86_64 runners, stay as FOCUSED window covering app UI, causing golden path timeout despite healthy app process (pid alive, MainActivity focused, no app ANR). Trusted finalizer run 37962372613 burned entire 21-minute window dismissing dialogs that immediately reappeared.",
+      "evidence": "Trusted finalizer run 37962372613 failure logs; code comment in current e2e-android.js lines 999-1008 documents root cause and fix.",
+      "mustFix": false,
+      "requiredFix": "Already fixed in candidate: sets hide_error_dialogs=1 via adb shell settings put global to suppress ANR/crash dialogs. Crash detection uses pidof (process state), not dialog presence, so detection still works.",
+      "verification": "Trusted verification passed; all gates green; Android debug build successful."
+    },
+    {
+      "path": "scripts/finalizer-e2e.sh",
+      "problem": "Same infrastructure ANR dialog issue affecting finalizer shell script golden path execution.",
+      "evidence": "Trusted finalizer run 37962372613 failure; suppress_error_dialogs() function added in candidate lines 146-164.",
+      "mustFix": false,
+      "requiredFix": "Already fixed in candidate: suppress_error_dialogs() function sets hide_error_dialogs=1 with timeout and verification. Best-effort and bounded.",
+      "verification": "Trusted verification passed; all gates green; Android debug build successful."
+    }
+  ]
+}

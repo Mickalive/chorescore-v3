@@ -143,6 +143,25 @@ wait_android_services 60 5
 # Re-assert the screen unlock before install/launch (see dismiss_keyguard).
 dismiss_keyguard
 
+# Suppress ANR/crash dialogs on the emulator.  On unaccelerated API 35
+# x86_64 runners (no KVM, swiftshader), SystemUI/Quickstep/launcher3/phone
+# ANR dialogs recur every ~30s and stay the FOCUSED window, covering the
+# app UI.  Trusted finalizer run 37962372613 burned the entire 21-minute
+# golden-path window dismissing dialogs that immediately reappeared while
+# the app process stayed healthy (pid alive, MainActivity focused, no app
+# ANR).  hide_error_dialogs=1 is the standard CI emulator setting: it
+# tells ActivityManagerService not to show ANR/crash dialogs at all, so
+# the app UI becomes the top window and uiautomator dumps can see it.
+# The E2E script's crash detection uses pidof (process state), not the
+# dialog, so crash detection still works.  Best-effort and bounded.
+suppress_error_dialogs() {
+  timeout 20 adb shell settings put global hide_error_dialogs 1 >/dev/null 2>&1 || true
+  local check
+  check=$(timeout 20 adb shell settings get global hide_error_dialogs 2>/dev/null | tr -d '\r' || true)
+  echo "hide_error_dialogs set (get -> '${check:-unavailable}')"
+}
+suppress_error_dialogs
+
 # Verify adb is connected and log device state
 adb get-state 2>/dev/null || {
   echo "ERROR: adb device not available after emulator boot" >&2

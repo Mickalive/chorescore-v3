@@ -996,6 +996,16 @@ function writeResult(status, error = null) {
 }
 
 function launch() {
+  // Suppress ANR/crash dialogs (standard CI emulator setting).  On
+  // unaccelerated API 35 x86_64 runners, SystemUI/Quickstep/launcher3/phone
+  // ANR dialogs recur every ~30s and stay the FOCUSED window, covering the
+  // app UI — the golden path then times out even though the app process is
+  // healthy (trusted finalizer run 37962372613: pid alive, MainActivity
+  // focused, no app ANR, but every dump showed only the ANR dialog).
+  // hide_error_dialogs=1 stops ActivityManagerService from showing these
+  // dialogs so the app UI is the top window.  Crash detection below uses
+  // pidof (process state), not the dialog, so detection still works.
+  try { shell('settings', 'put', 'global', 'hide_error_dialogs', '1'); } catch (_) {}
   try { shell('am', 'force-stop', packageName); } catch (_) {}
   sleep(1000);
   // Clear any previous logcat to get clean logs for this launch
