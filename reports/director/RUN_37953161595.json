@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "cycle": "37953161595",
+  "decision": "stop",
+  "reason": "Audit decision: accept. The trusted manifest reports auditDecision=accept, criterionId=V4-09, hasDelta=true. The audit (reports/audits/RUN_37953161595.json/.md) accepts the repair candidate with a single non-blocking finding (mustFix=false, already fixed) and no must-fix finding. Trusted verification exit code 0 (reports/audits/TRUSTED_37953161595.md): typecheck 0 errors; 658 tests / 31 suites; privacy release contract 71 tests PASS; cost regression gate 29 gates PASS; i18n 9 tests PASS; Expo Android AND iOS exports OK; Android prebuild OK; gradlew app assembleDebug BUILD SUCCESSFUL (12m30s, Android debug compile). The accepted delta repairs only the trusted golden-path automation scripts/e2e-android.js: the previous ANR heuristic (isAppAnr = !title.includes('System UI')) misclassified infra ANRs (Quickstep/SystemUI/system/phone) as app ANRs, so the wrapper force-stopped the healthy ChoreScore app every ~90s during cold start and the app never reached Groups inside the 1260s window. The fix now treats only a dialog naming ChoreScore or package app.chorescore.v3 as an app ANR; infra ANRs re-assert app foreground via am start WITHOUT force-stop, and dismissAnrOverlay() is called in findVisible()/findByTestId() before scrolling so an infra dialog covering the app is dismissed before lookups fail. This targets the concrete infrastructure failure mode of the trusted finalizer run 37946700758. Product/ledger code is unchanged and V4-01..V4-08 remain preserved. V4-09 is the FINAL roadmap criterion (priority 90), so there is no next criterion to author; its final completion belongs EXCLUSIVELY to the trusted release finalizer and is not claimed here. No privacy/cost/APK/install/golden-path release evidence exists yet, so the open release finding stays open and the trusted shell owns the V4-09 state transition. The factory Builder loop stops: the finalizer must re-run the ordered finalization of V4_RELEASE_ENGINEERING.md section 2 against this accepted baseline (product/privacy/cost/i18n gates, Expo Android+iOS exports, x86_64 release install on a genuinely-ready API 35 emulator, full V4 golden path without Metro, arm64-v8a release APK with SHA-256 and >=30-day artifact retention, then v4-complete with no open finding). No release gate is weakened, skipped or reinterpreted and no completed criterion is reopened.",
+  "progressEvidence": [
+    "auditDecision-accept-criterionId-V4-09-hasDelta-true",
+    "audit-findings-single-non-blocking-mustFix-false-zero-mustFix-findings",
+    "trusted-verification-exit-0-typecheck-658-tests-31-suites",
+    "privacy-release-contract-71-tests-PASS",
+    "cost-regression-gate-29-gates-PASS",
+    "i18n-check-9-tests-PASS",
+    "expo-export-android-OK-and-expo-export-ios-OK",
+    "android-prebuild-OK-assembleDebug-BUILD-SUCCESSFUL-374-tasks-12m30s",
+    "accepted-delta-touches-only-trusted-e2e-automation-scripts-e2e-android-js",
+    "repair-ANR-heuristic-isAppAnr-now-matches-ChoreScore-or-package-app.chorescore.v3-only",
+    "repair-infra-ANR-launcher-Quickstep-SystemUI-system-phone-reassert-foreground-via-am-start-without-force-stop",
+    "repair-dismissAnrOverlay-called-in-findVisible-and-findByTestId-before-scrolling",
+    "targets-infrastructure-failure-mode-of-finalizer-run-37946700758-force-stop-loop-prevented-cold-start-reaching-Groups",
+    "product-ledger-code-unchanged-repair-only-touches-trusted-e2e-automation",
+    "V4-01-through-V4-08-preserved-zero-regression",
+    "V4-09-is-final-roadmap-criterion-priority-90-no-next-criterion",
+    "no-privacy-cost-apk-install-golden-path-release-evidence-yet-final-completion-not-claimed",
+    "builder-loop-stops-trusted-shell-owns-V4-09-state-and-handoff",
+    "trusted-finalizer-owns-V4-09-completion-rerun-ordered-finalization-per-V4_RELEASE_ENGINEERING-section-2",
+    "finalizer-x86_64-API35-golden-path-then-arm64-v8a-APK-SHA-256-artifact-30-days-then-v4-complete",
+    "no-release-gate-weakened-skipped-or-reinterpreted",
+    "V3-foundations-two-ledgers-zero-sum-explicit-only-cross-ledger-compensation-rate-snapshot-historical-unit-semantics-local-first-delta-only-bounded-cost-incremental-analytics-privacy-separation-preserved"
+  ]
+}
