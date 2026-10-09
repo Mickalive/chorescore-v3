@@ -309,20 +309,34 @@ function swipeToTop() {
 }
 
 function findVisible(label, { exact = false, scroll = true, last = false } = {}) {
-  // 3 scroll attempts (down from 7) — each dump takes 30-60s on slow
-  // emulators.  3 attempts × 30s = 90s max per findVisible, vs 7 × 30s
-  // = 210s.  The golden path elements are near the top of the screen;
-  // 3 scrolls are sufficient.  The dump cache prevents redundant dumps
-  // within each scroll iteration.
-  const attempts = scroll ? 3 : 1;
-  for (let i = 0; i < attempts; i += 1) {
-    const matches = findNodes(label, exact);
-    if (matches.length) return last ? matches[matches.length - 1] : matches[0];
-    if (scroll) {
-      try { swipeUp(); } catch (_) {
-        // Swipe failed (emulator busy/transient) — retry dump next iteration
-      }
+  const pick = (matches) => (last ? matches[matches.length - 1] : matches[0]);
+  // 1. Try the current scroll position first.  This preserves the previous
+  //    behaviour for controls already on screen and avoids matching a fixed
+  //    element (e.g. the bottom "Ajouter" tab) when the intended control is
+  //    visible but appears later in the DOM.
+  let matches = findNodes(label, exact);
+  if (matches.length) return pick(matches);
+  if (!scroll) throw new Error(`UI node not found: ${label}`);
+  // 2. Scroll down to reveal content below the current position.  Each dump
+  //    takes 30-60s on slow emulators; the dump cache prevents redundant
+  //    dumps within each scroll iteration.
+  for (let i = 0; i < 3; i += 1) {
+    try { swipeUp(); } catch (_) {
+      // Swipe failed (emulator busy/transient) — retry dump next iteration
     }
+    matches = findNodes(label, exact);
+    if (matches.length) return pick(matches);
+  }
+  // 3. Reset to the top and sweep down.  Long forms (e.g. the category
+  //    manager at the bottom of Ajouter, or the Contribution/Dépense mode
+  //    switch above a scrolled form) place controls above the current
+  //    position; uiautomator prunes off-screen nodes, so a full scroll-aware
+  //    sweep is required to reach them.
+  swipeToTop();
+  for (let i = 0; i < 6; i += 1) {
+    matches = findNodes(label, exact);
+    if (matches.length) return pick(matches);
+    try { swipeUp(); } catch (_) {}
   }
   throw new Error(`UI node not found: ${label}`);
 }
@@ -841,6 +855,34 @@ function waitFor(label, timeoutMs = 10000, { graceMs = 0 } = {}) {
   throw new Error(`Timed out waiting for ${label} after ${timeoutMs}ms`);
 }
 
+/**
+ * Scroll-aware wait.  Unlike waitFor() — which only inspects the on-screen
+ * node dump — this repeatedly performs a scroll-aware lookup so controls
+ * below the fold (e.g. the "Créer la catégorie" action at the bottom of the
+ * Ajouter form, or the "Ajouter la dépense" submit below the expense form)
+ * are reachable.  uiautomator prunes off-screen nodes, so a non-scrolling
+ * waitFor() can never observe them.  It still throws on timeout, so the
+ * presence assertion is preserved.
+ */
+function waitForVisible(label, timeoutMs = 120000, { exact = true, maxAttempts = 4 } = {}) {
+  const until = Date.now() + timeoutMs;
+  let lastError;
+  let attempts = 0;
+  // Bound the number of scroll-aware sweeps: each findVisible() call already
+  // walks the whole scrollable form, so a handful of attempts covers a screen
+  // that is still transitioning without letting a missing node run unbounded.
+  while (Date.now() < until && attempts < maxAttempts) {
+    attempts += 1;
+    try {
+      return findVisible(label, { exact });
+    } catch (err) {
+      lastError = err;
+    }
+    sleep(1000);
+  }
+  throw lastError || new Error(`Timed out waiting for visible node: ${label}`);
+}
+
 function assertAbsent(label) {
   if (findNodes(label).length) throw new Error(`Expected ${label} to be absent`);
 }
@@ -1200,10 +1242,14 @@ try {
   // 4. Create a free category (no imposed taxonomy).
   console.log('Creating a free category...');
   tapLabel('Gérer les catégories', { exact: true });
-  waitFor('Créer la catégorie', 120000);
+  // The category create action sits below the fold inside the scrollable
+  // Ajouter form (uiautomator prunes off-screen nodes), so wait with a
+  // scroll-aware lookup instead of a non-scrolling waitFor.
+  waitForVisible('Créer la catégorie', 120000);
+  swipeToTop();
   typeIntoTestId('add.categoryName', 'e2e cat');
   tapLabel('Créer la catégorie', { exact: true });
-  waitFor('e2e cat', 120000);
+  waitForVisible('e2e cat', 120000);
   // Close the manager so the category chip is reachable at the top.
   tapLabel('Gérer les catégories', { exact: true });
   swipeToTop();
@@ -1221,7 +1267,7 @@ try {
   screenshot('06-task-form');
   tapLabel('Ajouter la tâche', { exact: true });
   console.log('Waiting for task confirmation...');
-  waitFor('Tâche ajoutée.', 300000);
+  waitForVisible('Tâche ajoutée.', 300000);
   screenshot('07-task-added');
 
   // 6. Trigger the native share for the last created task.
@@ -1235,7 +1281,11 @@ try {
   // 7. Add an Expense with a custom split, note and photo.
   console.log('Switching to expense mode...');
   tapLabel('Saisir une dépense', { exact: true });
-  waitFor('Ajouter la dépense', 120000);
+  // The expense submit sits at the bottom of the scrollable form; confirm
+  // the switch with a scroll-aware lookup, then return to the top to fill
+  // the fields in order.
+  waitForVisible('Ajouter la dépense', 120000);
+  swipeToTop();
   typeIntoTestId('add.expenseTitle', 'e2e expense');
   typeIntoTestId('add.expenseAmount', '40.00');
   tapLabel('Personnalisé', { exact: true });
@@ -1248,7 +1298,7 @@ try {
   screenshot('08-expense-form');
   tapLabel('Ajouter la dépense', { exact: true });
   console.log('Waiting for expense confirmation...');
-  waitFor('Dépense ajoutée.', 300000);
+  waitForVisible('Dépense ajoutée.', 300000);
   screenshot('09-expense-added');
   tapLabel('Partager', { exact: true });
   sleep(1500);

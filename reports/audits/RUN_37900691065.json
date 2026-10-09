@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "cycle": "37900691065",
+  "role": "builder",
+  "decision": "accept",
+  "summary": "Trusted verification passed (exit 0). All gates green: typecheck, 657 tests, privacy (71), cost (29), i18n (9), Expo Android+iOS exports, Android prebuild/debug compile. No must-fix findings in candidate delta. V4-01..V4-08 preserved. Finalizer failure in prior run 37896462840 was infrastructure (emulator/E2E/arm64) not product; current candidate is release-ready.",
+  "checks": [
+    "typecheck",
+    "tests:657",
+    "privacy:71",
+    "cost:29",
+    "i18n:9",
+    "expo-export-android",
+    "expo-export-ios",
+    "android-prebuild",
+    "android-debug-compile"
+  ],
+  "findings": []
+}
