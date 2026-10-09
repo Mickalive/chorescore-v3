@@ -39,12 +39,20 @@ export const COST_BUDGETS: Record<string, Partial<CostRecord>> = {
   'create-contribution': { writes: 1, networkCalls: 0 },
   // Completing a todo (atomic: todo update + contribution create)
   'complete-todo': { writes: 2, networkCalls: 0 },
-  // Syncing after a few changes
-  'sync-delta': { reads: 8, writes: 8, networkCalls: 2 }, // 8 collections × pull + push
+  // Syncing after a few changes (10 collections × pull + push)
+  'sync-delta': { reads: 10, writes: 10, networkCalls: 2 },
   // Creating an invitation
   'create-invitation': { writes: 1, networkCalls: 0 },
   // Accepting an invitation
   'accept-invitation': { writes: 2, networkCalls: 0 }, // membership + member
+  // V4-07: category CRUD — each is a single bounded write, independent of history
+  'create-category': { writes: 1, networkCalls: 0 },
+  'update-category': { writes: 1, networkCalls: 0 },
+  'delete-category': { writes: 1, networkCalls: 0 },
+  // V4-07: todo-expense — create is one write; complete is atomic
+  // (todo update + expense create)
+  'create-todo-expense': { writes: 1, networkCalls: 0 },
+  'complete-todo-expense': { writes: 2, networkCalls: 0 },
 };
 
 class CostTracker {

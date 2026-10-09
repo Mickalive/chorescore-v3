@@ -348,6 +348,42 @@ export class SqliteMemberRepository implements MemberRepository {
     }));
   }
 
+  async getByHouseholdPaginated(householdId: string, query: PaginatedQuery = {}): Promise<PaginatedResult<Member>> {
+    const limit = query.limit ?? 20;
+    const db = await getDatabase();
+
+    let sql = 'SELECT * FROM members WHERE householdId = ?';
+    const params: (string | number)[] = [householdId];
+
+    if (query.after) {
+      sql += ' AND joinedAt >= ?';
+      params.push(query.after);
+    }
+
+    if (query.cursor) {
+      const c = JSON.parse(query.cursor!) as { o: string; i: string };
+      sql += ' AND (joinedAt < ? OR (joinedAt = ? AND id < ?))';
+      params.push(c.o, c.o, c.i);
+    }
+
+    sql += ' ORDER BY joinedAt DESC, id DESC LIMIT ?';
+    params.push(limit + 1); // fetch one extra to detect hasMore
+
+    const rows = await db.getAllAsync<{ id: string; householdId: string; name: string; userId: string; joinedAt: string }>(sql, params);
+    const hasMore = rows.length > limit;
+    const items = rows.slice(0, limit).map((r) => ({
+      id: r.id,
+      householdId: r.householdId,
+      name: r.name,
+      userId: decodeMemberUserId(r.userId),
+      joinedAt: r.joinedAt,
+    }));
+    const last = items.length > 0 ? items[items.length - 1] : null;
+    const cursor = hasMore && last ? JSON.stringify({ o: last.joinedAt, i: last.id }) : null;
+
+    return { items, cursor, hasMore };
+  }
+
   async getById(id: string): Promise<Member | null> {
     const db = await getDatabase();
     const row = await db.getFirstAsync<{ id: string; householdId: string; name: string; userId: string; joinedAt: string }>(
@@ -414,6 +450,36 @@ export class SqliteCategoryRepository implements CategoryRepository {
       [householdId]
     );
     return rows.map(categoryFromRow);
+  }
+
+  async getByHouseholdPaginated(householdId: string, query: PaginatedQuery = {}): Promise<PaginatedResult<Category>> {
+    const limit = query.limit ?? 20;
+    const db = await getDatabase();
+
+    let sql = 'SELECT * FROM categories WHERE householdId = ?';
+    const params: (string | number)[] = [householdId];
+
+    if (query.after) {
+      sql += ' AND createdAt >= ?';
+      params.push(query.after);
+    }
+
+    if (query.cursor) {
+      const c = JSON.parse(query.cursor!) as { o: string; i: string };
+      sql += ' AND (createdAt < ? OR (createdAt = ? AND id < ?))';
+      params.push(c.o, c.o, c.i);
+    }
+
+    sql += ' ORDER BY createdAt DESC, id DESC LIMIT ?';
+    params.push(limit + 1); // fetch one extra to detect hasMore
+
+    const rows = await db.getAllAsync<CategoryRow>(sql, params);
+    const hasMore = rows.length > limit;
+    const items = rows.slice(0, limit).map(categoryFromRow);
+    const last = items.length > 0 ? items[items.length - 1] : null;
+    const cursor = hasMore && last ? JSON.stringify({ o: last.createdAt, i: last.id }) : null;
+
+    return { items, cursor, hasMore };
   }
 
   async getById(id: string): Promise<Category | null> {
@@ -738,6 +804,36 @@ export class SqlitePersistentTaskRepository implements PersistentTaskRepository 
     return rows.map(taskFromRow);
   }
 
+  async getByHouseholdPaginated(householdId: string, query: PaginatedQuery = {}): Promise<PaginatedResult<PersistentTask>> {
+    const limit = query.limit ?? 20;
+    const db = await getDatabase();
+
+    let sql = 'SELECT * FROM persistent_tasks WHERE householdId = ?';
+    const params: (string | number)[] = [householdId];
+
+    if (query.after) {
+      sql += ' AND createdAt >= ?';
+      params.push(query.after);
+    }
+
+    if (query.cursor) {
+      const c = JSON.parse(query.cursor!) as { o: string; i: string };
+      sql += ' AND (createdAt < ? OR (createdAt = ? AND id < ?))';
+      params.push(c.o, c.o, c.i);
+    }
+
+    sql += ' ORDER BY createdAt DESC, id DESC LIMIT ?';
+    params.push(limit + 1); // fetch one extra to detect hasMore
+
+    const rows = await db.getAllAsync<PersistentTaskRow>(sql, params);
+    const hasMore = rows.length > limit;
+    const items = rows.slice(0, limit).map(taskFromRow);
+    const last = items.length > 0 ? items[items.length - 1] : null;
+    const cursor = hasMore && last ? JSON.stringify({ o: last.createdAt, i: last.id }) : null;
+
+    return { items, cursor, hasMore };
+  }
+
   async getById(id: string): Promise<PersistentTask | null> {
     const db = await getDatabase();
     const row = await db.getFirstAsync<PersistentTaskRow>(
@@ -852,6 +948,36 @@ export class SqliteTodoRepository implements TodoRepository {
       [householdId]
     );
     return rows.map(todoFromRow);
+  }
+
+  async getByHouseholdPaginated(householdId: string, query: PaginatedQuery = {}): Promise<PaginatedResult<TodoItem>> {
+    const limit = query.limit ?? 20;
+    const db = await getDatabase();
+
+    let sql = 'SELECT * FROM todo_items WHERE householdId = ?';
+    const params: (string | number)[] = [householdId];
+
+    if (query.after) {
+      sql += ' AND createdAt >= ?';
+      params.push(query.after);
+    }
+
+    if (query.cursor) {
+      const c = JSON.parse(query.cursor!) as { o: string; i: string };
+      sql += ' AND (createdAt < ? OR (createdAt = ? AND id < ?))';
+      params.push(c.o, c.o, c.i);
+    }
+
+    sql += ' ORDER BY createdAt DESC, id DESC LIMIT ?';
+    params.push(limit + 1); // fetch one extra to detect hasMore
+
+    const rows = await db.getAllAsync<TodoRow>(sql, params);
+    const hasMore = rows.length > limit;
+    const items = rows.slice(0, limit).map(todoFromRow);
+    const last = items.length > 0 ? items[items.length - 1] : null;
+    const cursor = hasMore && last ? JSON.stringify({ o: last.createdAt, i: last.id }) : null;
+
+    return { items, cursor, hasMore };
   }
 
   async getById(id: string): Promise<TodoItem | null> {
@@ -1309,6 +1435,36 @@ export class SqliteInvitationRepository implements InvitationRepository {
     return rows.map(invitationFromRow);
   }
 
+  async getByHouseholdPaginated(householdId: string, query: PaginatedQuery = {}): Promise<PaginatedResult<Invitation>> {
+    const limit = query.limit ?? 20;
+    const db = await getDatabase();
+
+    let sql = 'SELECT * FROM invitations WHERE householdId = ?';
+    const params: (string | number)[] = [householdId];
+
+    if (query.after) {
+      sql += ' AND createdAt >= ?';
+      params.push(query.after);
+    }
+
+    if (query.cursor) {
+      const c = JSON.parse(query.cursor!) as { o: string; i: string };
+      sql += ' AND (createdAt < ? OR (createdAt = ? AND id < ?))';
+      params.push(c.o, c.o, c.i);
+    }
+
+    sql += ' ORDER BY createdAt DESC, id DESC LIMIT ?';
+    params.push(limit + 1); // fetch one extra to detect hasMore
+
+    const rows = await db.getAllAsync<InvitationRow>(sql, params);
+    const hasMore = rows.length > limit;
+    const items = rows.slice(0, limit).map(invitationFromRow);
+    const last = items.length > 0 ? items[items.length - 1] : null;
+    const cursor = hasMore && last ? JSON.stringify({ o: last.createdAt, i: last.id }) : null;
+
+    return { items, cursor, hasMore };
+  }
+
   async getPendingByEmail(email: string): Promise<Invitation[]> {
     const db = await getDatabase();
     const rows = await db.getAllAsync<InvitationRow>(
@@ -1341,6 +1497,11 @@ export class SqliteInvitationRepository implements InvitationRepository {
       [status, id],
     );
     return { ...existing, status };
+  }
+
+  async delete(id: string): Promise<void> {
+    const db = await getDatabase();
+    await db.runAsync('DELETE FROM invitations WHERE id = ?', [id]);
   }
 }
 

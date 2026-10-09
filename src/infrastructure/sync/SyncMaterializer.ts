@@ -28,6 +28,8 @@ import {
   Member,
   Membership,
   Household,
+  Category,
+  Invitation,
 } from '../../domain/entities';
 import { AllRepositories } from '../repositories/RepositoryFactory';
 import { resolveConflict, ConflictRecord } from '../../domain/services/authorizationRules';
@@ -111,6 +113,12 @@ async function deleteBusinessRecord(
     case 'households':
       await repos.households.delete(id);
       break;
+    case 'categories':
+      await repos.categories.delete(id);
+      break;
+    case 'invitations':
+      await repos.invitations.delete(id);
+      break;
   }
 }
 
@@ -149,6 +157,12 @@ export function getEntityTimestamp(collection: SyncCollection, entity: Record<st
     case 'memberships':
       return (entity.joinedAt as string) ?? '';
     case 'households':
+      return (entity.createdAt as string) ?? '';
+    case 'categories':
+      // Categories are editable (rename / ratio change): updatedAt is the
+      // most relevant mutation timestamp for conflict resolution.
+      return (entity.updatedAt as string) ?? '';
+    case 'invitations':
       return (entity.createdAt as string) ?? '';
     default:
       return '';
@@ -317,6 +331,33 @@ async function upsertWithConflictResolution(
         }
       } else {
         await repos.households.seed([{ ...incoming, id: record.id, createdAt: incoming.createdAt || new Date().toISOString() }]);
+      }
+      break;
+    }
+    case 'categories': {
+      const incoming = entity as unknown as Category;
+      const existing = await repos.categories.getById(record.id);
+      if (existing) {
+        if (didRemoteWin(realLocalRevision, safeTimestamp(existing, 'updatedAt'), record.revision, record.updatedAt)) {
+          await repos.categories.update(record.id, {
+            name: incoming.name,
+            defaultTaskRatio: incoming.defaultTaskRatio ?? null,
+          });
+        }
+      } else {
+        await repos.categories.seed([{ ...incoming, id: record.id }]);
+      }
+      break;
+    }
+    case 'invitations': {
+      const incoming = entity as unknown as Invitation;
+      const existing = await repos.invitations.getById(record.id);
+      if (existing) {
+        if (didRemoteWin(realLocalRevision, safeTimestamp(existing, 'createdAt'), record.revision, record.updatedAt)) {
+          await repos.invitations.updateStatus(record.id, incoming.status);
+        }
+      } else {
+        await repos.invitations.seed([{ ...incoming, id: record.id }]);
       }
       break;
     }

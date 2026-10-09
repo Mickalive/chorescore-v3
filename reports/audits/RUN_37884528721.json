@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "cycle": "37884528721",
+  "role": "builder",
+  "decision": "accept",
+  "summary": "V4-07 repair fully implemented. All five must-fix findings from the previous audit are resolved: (1) categories and invitations added to SyncCollection union and SYNC_COLLECTIONS array with full materialization in SyncMaterializer; (2) cost budgets extended with create-category/update-category/delete-category (1 write each), create-todo-expense (1 write), complete-todo-expense (2 writes), and sync-delta updated to 10 collections; (3) getByHouseholdPaginated added to CategoryRepository, MemberRepository, InvitationRepository, PersistentTaskRepository, TodoRepository interfaces and implemented in both InMemory and SQLite adapters with cursor-based pagination; (4) sync E2E tests added for categories and invitations covering remote delta materialization, local dirty push, deterministic conflict resolution, and cross-tenant isolation; (5) cost gate tests extended with Gates 11, 12, 13. Trusted verification passed (exit code 0) with 642 tests green, privacy gate PASS, cost gate PASS, i18n PASS, Expo Android export PASS. No must-fix findings remain.",
+  "checks": [
+    "typecheck PASS",
+    "642 tests PASS (30 suites)",
+    "privacy release contract PASS (71 tests)",
+    "cost regression gates PASS (29 tests including V4-07 Gates 11-13)",
+    "i18n catalog parity PASS (9 tests)",
+    "Expo Android export PASS (1337 modules)",
+    "SyncCollection union includes categories and invitations",
+    "SYNC_COLLECTIONS array has 10 entries",
+    "SyncMaterializer handles categories and invitations materialization and tombstones",
+    "SyncRecordingCategoryRepository and SyncRecordingInvitationRepository implemented",
+    "getByHouseholdPaginated on 5 repository interfaces with InMemory and SQLite implementations",
+    "Cursor-based pagination pattern (occurredAt/createdAt/joinedAt DESC, id DESC) consistent",
+    "Cost budgets for category CRUD and todo-expense create/complete defined and tested",
+    "sync-delta budget updated to reads:10, writes:10, networkCalls:2",
+    "Sync E2E tests for categories and invitations: materialization, dirty push, conflict, cross-tenant",
+    "No N+1 reads, no full scans, delta-only sync preserved",
+    "V4-01 through V4-06 preserved, V3 foundations intact"
+  ],
+  "findings": []
+}

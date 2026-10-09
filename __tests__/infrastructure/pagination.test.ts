@@ -13,10 +13,20 @@
 import { InMemoryContributionEntryRepository } from '../../src/infrastructure/repositories/InMemoryRepositories';
 import { InMemoryExpenseEntryRepository } from '../../src/infrastructure/repositories/InMemoryRepositories';
 import { InMemorySettlementRepository } from '../../src/infrastructure/repositories/InMemoryRepositories';
+import { InMemoryMemberRepository } from '../../src/infrastructure/repositories/InMemoryRepositories';
+import { InMemoryCategoryRepository } from '../../src/infrastructure/repositories/InMemoryRepositories';
+import { InMemoryPersistentTaskRepository } from '../../src/infrastructure/repositories/InMemoryRepositories';
+import { InMemoryTodoRepository } from '../../src/infrastructure/repositories/InMemoryRepositories';
+import { InMemoryInvitationRepository } from '../../src/infrastructure/repositories/InMemoryRepositories';
 import {
   ContributionEntry,
   ExpenseEntry,
   CrossLedgerSettlement,
+  Member,
+  Category,
+  PersistentTask,
+  TodoItem,
+  Invitation,
 } from '../../src/domain/entities';
 
 const HH = 'h-1';
@@ -69,6 +79,68 @@ function settlementEntry(id: string, occurredAt: string): CrossLedgerSettlement 
     },
     occurredAt,
     createdBy: 'user-a',
+  };
+}
+
+function member(id: string, joinedAt: string): Member {
+  return {
+    id,
+    householdId: HH,
+    name: `Member ${id}`,
+    userId: `user-${id}`,
+    joinedAt,
+  };
+}
+
+function category(id: string, createdAt: string): Category {
+  return {
+    id,
+    householdId: HH,
+    name: `Category ${id}`,
+    defaultTaskRatio: null,
+    createdAt,
+    updatedAt: createdAt,
+  };
+}
+
+function persistentTask(id: string, createdAt: string): PersistentTask {
+  return {
+    id,
+    householdId: HH,
+    name: `Task ${id}`,
+    defaultValue: 15,
+    defaultUnit: 'minutes',
+    createdAt,
+  };
+}
+
+function todoItem(id: string, createdAt: string): TodoItem {
+  return {
+    id,
+    householdId: HH,
+    title: `Todo ${id}`,
+    assigneeMemberId: 'a',
+    beneficiaryMemberIds: ['a', 'b'],
+    dueAt: null,
+    reminderAt: null,
+    notes: '',
+    persistentTaskId: null,
+    status: 'todo',
+    createdAt,
+  };
+}
+
+function invitation(id: string, createdAt: string): Invitation {
+  return {
+    id,
+    householdId: HH,
+    invitedByUserId: 'user-a',
+    invitedEmail: `${id}@example.com`,
+    role: 'MEMBER',
+    status: 'pending',
+    linkToken: `tok-${id}`,
+    createdAt,
+    expiresAt: '2026-12-31T00:00:00.000Z',
   };
 }
 
@@ -201,6 +273,171 @@ describe('InMemorySettlementRepository pagination', () => {
     expect(page2.items).toHaveLength(2);
     expect(page2.items[0].id).toBe('s1');
     expect(page2.items[1].id).toBe('s0');
+    expect(page2.hasMore).toBe(false);
+  });
+});
+
+// ── Member Pagination (V4-07) ─────────────────────────────────
+
+describe('InMemoryMemberRepository pagination', () => {
+  let repo: InMemoryMemberRepository;
+
+  beforeEach(() => {
+    repo = new InMemoryMemberRepository();
+    const base = new Date('2026-09-16T10:00:00.000Z').getTime();
+    for (let i = 0; i < 4; i++) {
+      const ts = new Date(base + i * 3600000).toISOString();
+      repo.seed([member(`m${i}`, ts)]);
+    }
+  });
+
+  test('paginates members by joinedAt DESC', async () => {
+    const page1 = await repo.getByHouseholdPaginated(HH, { limit: 2 });
+    expect(page1.items).toHaveLength(2);
+    expect(page1.items[0].id).toBe('m3');
+    expect(page1.hasMore).toBe(true);
+
+    const page2 = await repo.getByHouseholdPaginated(HH, {
+      limit: 2,
+      cursor: page1.cursor,
+    });
+    expect(page2.items).toHaveLength(2);
+    expect(page2.items[0].id).toBe('m1');
+    expect(page2.items[1].id).toBe('m0');
+    expect(page2.hasMore).toBe(false);
+  });
+
+  test('after filter returns only members joined at or after timestamp', async () => {
+    const afterTime = new Date('2026-09-16T12:00:00.000Z').toISOString();
+    const result = await repo.getByHouseholdPaginated(HH, { after: afterTime });
+    expect(result.items.map((i) => i.id)).toEqual(['m3', 'm2']);
+  });
+});
+
+// ── Category Pagination (V4-07) ───────────────────────────────
+
+describe('InMemoryCategoryRepository pagination', () => {
+  let repo: InMemoryCategoryRepository;
+
+  beforeEach(() => {
+    repo = new InMemoryCategoryRepository();
+    const base = new Date('2026-09-16T10:00:00.000Z').getTime();
+    for (let i = 0; i < 4; i++) {
+      const ts = new Date(base + i * 3600000).toISOString();
+      repo.seed([category(`cat${i}`, ts)]);
+    }
+  });
+
+  test('paginates categories by createdAt DESC', async () => {
+    const page1 = await repo.getByHouseholdPaginated(HH, { limit: 2 });
+    expect(page1.items).toHaveLength(2);
+    expect(page1.items[0].id).toBe('cat3');
+    expect(page1.hasMore).toBe(true);
+
+    const page2 = await repo.getByHouseholdPaginated(HH, {
+      limit: 2,
+      cursor: page1.cursor,
+    });
+    expect(page2.items).toHaveLength(2);
+    expect(page2.items[0].id).toBe('cat1');
+    expect(page2.items[1].id).toBe('cat0');
+    expect(page2.hasMore).toBe(false);
+  });
+
+  test('returns empty for non-existent household', async () => {
+    const result = await repo.getByHouseholdPaginated('non-existent', { limit: 10 });
+    expect(result.items).toHaveLength(0);
+    expect(result.hasMore).toBe(false);
+  });
+});
+
+// ── PersistentTask Pagination (V4-07) ─────────────────────────
+
+describe('InMemoryPersistentTaskRepository pagination', () => {
+  let repo: InMemoryPersistentTaskRepository;
+
+  beforeEach(() => {
+    repo = new InMemoryPersistentTaskRepository();
+    const base = new Date('2026-09-16T10:00:00.000Z').getTime();
+    for (let i = 0; i < 3; i++) {
+      const ts = new Date(base + i * 3600000).toISOString();
+      repo.seed([persistentTask(`t${i}`, ts)]);
+    }
+  });
+
+  test('paginates persistent tasks by createdAt DESC', async () => {
+    const page1 = await repo.getByHouseholdPaginated(HH, { limit: 2 });
+    expect(page1.items).toHaveLength(2);
+    expect(page1.items[0].id).toBe('t2');
+    expect(page1.hasMore).toBe(true);
+
+    const page2 = await repo.getByHouseholdPaginated(HH, {
+      limit: 2,
+      cursor: page1.cursor,
+    });
+    expect(page2.items).toHaveLength(1);
+    expect(page2.items[0].id).toBe('t0');
+    expect(page2.hasMore).toBe(false);
+  });
+});
+
+// ── Todo Pagination (V4-07) ───────────────────────────────────
+
+describe('InMemoryTodoRepository pagination', () => {
+  let repo: InMemoryTodoRepository;
+
+  beforeEach(() => {
+    repo = new InMemoryTodoRepository();
+    const base = new Date('2026-09-16T10:00:00.000Z').getTime();
+    for (let i = 0; i < 3; i++) {
+      const ts = new Date(base + i * 3600000).toISOString();
+      repo.seed([todoItem(`todo${i}`, ts)]);
+    }
+  });
+
+  test('paginates todos by createdAt DESC', async () => {
+    const page1 = await repo.getByHouseholdPaginated(HH, { limit: 2 });
+    expect(page1.items).toHaveLength(2);
+    expect(page1.items[0].id).toBe('todo2');
+    expect(page1.hasMore).toBe(true);
+
+    const page2 = await repo.getByHouseholdPaginated(HH, {
+      limit: 2,
+      cursor: page1.cursor,
+    });
+    expect(page2.items).toHaveLength(1);
+    expect(page2.items[0].id).toBe('todo0');
+    expect(page2.hasMore).toBe(false);
+  });
+});
+
+// ── Invitation Pagination (V4-07) ─────────────────────────────
+
+describe('InMemoryInvitationRepository pagination', () => {
+  let repo: InMemoryInvitationRepository;
+
+  beforeEach(() => {
+    repo = new InMemoryInvitationRepository();
+    const base = new Date('2026-09-16T10:00:00.000Z').getTime();
+    for (let i = 0; i < 4; i++) {
+      const ts = new Date(base + i * 3600000).toISOString();
+      repo.seed([invitation(`inv${i}`, ts)]);
+    }
+  });
+
+  test('paginates invitations by createdAt DESC', async () => {
+    const page1 = await repo.getByHouseholdPaginated(HH, { limit: 2 });
+    expect(page1.items).toHaveLength(2);
+    expect(page1.items[0].id).toBe('inv3');
+    expect(page1.hasMore).toBe(true);
+
+    const page2 = await repo.getByHouseholdPaginated(HH, {
+      limit: 2,
+      cursor: page1.cursor,
+    });
+    expect(page2.items).toHaveLength(2);
+    expect(page2.items[0].id).toBe('inv1');
+    expect(page2.items[1].id).toBe('inv0');
     expect(page2.hasMore).toBe(false);
   });
 });

@@ -323,7 +323,9 @@ export type SyncCollection =
   | 'persistent_tasks'
   | 'members'
   | 'memberships'
-  | 'households';
+  | 'households'
+  | 'categories'
+  | 'invitations';
 
 /**
  * A single revisioned change record.  Used by the sync engine to represent

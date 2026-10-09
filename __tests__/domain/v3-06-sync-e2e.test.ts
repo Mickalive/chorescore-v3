@@ -532,14 +532,250 @@ describe('V3-06 hostile: balance integrity', () => {
   });
 });
 
+// ── 5b. V4-07: Categories + Invitations Sync E2E ───────────────
+
+describe('V4-07 E2E: categories and invitations participate in delta sync', () => {
+  let repos: AllRepositories;
+
+  beforeEach(() => {
+    repos = createInMemoryRepositories();
+  });
+
+  test('remote category delta materializes into the category repo', async () => {
+    await repos.households.seed([household()]);
+
+    const remotePayload = JSON.stringify({
+      id: 'cat-remote-1',
+      householdId: HH,
+      name: 'Courses',
+      defaultTaskRatio: null,
+      createdAt: '2026-09-16T10:00:00.000Z',
+      updatedAt: '2026-09-16T10:00:00.000Z',
+    });
+
+    const remoteRecords: SyncRecord[] = [{
+      id: 'cat-remote-1',
+      householdId: HH,
+      collection: 'categories',
+      revision: 1,
+      updatedAt: '2026-09-16T10:00:00Z',
+      deletedAt: null,
+      payload: remotePayload,
+    }];
+
+    const result = await pullDeltas(repos.syncState, HH, async (coll, sinceRev) => {
+      if (coll !== 'categories') return [];
+      expect(sinceRev).toBe(0);
+      return remoteRecords;
+    });
+
+    expect(result.totalApplied).toBe(1);
+    const category = await repos.categories.getById('cat-remote-1');
+    expect(category).toBeDefined();
+    expect(category!.name).toBe('Courses');
+    expect(category!.householdId).toBe(HH);
+  });
+
+  test('remote invitation delta materializes into the invitation repo', async () => {
+    await repos.households.seed([household()]);
+
+    const remotePayload = JSON.stringify({
+      id: 'inv-remote-1',
+      householdId: HH,
+      invitedByUserId: 'user-a',
+      invitedEmail: 'friend@example.com',
+      role: 'MEMBER',
+      status: 'pending',
+      linkToken: 'tok-remote-1',
+      createdAt: '2026-09-16T10:00:00.000Z',
+      expiresAt: '2026-10-16T10:00:00.000Z',
+    });
+
+    const remoteRecords: SyncRecord[] = [{
+      id: 'inv-remote-1',
+      householdId: HH,
+      collection: 'invitations',
+      revision: 1,
+      updatedAt: '2026-09-16T10:00:00Z',
+      deletedAt: null,
+      payload: remotePayload,
+    }];
+
+    const result = await pullDeltas(repos.syncState, HH, async (coll, sinceRev) => {
+      if (coll !== 'invitations') return [];
+      expect(sinceRev).toBe(0);
+      return remoteRecords;
+    });
+
+    expect(result.totalApplied).toBe(1);
+    const invitation = await repos.invitations.getById('inv-remote-1');
+    expect(invitation).toBeDefined();
+    expect(invitation!.invitedEmail).toBe('friend@example.com');
+    expect(invitation!.status).toBe('pending');
+  });
+
+  test('local category create produces a dirty record with real payload', async () => {
+    await repos.households.seed([household()]);
+
+    const created = await repos.categories.create({
+      householdId: HH,
+      name: 'Courses',
+      defaultTaskRatio: null,
+    });
+
+    const dirty = await repos.syncState.getDirtyRecords(HH, 'categories', 0);
+    expect(dirty.length).toBeGreaterThanOrEqual(1);
+
+    const dirtyRecord = dirty.find((r) => r.id === created.id);
+    expect(dirtyRecord).toBeDefined();
+    expect(dirtyRecord!.payload).toBeTruthy();
+    expect(JSON.parse(dirtyRecord!.payload!).name).toBe('Courses');
+  });
+
+  test('local invitation create produces a dirty record with real payload', async () => {
+    await repos.households.seed([household()]);
+
+    const created = await repos.invitations.create({
+      householdId: HH,
+      invitedByUserId: 'user-a',
+      invitedEmail: 'friend@example.com',
+      role: 'MEMBER',
+      status: 'pending',
+      linkToken: 'tok-local-1',
+      expiresAt: '2026-10-16T10:00:00.000Z',
+    });
+
+    const dirty = await repos.syncState.getDirtyRecords(HH, 'invitations', 0);
+    expect(dirty.length).toBeGreaterThanOrEqual(1);
+
+    const dirtyRecord = dirty.find((r) => r.id === created.id);
+    expect(dirtyRecord).toBeDefined();
+    expect(dirtyRecord!.payload).toBeTruthy();
+    expect(JSON.parse(dirtyRecord!.payload!).invitedEmail).toBe('friend@example.com');
+  });
+
+  test('category rename conflict resolves deterministically (higher revision wins)', async () => {
+    await repos.households.seed([household()]);
+
+    // Local category
+    const local = await repos.categories.create({
+      householdId: HH,
+      name: 'Courses',
+      defaultTaskRatio: null,
+    });
+
+    // Remote rename with a higher revision
+    const remotePayload = JSON.stringify({
+      id: local.id,
+      householdId: HH,
+      name: 'Épicerie',
+      defaultTaskRatio: null,
+      createdAt: local.createdAt,
+      updatedAt: '2026-09-16T12:00:00.000Z',
+    });
+
+    const remoteRecords: SyncRecord[] = [{
+      id: local.id,
+      householdId: HH,
+      collection: 'categories',
+      revision: 50,
+      updatedAt: '2026-09-16T12:00:00Z',
+      deletedAt: null,
+      payload: remotePayload,
+    }];
+
+    await pullDeltas(repos.syncState, HH, async (coll, sinceRev) => {
+      if (coll !== 'categories') return [];
+      return remoteRecords;
+    });
+
+    const stored = await repos.categories.getById(local.id);
+    expect(stored!.name).toBe('Épicerie');
+  });
+
+  test('remote invitation tombstone deletes the local invitation', async () => {
+    await repos.households.seed([household()]);
+
+    const local = await repos.invitations.create({
+      householdId: HH,
+      invitedByUserId: 'user-a',
+      invitedEmail: 'friend@example.com',
+      role: 'MEMBER',
+      status: 'pending',
+      linkToken: 'tok-tomb-1',
+      expiresAt: '2026-10-16T10:00:00.000Z',
+    });
+
+    const remoteRecords: SyncRecord[] = [{
+      id: local.id,
+      householdId: HH,
+      collection: 'invitations',
+      revision: 50,
+      updatedAt: '2026-09-16T12:00:00Z',
+      deletedAt: '2026-09-16T12:00:00Z',
+      payload: null,
+    }];
+
+    await pullDeltas(repos.syncState, HH, async (coll, sinceRev) => {
+      if (coll !== 'invitations') return [];
+      return remoteRecords;
+    });
+
+    expect(await repos.invitations.getById(local.id)).toBeNull();
+  });
+
+  test('cross-tenant category access is blocked through the scoped facade', async () => {
+    await repos.households.seed([household()]);
+    await repos.memberships.seed([{
+      id: 'mem-1',
+      userId: 'user-a',
+      householdId: HH,
+      role: 'OWNER',
+      joinedAt: '2026-01-01T00:00:00.000Z',
+    }]);
+
+    const { ScopedCategoryRepository } = require('../../src/infrastructure/repositories/ScopedRepositoryFacade');
+    const scoped = new ScopedCategoryRepository(
+      repos.categories,
+      'user-stranger', // non-member
+      repos.memberships,
+    );
+
+    await expect(scoped.getByHousehold(HH)).rejects.toThrow(AuthorizationError);
+    await expect(scoped.getByHouseholdPaginated(HH, { limit: 10 })).rejects.toThrow(AuthorizationError);
+  });
+
+  test('cross-tenant invitation access is blocked through the scoped facade', async () => {
+    await repos.households.seed([household()]);
+    await repos.memberships.seed([{
+      id: 'mem-1',
+      userId: 'user-a',
+      householdId: HH,
+      role: 'OWNER',
+      joinedAt: '2026-01-01T00:00:00.000Z',
+    }]);
+
+    const { ScopedInvitationRepository } = require('../../src/infrastructure/repositories/ScopedRepositoryFacade');
+    const scoped = new ScopedInvitationRepository(
+      repos.invitations,
+      'user-stranger', // non-member
+      repos.memberships,
+    );
+
+    await expect(scoped.getByHousehold(HH)).rejects.toThrow(AuthorizationError);
+    await expect(scoped.getByHouseholdPaginated(HH, { limit: 10 })).rejects.toThrow(AuthorizationError);
+  });
+});
+
 // ── 6. Cost Instrumentation ────────────────────────────────────
 
 describe('V3-06 E2E: cost instrumentation', () => {
   test('full sync has bounded cost per collection', () => {
     const { COST_BUDGETS } = require('../../src/domain/services/costInstrumentation');
     const budget = COST_BUDGETS['sync-delta'];
-    expect(budget?.reads).toBeLessThanOrEqual(8);
-    expect(budget?.writes).toBeLessThanOrEqual(8);
+    // V4-07: 10 collections (categories + invitations added)
+    expect(budget?.reads).toBeLessThanOrEqual(10);
+    expect(budget?.writes).toBeLessThanOrEqual(10);
     expect(budget?.networkCalls).toBeLessThanOrEqual(2);
   });
 

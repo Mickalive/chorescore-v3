@@ -532,8 +532,9 @@ describe('V3-06 delta-only sync', () => {
 
   test('full sync has bounded cost per collection', () => {
     const budget = COST_BUDGETS['sync-delta'];
-    expect(budget?.reads).toBeLessThanOrEqual(8); // 8 collections max
-    expect(budget?.writes).toBeLessThanOrEqual(8);
+    // V4-07: 10 collections (categories + invitations added)
+    expect(budget?.reads).toBeLessThanOrEqual(10); // 10 collections max
+    expect(budget?.writes).toBeLessThanOrEqual(10);
     expect(budget?.networkCalls).toBeLessThanOrEqual(2); // pull + push
   });
 });

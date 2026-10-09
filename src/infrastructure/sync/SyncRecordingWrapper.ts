@@ -16,6 +16,7 @@
  *
  * V3-06 REPAIR: Now covers ALL 8 SYNC_COLLECTIONS including
  * persistent_tasks, members, memberships, and households.
+ * V4-07: extended to all 10 SYNC_COLLECTIONS with categories and invitations.
  */
 
 import {
@@ -29,6 +30,8 @@ import {
   Member,
   Membership,
   Household,
+  Category,
+  Invitation,
 } from '../../domain/entities';
 import {
   ContributionEntryRepository,
@@ -39,6 +42,9 @@ import {
   PersistentTaskRepository,
   MembershipRepository,
   HouseholdRepository,
+  CategoryRepository,
+  CategoryUpdate,
+  InvitationRepository,
   PaginatedQuery,
   PaginatedResult,
 } from '../repositories/index';
@@ -182,6 +188,7 @@ export class SyncRecordingTodoRepository implements TodoRepository {
 
   async seed(items: TodoItem[]): Promise<void> { await this.inner.seed(items); }
   getByHousehold(householdId: string): Promise<TodoItem[]> { return this.inner.getByHousehold(householdId); }
+  getByHouseholdPaginated(householdId: string, query?: PaginatedQuery): Promise<PaginatedResult<TodoItem>> { return this.inner.getByHouseholdPaginated(householdId, query); }
   getById(id: string): Promise<TodoItem | null> { return this.inner.getById(id); }
 
   async create(todo: Omit<TodoItem, 'id' | 'createdAt'>): Promise<TodoItem> {
@@ -269,6 +276,7 @@ export class SyncRecordingPersistentTaskRepository implements PersistentTaskRepo
 
   async seed(items: PersistentTask[]): Promise<void> { await this.inner.seed(items); }
   getByHousehold(householdId: string): Promise<PersistentTask[]> { return this.inner.getByHousehold(householdId); }
+  getByHouseholdPaginated(householdId: string, query?: PaginatedQuery): Promise<PaginatedResult<PersistentTask>> { return this.inner.getByHouseholdPaginated(householdId, query); }
   getById(id: string): Promise<PersistentTask | null> { return this.inner.getById(id); }
 
   async create(task: Omit<PersistentTask, 'id' | 'createdAt'>): Promise<PersistentTask> {
@@ -309,6 +317,7 @@ export class SyncRecordingMemberRepository implements MemberRepository {
 
   async seed(items: Member[]): Promise<void> { await this.inner.seed(items); }
   getByHousehold(householdId: string): Promise<Member[]> { return this.inner.getByHousehold(householdId); }
+  getByHouseholdPaginated(householdId: string, query?: PaginatedQuery): Promise<PaginatedResult<Member>> { return this.inner.getByHouseholdPaginated(householdId, query); }
   getById(id: string): Promise<Member | null> { return this.inner.getById(id); }
 
   async create(data: Omit<Member, 'id' | 'joinedAt'>): Promise<Member> {
@@ -413,5 +422,101 @@ export class SyncRecordingHouseholdRepository implements HouseholdRepository {
       deleted,
     );
     await this.syncState.storeLocalRecords(entity.id, 'households', [record]);
+  }
+}
+
+// ── V4-07: Category Recording Wrapper ──────────────────────────
+
+export class SyncRecordingCategoryRepository implements CategoryRepository {
+  constructor(
+    private inner: CategoryRepository,
+    private syncState: SyncStateRepository,
+  ) {}
+
+  async seed(items: Category[]): Promise<void> { await this.inner.seed(items); }
+  getByHousehold(householdId: string): Promise<Category[]> { return this.inner.getByHousehold(householdId); }
+  getByHouseholdPaginated(householdId: string, query?: PaginatedQuery): Promise<PaginatedResult<Category>> { return this.inner.getByHouseholdPaginated(householdId, query); }
+  getById(id: string): Promise<Category | null> { return this.inner.getById(id); }
+
+  async create(data: Omit<Category, 'id' | 'createdAt' | 'updatedAt'>): Promise<Category> {
+    const created = await this.inner.create(data);
+    await this.recordDirty(created, false);
+    return created;
+  }
+
+  async update(id: string, data: CategoryUpdate): Promise<Category> {
+    const updated = await this.inner.update(id, data);
+    await this.recordDirty(updated, false);
+    return updated;
+  }
+
+  async delete(id: string): Promise<void> {
+    const existing = await this.inner.getById(id);
+    await this.inner.delete(id);
+    if (existing) {
+      await this.recordDirty(existing, true);
+    }
+  }
+
+  private async recordDirty(entity: Category, deleted: boolean): Promise<void> {
+    const revision = await getLocalRevision(this.syncState, entity.householdId, 'categories');
+    const record = createSyncRecordForEntity(
+      entity.householdId,
+      'categories',
+      entity.id,
+      entity as unknown as Record<string, unknown>,
+      revision,
+      deleted,
+    );
+    await this.syncState.storeLocalRecords(entity.householdId, 'categories', [record]);
+  }
+}
+
+// ── V4-07: Invitation Recording Wrapper ────────────────────────
+
+export class SyncRecordingInvitationRepository implements InvitationRepository {
+  constructor(
+    private inner: InvitationRepository,
+    private syncState: SyncStateRepository,
+  ) {}
+
+  async seed(items: Invitation[]): Promise<void> { await this.inner.seed(items); }
+  getById(id: string): Promise<Invitation | null> { return this.inner.getById(id); }
+  getByLinkToken(token: string): Promise<Invitation | null> { return this.inner.getByLinkToken(token); }
+  getByHousehold(householdId: string): Promise<Invitation[]> { return this.inner.getByHousehold(householdId); }
+  getByHouseholdPaginated(householdId: string, query?: PaginatedQuery): Promise<PaginatedResult<Invitation>> { return this.inner.getByHouseholdPaginated(householdId, query); }
+  getPendingByEmail(email: string): Promise<Invitation[]> { return this.inner.getPendingByEmail(email); }
+
+  async create(data: Omit<Invitation, 'id' | 'createdAt'>): Promise<Invitation> {
+    const created = await this.inner.create(data);
+    await this.recordDirty(created, false);
+    return created;
+  }
+
+  async updateStatus(id: string, status: Invitation['status']): Promise<Invitation> {
+    const updated = await this.inner.updateStatus(id, status);
+    await this.recordDirty(updated, false);
+    return updated;
+  }
+
+  async delete(id: string): Promise<void> {
+    const existing = await this.inner.getById(id);
+    await this.inner.delete(id);
+    if (existing) {
+      await this.recordDirty(existing, true);
+    }
+  }
+
+  private async recordDirty(entity: Invitation, deleted: boolean): Promise<void> {
+    const revision = await getLocalRevision(this.syncState, entity.householdId, 'invitations');
+    const record = createSyncRecordForEntity(
+      entity.householdId,
+      'invitations',
+      entity.id,
+      entity as unknown as Record<string, unknown>,
+      revision,
+      deleted,
+    );
+    await this.syncState.storeLocalRecords(entity.householdId, 'invitations', [record]);
   }
 }

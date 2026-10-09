@@ -217,6 +217,39 @@ export class InMemoryMemberRepository implements MemberRepository {
     return Array.from(this.items.values()).filter((m) => m.householdId === householdId);
   }
 
+  async getByHouseholdPaginated(householdId: string, query: PaginatedQuery = {}): Promise<PaginatedResult<Member>> {
+    const limit = query.limit ?? 20;
+    let items = Array.from(this.items.values())
+      .filter((m) => m.householdId === householdId);
+
+    // Apply after filter (inclusive) on the natural timestamp (joinedAt)
+    if (query.after) {
+      items = items.filter((m) => m.joinedAt >= query.after!);
+    }
+
+    // Sort by joinedAt DESC, then id DESC for deterministic tie-breaking
+    items.sort((a, b) => b.joinedAt.localeCompare(a.joinedAt) || b.id.localeCompare(a.id));
+
+    // Apply composite cursor (exclusive): (joinedAt < c.o OR (joinedAt = c.o AND id < c.i))
+    let start = 0;
+    if (query.cursor) {
+      const c = JSON.parse(query.cursor!) as { o: string; i: string };
+      start = items.findIndex(
+        (m) => m.joinedAt < c.o || (m.joinedAt === c.o && m.id < c.i)
+      );
+      if (start === -1) {
+        return { items: [], cursor: null, hasMore: false };
+      }
+    }
+
+    const page = items.slice(start, start + limit);
+    const last = page.length > 0 ? page[page.length - 1] : null;
+    const nextCursor = page.length === limit && last ? JSON.stringify({ o: last.joinedAt, i: last.id }) : null;
+    const hasMore = page.length === limit && start + limit < items.length;
+
+    return { items: page, cursor: nextCursor, hasMore };
+  }
+
   async getById(id: string): Promise<Member | null> {
     return this.items.get(id) ?? null;
   }
@@ -269,6 +302,39 @@ export class InMemoryCategoryRepository implements CategoryRepository {
     return Array.from(this.items.values())
       .filter((c) => c.householdId === householdId)
       .sort((a, b) => (a.createdAt < b.createdAt ? -1 : a.createdAt > b.createdAt ? 1 : 0));
+  }
+
+  async getByHouseholdPaginated(householdId: string, query: PaginatedQuery = {}): Promise<PaginatedResult<Category>> {
+    const limit = query.limit ?? 20;
+    let items = Array.from(this.items.values())
+      .filter((c) => c.householdId === householdId);
+
+    // Apply after filter (inclusive) on the natural timestamp (createdAt)
+    if (query.after) {
+      items = items.filter((c) => c.createdAt >= query.after!);
+    }
+
+    // Sort by createdAt DESC, then id DESC for deterministic tie-breaking
+    items.sort((a, b) => b.createdAt.localeCompare(a.createdAt) || b.id.localeCompare(a.id));
+
+    // Apply composite cursor (exclusive): (createdAt < c.o OR (createdAt = c.o AND id < c.i))
+    let start = 0;
+    if (query.cursor) {
+      const c = JSON.parse(query.cursor!) as { o: string; i: string };
+      start = items.findIndex(
+        (cat) => cat.createdAt < c.o || (cat.createdAt === c.o && cat.id < c.i)
+      );
+      if (start === -1) {
+        return { items: [], cursor: null, hasMore: false };
+      }
+    }
+
+    const page = items.slice(start, start + limit);
+    const last = page.length > 0 ? page[page.length - 1] : null;
+    const nextCursor = page.length === limit && last ? JSON.stringify({ o: last.createdAt, i: last.id }) : null;
+    const hasMore = page.length === limit && start + limit < items.length;
+
+    return { items: page, cursor: nextCursor, hasMore };
   }
 
   async getById(id: string): Promise<Category | null> {
@@ -439,6 +505,39 @@ export class InMemoryPersistentTaskRepository implements PersistentTaskRepositor
     return Array.from(this.items.values()).filter((t) => t.householdId === householdId);
   }
 
+  async getByHouseholdPaginated(householdId: string, query: PaginatedQuery = {}): Promise<PaginatedResult<PersistentTask>> {
+    const limit = query.limit ?? 20;
+    let items = Array.from(this.items.values())
+      .filter((t) => t.householdId === householdId);
+
+    // Apply after filter (inclusive) on the natural timestamp (createdAt)
+    if (query.after) {
+      items = items.filter((t) => t.createdAt >= query.after!);
+    }
+
+    // Sort by createdAt DESC, then id DESC for deterministic tie-breaking
+    items.sort((a, b) => b.createdAt.localeCompare(a.createdAt) || b.id.localeCompare(a.id));
+
+    // Apply composite cursor (exclusive): (createdAt < c.o OR (createdAt = c.o AND id < c.i))
+    let start = 0;
+    if (query.cursor) {
+      const c = JSON.parse(query.cursor!) as { o: string; i: string };
+      start = items.findIndex(
+        (t) => t.createdAt < c.o || (t.createdAt === c.o && t.id < c.i)
+      );
+      if (start === -1) {
+        return { items: [], cursor: null, hasMore: false };
+      }
+    }
+
+    const page = items.slice(start, start + limit);
+    const last = page.length > 0 ? page[page.length - 1] : null;
+    const nextCursor = page.length === limit && last ? JSON.stringify({ o: last.createdAt, i: last.id }) : null;
+    const hasMore = page.length === limit && start + limit < items.length;
+
+    return { items: page, cursor: nextCursor, hasMore };
+  }
+
   async getById(id: string): Promise<PersistentTask | null> {
     return this.items.get(id) ?? null;
   }
@@ -484,6 +583,39 @@ export class InMemoryTodoRepository implements TodoRepository {
 
   async getByHousehold(householdId: string): Promise<TodoItem[]> {
     return Array.from(this.items.values()).filter((t) => t.householdId === householdId);
+  }
+
+  async getByHouseholdPaginated(householdId: string, query: PaginatedQuery = {}): Promise<PaginatedResult<TodoItem>> {
+    const limit = query.limit ?? 20;
+    let items = Array.from(this.items.values())
+      .filter((t) => t.householdId === householdId);
+
+    // Apply after filter (inclusive) on the natural timestamp (createdAt)
+    if (query.after) {
+      items = items.filter((t) => t.createdAt >= query.after!);
+    }
+
+    // Sort by createdAt DESC, then id DESC for deterministic tie-breaking
+    items.sort((a, b) => b.createdAt.localeCompare(a.createdAt) || b.id.localeCompare(a.id));
+
+    // Apply composite cursor (exclusive): (createdAt < c.o OR (createdAt = c.o AND id < c.i))
+    let start = 0;
+    if (query.cursor) {
+      const c = JSON.parse(query.cursor!) as { o: string; i: string };
+      start = items.findIndex(
+        (t) => t.createdAt < c.o || (t.createdAt === c.o && t.id < c.i)
+      );
+      if (start === -1) {
+        return { items: [], cursor: null, hasMore: false };
+      }
+    }
+
+    const page = items.slice(start, start + limit);
+    const last = page.length > 0 ? page[page.length - 1] : null;
+    const nextCursor = page.length === limit && last ? JSON.stringify({ o: last.createdAt, i: last.id }) : null;
+    const hasMore = page.length === limit && start + limit < items.length;
+
+    return { items: page, cursor: nextCursor, hasMore };
   }
 
   async getById(id: string): Promise<TodoItem | null> {
@@ -707,6 +839,39 @@ export class InMemoryInvitationRepository implements InvitationRepository {
     return Array.from(this.items.values()).filter((i) => i.householdId === householdId);
   }
 
+  async getByHouseholdPaginated(householdId: string, query: PaginatedQuery = {}): Promise<PaginatedResult<Invitation>> {
+    const limit = query.limit ?? 20;
+    let items = Array.from(this.items.values())
+      .filter((i) => i.householdId === householdId);
+
+    // Apply after filter (inclusive) on the natural timestamp (createdAt)
+    if (query.after) {
+      items = items.filter((i) => i.createdAt >= query.after!);
+    }
+
+    // Sort by createdAt DESC, then id DESC for deterministic tie-breaking
+    items.sort((a, b) => b.createdAt.localeCompare(a.createdAt) || b.id.localeCompare(a.id));
+
+    // Apply composite cursor (exclusive): (createdAt < c.o OR (createdAt = c.o AND id < c.i))
+    let start = 0;
+    if (query.cursor) {
+      const c = JSON.parse(query.cursor!) as { o: string; i: string };
+      start = items.findIndex(
+        (inv) => inv.createdAt < c.o || (inv.createdAt === c.o && inv.id < c.i)
+      );
+      if (start === -1) {
+        return { items: [], cursor: null, hasMore: false };
+      }
+    }
+
+    const page = items.slice(start, start + limit);
+    const last = page.length > 0 ? page[page.length - 1] : null;
+    const nextCursor = page.length === limit && last ? JSON.stringify({ o: last.createdAt, i: last.id }) : null;
+    const hasMore = page.length === limit && start + limit < items.length;
+
+    return { items: page, cursor: nextCursor, hasMore };
+  }
+
   async getPendingByEmail(email: string): Promise<Invitation[]> {
     return Array.from(this.items.values()).filter(
       (i) => i.invitedEmail === email && i.status === 'pending',
@@ -729,6 +894,10 @@ export class InMemoryInvitationRepository implements InvitationRepository {
     const updated = { ...existing, status };
     this.items.set(id, updated);
     return updated;
+  }
+
+  async delete(id: string): Promise<void> {
+    this.items.delete(id);
   }
 }
 

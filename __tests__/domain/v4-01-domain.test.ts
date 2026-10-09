@@ -168,7 +168,12 @@ describe('V4-01 Category — user-created only, never seeded', () => {
         // Repository class definitions declare `seed(...)` as a method and are
         // not matched (the pattern requires `categories.seed(`).
         if (/categories\s*\.\s*seed\s*\(/.test(content)) {
-          offenders.push(path.relative(root, file));
+          // V4-07: the sync materializer is the single allowed exception. It
+          // only ever materializes categories created by users on other
+          // devices (delta sync), never an imposed taxonomy.
+          const rel = path.relative(root, file);
+          if (rel === 'src/infrastructure/sync/SyncMaterializer.ts') continue;
+          offenders.push(rel);
         }
       }
     }

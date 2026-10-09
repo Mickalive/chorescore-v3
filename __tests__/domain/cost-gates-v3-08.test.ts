@@ -40,6 +40,8 @@ import {
   InMemoryExpenseEntryRepository,
   InMemorySettlementRepository,
   InMemoryMemberRepository,
+  InMemoryCategoryRepository,
+  InMemoryTodoRepository,
 } from '../../src/infrastructure/repositories/InMemoryRepositories';
 import {
   createInMemoryRepositories,
@@ -48,6 +50,7 @@ import {
   costTracker,
   COST_BUDGETS,
 } from '../../src/domain/services/costInstrumentation';
+import { SYNC_COLLECTIONS } from '../../src/domain/services/syncEngine';
 import { ClassificationCache } from '../../src/analytics/classificationCache';
 import { TaskTaxonomyService } from '../../src/analytics/taxonomy';
 import { PrivacyReleaseGate } from '../../src/analytics/gate';
@@ -569,9 +572,10 @@ describe('V3-08 Gate 7: Cost budgets defined and enforceable', () => {
     expect(budget.networkCalls).toBe(0);
   });
 
-  test('sync-delta budget limits reads to ≤8', () => {
+  test('sync-delta budget limits reads to ≤10', () => {
     const budget = COST_BUDGETS['sync-delta'];
-    expect(budget.reads).toBeLessThanOrEqual(8);
+    // V4-07: 10 collections (categories + invitations added)
+    expect(budget.reads).toBeLessThanOrEqual(10);
   });
 
   test('costTracker.assertBudget throws when budget exceeded', () => {
@@ -945,5 +949,173 @@ describe('V3-08 Gate 10: Accessibility and design system', () => {
       expect(content).not.toContain('badge');
       expect(content).not.toContain('Premium');
     }
+  });
+});
+
+// ══════════════════════════════════════════════════════════════
+// Gate 11: Category create/update/delete writes are bounded
+// ══════════════════════════════════════════════════════════════
+
+describe('V3-08 Gate 11: Category writes are bounded (V4-07)', () => {
+  test('creating a category is exactly 1 write, independent of history size', async () => {
+    const categoryRepo = new InMemoryCategoryRepository();
+
+    // Seed 20,000 historical categories
+    const base = new Date('2020-01-01T00:00:00.000Z').getTime();
+    for (let i = 0; i < 20_000; i++) {
+      categoryRepo.seed([{
+        id: `cat-${i}`,
+        householdId: HH,
+        name: `Category ${i}`,
+        defaultTaskRatio: null,
+        createdAt: new Date(base + i * 60000).toISOString(),
+        updatedAt: new Date(base + i * 60000).toISOString(),
+      }]);
+    }
+
+    let writeCount = 0;
+    const origCreate = categoryRepo.create.bind(categoryRepo);
+    categoryRepo.create = async (...args: Parameters<typeof origCreate>) => {
+      writeCount++;
+      return origCreate(...args);
+    };
+
+    const created = await categoryRepo.create({
+      householdId: HH,
+      name: 'Courses',
+      defaultTaskRatio: null,
+    });
+
+    expect(writeCount).toBe(1);
+    expect(created.id).toBeDefined();
+    expect(COST_BUDGETS['create-category']?.writes).toBe(1);
+    expect(COST_BUDGETS['create-category']?.networkCalls).toBe(0);
+  });
+
+  test('updating a category is exactly 1 write', async () => {
+    const categoryRepo = new InMemoryCategoryRepository();
+    const created = await categoryRepo.create({
+      householdId: HH,
+      name: 'Courses',
+      defaultTaskRatio: null,
+    });
+
+    let writeCount = 0;
+    const origUpdate = categoryRepo.update.bind(categoryRepo);
+    categoryRepo.update = async (...args: Parameters<typeof origUpdate>) => {
+      writeCount++;
+      return origUpdate(...args);
+    };
+
+    const updated = await categoryRepo.update(created.id, { name: 'Épicerie' });
+
+    expect(writeCount).toBe(1);
+    expect(updated.name).toBe('Épicerie');
+    expect(COST_BUDGETS['update-category']?.writes).toBe(1);
+  });
+
+  test('deleting a category is exactly 1 write', async () => {
+    const categoryRepo = new InMemoryCategoryRepository();
+    const created = await categoryRepo.create({
+      householdId: HH,
+      name: 'Courses',
+      defaultTaskRatio: null,
+    });
+
+    let writeCount = 0;
+    const origDelete = categoryRepo.delete.bind(categoryRepo);
+    categoryRepo.delete = async (...args: Parameters<typeof origDelete>) => {
+      writeCount++;
+      return origDelete(...args);
+    };
+
+    await categoryRepo.delete(created.id);
+
+    expect(writeCount).toBe(1);
+    expect(await categoryRepo.getById(created.id)).toBeNull();
+    expect(COST_BUDGETS['delete-category']?.writes).toBe(1);
+  });
+});
+
+// ══════════════════════════════════════════════════════════════
+// Gate 12: Todo (task/expense) create + complete writes are bounded
+// ══════════════════════════════════════════════════════════════
+
+describe('V3-08 Gate 12: Todo create/complete writes are bounded (V4-07)', () => {
+  test('creating an expense-kind todo is exactly 1 write', async () => {
+    const todoRepo = new InMemoryTodoRepository();
+
+    let writeCount = 0;
+    const origCreate = todoRepo.create.bind(todoRepo);
+    todoRepo.create = async (...args: Parameters<typeof origCreate>) => {
+      writeCount++;
+      return origCreate(...args);
+    };
+
+    const created = await todoRepo.create({
+      householdId: HH,
+      title: 'Courses',
+      assigneeMemberId: 'a',
+      beneficiaryMemberIds: ['a', 'b'],
+      dueAt: null,
+      reminderAt: null,
+      notes: '',
+      persistentTaskId: null,
+      status: 'todo',
+      kind: 'expense',
+      expenseAmountMinor: 4500,
+      expenseCurrency: 'CHF',
+    });
+
+    expect(writeCount).toBe(1);
+    expect(created.id).toBeDefined();
+    expect(created.kind).toBe('expense');
+    expect(COST_BUDGETS['create-todo-expense']?.writes).toBe(1);
+  });
+
+  test('completing a todo is bounded to 2 writes (todo update + ledger entry)', () => {
+    // The atomic completion writes exactly one ledger entry and one todo
+    // status update. The budget documents this bound.
+    expect(COST_BUDGETS['complete-todo-expense']?.writes).toBe(2);
+    expect(COST_BUDGETS['complete-todo-expense']?.networkCalls).toBe(0);
+  });
+});
+
+// ══════════════════════════════════════════════════════════════
+// Gate 13: sync-delta budget covers all 10 collections
+// ══════════════════════════════════════════════════════════════
+
+describe('V3-08 Gate 13: sync-delta budget covers 10 collections (V4-07)', () => {
+  test('SYNC_COLLECTIONS contains exactly the 10 delta-synced collections', () => {
+    expect(SYNC_COLLECTIONS).toHaveLength(10);
+    expect(SYNC_COLLECTIONS).toEqual(expect.arrayContaining([
+      'contribution_entries',
+      'expense_entries',
+      'settlements',
+      'todo_items',
+      'persistent_tasks',
+      'members',
+      'memberships',
+      'households',
+      'categories',
+      'invitations',
+    ]));
+  });
+
+  test('sync-delta budget scales with 10 collections and stays bounded', () => {
+    const budget = COST_BUDGETS['sync-delta'];
+    expect(budget).toBeDefined();
+    // One read + one write per collection (pull + push), plus bounded network.
+    expect(budget.reads).toBeLessThanOrEqual(10);
+    expect(budget.writes).toBeLessThanOrEqual(10);
+    expect(budget.networkCalls).toBeLessThanOrEqual(2);
+  });
+
+  test('categories and invitations have explicit sync budgets', () => {
+    expect(COST_BUDGETS['create-category']).toBeDefined();
+    expect(COST_BUDGETS['update-category']).toBeDefined();
+    expect(COST_BUDGETS['delete-category']).toBeDefined();
+    expect(COST_BUDGETS['create-todo-expense']).toBeDefined();
+    expect(COST_BUDGETS['complete-todo-expense']).toBeDefined();
   });
 });

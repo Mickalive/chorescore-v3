@@ -27,6 +27,8 @@ export const SYNC_COLLECTIONS: SyncCollection[] = [
   'members',
   'memberships',
   'households',
+  'categories',
+  'invitations',
 ];
 
 /**

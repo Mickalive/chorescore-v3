@@ -2,7 +2,8 @@
  * V3-06 REPAIR — Sync Pipeline E2E + Authorization + Transactional Tests
  *
  * Proves the core fixes for V3-06:
- *   1. applyDeltas materializes into business tables for ALL 8 collections.
+ *   1. applyDeltas materializes into business tables for ALL 10 collections
+ *      (V4-07: categories + invitations added to the 8 V3-06 collections).
  *   2. Local writes produce dirty records (pushDeltas has real payloads).
  *   3. Transactional materialization: cursor + materialize are atomic.
  *   4. Real local revisions used in conflict resolution (local wins when revision higher).
@@ -85,10 +86,10 @@ function membership(id: string, userId: string, householdId: string = HH, role: 
 }
 
 // ══════════════════════════════════════════════════════════════
-// 1. ALL 8 COLLECTIONS: Remote delta → Business table
+// 1. ALL 10 COLLECTIONS: Remote delta → Business table
 // ══════════════════════════════════════════════════════════════
 
-describe('V3-06 REPAIR: applyDeltas materializes ALL 8 collections', () => {
+describe('V3-06 REPAIR: applyDeltas materializes ALL 10 collections', () => {
   let repos: AllRepositories;
 
   beforeEach(() => {
@@ -767,8 +768,9 @@ describe('V3-06 REPAIR: cost instrumentation', () => {
   test('full sync has bounded cost per collection', () => {
     const { COST_BUDGETS } = require('../../src/domain/services/costInstrumentation');
     const budget = COST_BUDGETS['sync-delta'];
-    expect(budget?.reads).toBeLessThanOrEqual(8);
-    expect(budget?.writes).toBeLessThanOrEqual(8);
+    // V4-07: 10 collections (categories + invitations added)
+    expect(budget?.reads).toBeLessThanOrEqual(10);
+    expect(budget?.writes).toBeLessThanOrEqual(10);
     expect(budget?.networkCalls).toBeLessThanOrEqual(2);
   });
 

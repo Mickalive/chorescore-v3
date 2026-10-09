@@ -304,6 +304,11 @@ export class ScopedTodoRepository implements TodoRepository {
     return this.inner.getByHousehold(householdId);
   }
 
+  async getByHouseholdPaginated(householdId: string, query?: PaginatedQuery): Promise<PaginatedResult<TodoItem>> {
+    await this.checkMembership(householdId);
+    return this.inner.getByHouseholdPaginated(householdId, query);
+  }
+
   async getById(id: string): Promise<TodoItem | null> {
     const todo = await this.inner.getById(id);
     if (todo) {
@@ -459,6 +464,11 @@ export class ScopedMemberRepository implements MemberRepository {
     return this.inner.getByHousehold(householdId);
   }
 
+  async getByHouseholdPaginated(householdId: string, query?: PaginatedQuery): Promise<PaginatedResult<Member>> {
+    await this.checkMembership(householdId);
+    return this.inner.getByHouseholdPaginated(householdId, query);
+  }
+
   async getById(id: string): Promise<Member | null> {
     const member = await this.inner.getById(id);
     if (member) {
@@ -498,6 +508,11 @@ export class ScopedCategoryRepository implements CategoryRepository {
   async getByHousehold(householdId: string): Promise<Category[]> {
     await this.checkMembership(householdId);
     return this.inner.getByHousehold(householdId);
+  }
+
+  async getByHouseholdPaginated(householdId: string, query?: PaginatedQuery): Promise<PaginatedResult<Category>> {
+    await this.checkMembership(householdId);
+    return this.inner.getByHouseholdPaginated(householdId, query);
   }
 
   async getById(id: string): Promise<Category | null> {
@@ -609,6 +624,11 @@ export class ScopedPersistentTaskRepository implements PersistentTaskRepository 
     return this.inner.getByHousehold(householdId);
   }
 
+  async getByHouseholdPaginated(householdId: string, query?: PaginatedQuery): Promise<PaginatedResult<PersistentTask>> {
+    await this.checkMembership(householdId);
+    return this.inner.getByHouseholdPaginated(householdId, query);
+  }
+
   async getById(id: string): Promise<PersistentTask | null> {
     const task = await this.inner.getById(id);
     if (task) {
@@ -672,6 +692,12 @@ export class ScopedInvitationRepository implements InvitationRepository {
     return this.inner.getByHousehold(householdId);
   }
 
+  /** Household-scoped: requires membership. */
+  async getByHouseholdPaginated(householdId: string, query?: PaginatedQuery): Promise<PaginatedResult<Invitation>> {
+    await this.checkMembership(householdId);
+    return this.inner.getByHouseholdPaginated(householdId, query);
+  }
+
   async getPendingByEmail(email: string): Promise<Invitation[]> {
     return this.inner.getPendingByEmail(email);
   }
@@ -689,5 +715,14 @@ export class ScopedInvitationRepository implements InvitationRepository {
       await this.checkMembership(existing.householdId);
     }
     return this.inner.updateStatus(id, status);
+  }
+
+  /** Delete requires membership. */
+  async delete(id: string): Promise<void> {
+    const existing = await this.inner.getById(id);
+    if (existing) {
+      await this.checkMembership(existing.householdId);
+    }
+    return this.inner.delete(id);
   }
 }

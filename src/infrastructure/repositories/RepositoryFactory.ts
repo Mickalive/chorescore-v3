@@ -8,9 +8,9 @@
  * Sync-aware: ALL repos (both in-memory and SQLite) automatically record dirty
  * sync records after business writes (via SyncRecording wrappers) and materialize
  * remote deltas into business tables (via MaterializingSyncState). This ensures
- * the sync pipeline is wired end-to-end for all 8 SYNC_COLLECTIONS:
+ * the sync pipeline is wired end-to-end for all 10 SYNC_COLLECTIONS:
  *   contributions, expenses, settlements, todos, persistent_tasks,
- *   members, memberships, households.
+ *   members, memberships, households, categories, invitations.
  *
  * V3-06 REPAIR:
  *   - SQLite path now uses MaterializingSyncState with sync recording wrappers.
@@ -72,6 +72,8 @@ import {
   SyncRecordingMemberRepository,
   SyncRecordingMembershipRepository,
   SyncRecordingHouseholdRepository,
+  SyncRecordingCategoryRepository,
+  SyncRecordingInvitationRepository,
   resetRevisions as resetWrapperRevisions,
 } from '../sync/SyncRecordingWrapper';
 import { materializeDeltas, getEntityTimestamp, didRemoteWin } from '../sync/SyncMaterializer';
@@ -82,9 +84,9 @@ export interface AllRepositories {
   households: HouseholdRepository;
   members: MemberRepository;
   /**
-   * V4-01: user-created categories. Deliberately NOT part of the sync
-   * collection list yet (that lands with the V4-07 sync criterion) and never
-   * seeded: a household starts with zero categories.
+   * V4-01: user-created categories. Never seeded: a household starts with
+   * zero categories. V4-07: participates in delta-only sync like every other
+   * collection.
    */
   categories: CategoryRepository;
   contributions: ContributionEntryRepository;
@@ -212,6 +214,14 @@ async function getExistingEntityTimestamp(
     }
     case 'households': {
       const e = await repos.households.getById(id);
+      return e ? getEntityTimestamp(collection, e as unknown as Record<string, unknown>) : '';
+    }
+    case 'categories': {
+      const e = await repos.categories.getById(id);
+      return e ? getEntityTimestamp(collection, e as unknown as Record<string, unknown>) : '';
+    }
+    case 'invitations': {
+      const e = await repos.invitations.getById(id);
       return e ? getEntityTimestamp(collection, e as unknown as Record<string, unknown>) : '';
     }
     default:
@@ -344,6 +354,8 @@ function createInMemoryRepositories(): AllRepositories {
   const syncMembers = new SyncRecordingMemberRepository(memberRepo, baseSyncState);
   const syncMemberships = new SyncRecordingMembershipRepository(membershipRepo, baseSyncState);
   const syncHouseholds = new SyncRecordingHouseholdRepository(householdRepo, baseSyncState);
+  const syncCategories = new SyncRecordingCategoryRepository(categoryRepo, baseSyncState);
+  const syncInvitations = new SyncRecordingInvitationRepository(invitationRepo, baseSyncState);
 
   // Materializing sync state: applyDeltas also writes to business tables
   // in a transactional manner (materialize → cursor atomically)
@@ -355,13 +367,13 @@ function createInMemoryRepositories(): AllRepositories {
     memberships: syncMemberships,
     households: syncHouseholds,
     members: syncMembers,
-    categories: categoryRepo,
+    categories: syncCategories,
     contributions: syncContributions,
     tasks: syncTasks,
     todos: syncTodos,
     expenses: syncExpenses,
     settlements: syncSettlements,
-    invitations: invitationRepo,
+    invitations: syncInvitations,
     syncState: materializingSync,
     withTransaction: async <T>(fn: () => Promise<T>): Promise<T> => {
       // V3-06 REPAIR: In-memory equivalent of a DB transaction: snapshot ALL
@@ -405,7 +417,7 @@ export { createInMemoryRepositories };
 
 // ── SQLite Path ────────────────────────────────────────────────
 // V3-06 REPAIR: The SQLite path now uses MaterializingSyncState with
-// sync recording wrappers, covering all 8 SYNC_COLLECTIONS.
+// sync recording wrappers, covering all 10 SYNC_COLLECTIONS.
 
 async function createSqliteRepositories(): Promise<AllRepositories | null> {
   try {
@@ -437,9 +449,11 @@ async function createSqliteRepositories(): Promise<AllRepositories | null> {
     const rawTodos = new SqliteTodoRepository();
     const rawExpenses = new SqliteExpenseEntryRepository();
     const rawSettlements = new SqliteSettlementRepository();
+    const rawCategories = new SqliteCategoryRepository();
+    const rawInvitations = new SqliteInvitationRepository();
     const baseSyncState = new SqliteSyncStateRepository();
 
-    // Wrap ALL 8 business repos to record dirty sync records after writes
+    // Wrap ALL 10 business repos to record dirty sync records after writes
     const syncMemberships = new SyncRecordingMembershipRepository(rawMemberships, baseSyncState);
     const syncHouseholds = new SyncRecordingHouseholdRepository(rawHouseholds, baseSyncState);
     const syncMembers = new SyncRecordingMemberRepository(rawMembers, baseSyncState);
@@ -448,6 +462,8 @@ async function createSqliteRepositories(): Promise<AllRepositories | null> {
     const syncTodos = new SyncRecordingTodoRepository(rawTodos, baseSyncState);
     const syncExpenses = new SyncRecordingExpenseRepository(rawExpenses, baseSyncState);
     const syncSettlements = new SyncRecordingSettlementRepository(rawSettlements, baseSyncState);
+    const syncCategories = new SyncRecordingCategoryRepository(rawCategories, baseSyncState);
+    const syncInvitations = new SyncRecordingInvitationRepository(rawInvitations, baseSyncState);
 
     // Materializing sync state: applyDeltas materializes into business
     // tables AND advances the cursor inside a single SQLite transaction.
@@ -459,14 +475,13 @@ async function createSqliteRepositories(): Promise<AllRepositories | null> {
       memberships: syncMemberships,
       households: syncHouseholds,
       members: syncMembers,
-      // Categories are local-only for now (V4-07 owns the sync extension).
-      categories: new SqliteCategoryRepository(),
+      categories: syncCategories,
       contributions: syncContributions,
       tasks: syncTasks,
       todos: syncTodos,
       expenses: syncExpenses,
       settlements: syncSettlements,
-      invitations: new SqliteInvitationRepository(),
+      invitations: syncInvitations,
       syncState: materializingSync,
       withTransaction: async <T>(fn: () => Promise<T>): Promise<T> => {
         // Real SQLite transaction: any throw rolls back all writes.
@@ -545,7 +560,7 @@ export function withTimeout<T>(promise: Promise<T>, ms: number, fallback: () => 
  * In tests: In-memory fallback for deterministic testing.
  *
  * Both paths now have:
- *   - Sync recording wrappers for all 8 collections
+ *   - Sync recording wrappers for all 10 collections
  *   - MaterializingSyncState for transactional delta application
  *   - Real local revision tracking for deterministic conflict resolution
  *

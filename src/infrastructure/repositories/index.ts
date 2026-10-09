@@ -59,6 +59,7 @@ export interface HouseholdRepository extends SeedableRepository<Household> {
 
 export interface MemberRepository extends SeedableRepository<Member> {
   getByHousehold(householdId: string): Promise<Member[]>;
+  getByHouseholdPaginated(householdId: string, query?: PaginatedQuery): Promise<PaginatedResult<Member>>;
   getById(id: string): Promise<Member | null>;
   create(data: Omit<Member, 'id' | 'joinedAt'>): Promise<Member>;
 }
@@ -83,6 +84,7 @@ export type CategoryUpdate = Partial<Pick<Category, 'name' | 'defaultTaskRatio'>
  */
 export interface CategoryRepository extends SeedableRepository<Category> {
   getByHousehold(householdId: string): Promise<Category[]>;
+  getByHouseholdPaginated(householdId: string, query?: PaginatedQuery): Promise<PaginatedResult<Category>>;
   getById(id: string): Promise<Category | null>;
   create(data: Omit<Category, 'id' | 'createdAt' | 'updatedAt'>): Promise<Category>;
   update(id: string, data: CategoryUpdate): Promise<Category>;
@@ -119,6 +121,7 @@ export interface ContributionEntryRepository extends SeedableRepository<Contribu
 
 export interface PersistentTaskRepository extends SeedableRepository<PersistentTask> {
   getByHousehold(householdId: string): Promise<PersistentTask[]>;
+  getByHouseholdPaginated(householdId: string, query?: PaginatedQuery): Promise<PaginatedResult<PersistentTask>>;
   getById(id: string): Promise<PersistentTask | null>;
   create(task: Omit<PersistentTask, 'id' | 'createdAt'>): Promise<PersistentTask>;
   delete(id: string): Promise<void>;
@@ -126,6 +129,7 @@ export interface PersistentTaskRepository extends SeedableRepository<PersistentT
 
 export interface TodoRepository extends SeedableRepository<TodoItem> {
   getByHousehold(householdId: string): Promise<TodoItem[]>;
+  getByHouseholdPaginated(householdId: string, query?: PaginatedQuery): Promise<PaginatedResult<TodoItem>>;
   getById(id: string): Promise<TodoItem | null>;
   create(todo: Omit<TodoItem, 'id' | 'createdAt'>): Promise<TodoItem>;
   update(id: string, data: Partial<TodoItem>): Promise<TodoItem>;
@@ -155,9 +159,11 @@ export interface InvitationRepository extends SeedableRepository<Invitation> {
   getById(id: string): Promise<Invitation | null>;
   getByLinkToken(token: string): Promise<Invitation | null>;
   getByHousehold(householdId: string): Promise<Invitation[]>;
+  getByHouseholdPaginated(householdId: string, query?: PaginatedQuery): Promise<PaginatedResult<Invitation>>;
   getPendingByEmail(email: string): Promise<Invitation[]>;
   create(data: Omit<Invitation, 'id' | 'createdAt'>): Promise<Invitation>;
   updateStatus(id: string, status: Invitation['status']): Promise<Invitation>;
+  delete(id: string): Promise<void>;
 }
 
 // ── V3-06: Sync State Repository ───────────────────────────────
