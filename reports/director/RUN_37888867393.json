@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "cycle": "37888867393",
+  "decision": "stop",
+  "reason": "Audit decision: accept. V4-09 (Release mobile et golden path V4) candidate accepted with hasDelta=true and zero must-fix findings (reports/audits/RUN_37888867393.json findings=[]). Trusted verification exit code 0 (reports/audits/TRUSTED_37888867393.md): typecheck clean; 657 tests / 31 suites; privacy release gate 71 tests PASS; cost regression gate 29 gates PASS; i18n 9 tests PASS; Expo Android AND iOS exports OK; Android prebuild OK; gradlew :app:assembleDebug BUILD SUCCESSFUL (13m57s, 374 tasks). The delta wires the V4 golden-path release harness honestly: deterministic secretless E2E session gated by EXPO_PUBLIC_E2E_AUTH (no Demo screen), testID-driven UI automation across the golden-path fields, exact-match forbidden-label assertions (Contribution/Demo/Premium/Standard/Pro/abonnement/paywall/Chrono/Essai/Gratuit), E2E share/attachment adapters gated by isE2EAuthEnabled() while normal builds keep honest native adapters, Metro cache invalidation in the finalizer wrapper so the E2E session cannot leak into the arm64 release, and V3->V4 terminology/accent corrections. V4-09 is the FINAL roadmap criterion, so there is no next criterion to author. V4-09 final completion belongs EXCLUSIVELY to the trusted release finalizer and is not claimed here: the finalizer must run scripts/finalizer-e2e.sh (x86_64 release rebuild with EXPO_PUBLIC_E2E_AUTH=1 + real API 35 install/launch/golden path), then build the arm64-v8a release APK, compute SHA-256, upload artifact 'chorescore-v4-android-release' with >=30-day retention, and only then attest v4-complete. The Builder/factory loop stops; the trusted shell owns state transitions and the V4-09 handoff. No release gate is weakened, skipped or reinterpreted: V4-01..V4-08 and all V3 foundations (two independent ledgers, zero-sum per unit/currency, explicit-only cross-ledger compensation with rate snapshot, historical unit semantics, local-first/SQLite, delta-only sync, materialized balances, bounded network cost, incremental analytics/classification cache, privacy plane separation, 100% free model, no chrono, warm adult V2 visual direction) remain preserved with zero regression.",
+  "progressEvidence": [
+    "auditDecision-accept-criterionId-V4-09-hasDelta-true",
+    "zero-mustFix-findings-audit-findings-empty",
+    "trusted-verification-exit-0-typecheck-657-tests-31-suites",
+    "privacy-release-contract-71-tests-PASS",
+    "cost-regression-gate-29-gates-PASS",
+    "i18n-check-9-tests-PASS",
+    "expo-export-android-OK-and-expo-export-ios-OK",
+    "android-prebuild-OK-assembleDebug-BUILD-SUCCESSFUL-13m57s-374-tasks",
+    "e2e-golden-path-harness-rewritten-V4-deterministic-secretless-session-no-demo-screen",
+    "testID-driven-automation-across-golden-path-fields",
+    "exact-match-forbidden-label-assertions-Contribution-Demo-Premium-Standard-Pro-abonnement-paywall-Chrono-Essai-Gratuit",
+    "E2E-share-and-attachment-adapters-gated-by-isE2EAuthEnabled-normal-builds-keep-honest-native-adapters",
+    "metro-cache-invalidation-in-finalizer-wrapper-prevents-E2E-session-leaking-into-arm64-release",
+    "V3-terminology-and-French-accent-corrections-A-faire-Depenses-Repartition-Compensation",
+    "V4-09-is-final-roadmap-criterion-no-next-criterion",
+    "builder-work-complete-factory-loop-stops",
+    "trusted-finalizer-owns-V4-09-completion-run-finalizer-e2e-sh-API35-golden-path",
+    "trusted-finalizer-then-builds-arm64-v8a-release-APK-computes-SHA-256-uploads-artifact-30-days",
+    "no-release-gate-weakened-skipped-or-reinterpreted",
+    "V3-foundations-and-V4-01-through-V4-08-preserved-zero-regression",
+    "trusted-shell-owns-state-normalization-and-V4-09-handoff"
+  ]
+}

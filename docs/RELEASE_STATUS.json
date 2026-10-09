@@ -1,12 +1,10 @@
 {
   "schemaVersion": 1,
   "milestone": "v4-rc",
-  "lastCycle": "37887082027",
-  "activeCriteria": [
-    "V4-09"
-  ],
-  "pendingArtifact": null,
-  "progressSummary": "Audited V4-07 requires targeted repair; safe WIP retained and autonomous loop continues.",
+  "lastCycle": "37888867393",
+  "activeCriteria": [],
+  "pendingArtifact": "V4-09-RELEASE",
+  "progressSummary": "V4-09 accepted; trusted V4 mobile finalizer owns APK/API35/golden-path completion.",
   "criteria": [
     {
       "id": "V4-01",
@@ -68,14 +66,16 @@
     {
       "id": "V4-09",
       "status": "in_progress",
-      "evidence": []
+      "evidence": [
+        "audit-accepted-37888867393"
+      ]
     }
   ],
   "openFindings": [],
   "factoryHealth": {
     "stalled": false,
     "consecutiveNoProgress": 0,
-    "lastProductSha": "a77a61e7d5218106319b0836acfd9bff4135b881",
+    "lastProductSha": "d9131b658b5ecb695eb399f06f74b34178892dea",
     "reason": null
   }
 }

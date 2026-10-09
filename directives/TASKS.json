@@ -2,21 +2,11 @@
   "schemaVersion": 1,
   "milestone": "v4-rc",
   "builder": {
-    "enabled": true,
-    "criterionId": "V4-09",
-    "objective": "Implement V4-09 — Release mobile et golden path V4. Finaliser la release selon V4_RELEASE_ENGINEERING : gates produit/privacy/coût/i18n, exports Android/iOS, x86_64 API35 golden path réel, puis APK arm64-v8a final hashé et uploadé.",
-    "scope": "Work only on V4-09 and directly necessary migrations/repairs. Preserve validated V3 foundations and every completed V4 criterion.",
-    "acceptance": [
-      "tests/privacy/cost/i18n verts",
-      "Expo Android+iOS exports",
-      "x86_64 release install API35",
-      "golden path V4 complet",
-      "aucun label interdit visible",
-      "arm64-v8a release APK",
-      "SHA-256",
-      "artifact 30 jours",
-      "aucun finding ouvert"
-    ],
+    "enabled": false,
+    "criterionId": null,
+    "objective": "V4-09 handed to trusted finalizer.",
+    "scope": "Trusted finalizer only.",
+    "acceptance": [],
     "previousCriteriaPreserved": [
       "V4-01: accepted and must not regress",
       "V4-02: accepted and must not regress",
