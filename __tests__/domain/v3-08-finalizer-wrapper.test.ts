@@ -100,6 +100,32 @@ describe('V3-08 finalizer wrapper contract', () => {
     expect(wrapper).toMatch(/INSTALL_ATTEMPTS" -eq 1[\s\S]*Restarting adb server before install/);
   });
 
+  test('wrapper gates on input/settings services and re-dismisses the keyguard', () => {
+    // Trusted finalizer run 37909577314 failed BEFORE this wrapper ran: right
+    // after sys.boot_completed flipped to 1, the emulator-runner action's own
+    // `input keyevent 82` / `settings put` returned
+    // "cmd: Failure calling service input/settings: Broken pipe (32)".
+    // Reading service *registration* alone did not catch a framework that was
+    // still initializing, so the wrapper must (a) require the input and
+    // settings services too and (b) probe a real settings round-trip, then
+    // (c) re-assert the unlock before install/launch.
+    const wrapper = readRepo('scripts/finalizer-e2e.sh');
+    // Broader service gate.
+    expect(wrapper).toContain('service check input');
+    expect(wrapper).toContain('service check settings');
+    // Real round-trip liveness probe that treats broken pipe / not-found as
+    // not-ready.
+    expect(wrapper).toContain('framework_cmd_ready');
+    expect(wrapper).toContain('Broken pipe');
+    expect(wrapper).toContain('settings get system screen_off_timeout');
+    // Bounded keyguard re-dismissal before the golden path.
+    expect(wrapper).toContain('dismiss_keyguard');
+    expect(wrapper).toContain('wm dismiss-keyguard');
+    // The keyguard helper must be best-effort (never fail the step): it
+    // returns 0 even when the keyguard cannot be confirmed dismissed.
+    expect(wrapper).toMatch(/dismiss_keyguard\(\)[\s\S]*WARNING: keyguard still showing[\s\S]*return 0/);
+  });
+
   test('wrapper falls back to push + pm install via the shell transport', () => {
     // `adb install` uses the adb sync service which can hang on degraded
     // emulators; `adb push` + `adb shell pm install` uses the shell

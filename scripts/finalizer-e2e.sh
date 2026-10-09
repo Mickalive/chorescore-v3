@@ -28,28 +28,78 @@ set -euo pipefail
 echo "=== ChoreScore V4 finalizer E2E ==="
 echo "Time: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
+# Probe whether the Android framework command services actually answer a real
+# round-trip.  In the trusted finalizer run 37909577314, right after
+# sys.boot_completed flipped to 1, the emulator-runner action's own
+# `input keyevent 82` and `settings put` both returned
+# "cmd: Failure calling service input/settings: Broken pipe (32)".  A service
+# can be *listed* by `service check` while system_server is still initializing
+# (or restarting), so registration alone is not proof of readiness: probe an
+# actual `settings get` and treat broken-pipe / not-found output as not ready.
+framework_cmd_ready() {
+  local out
+  out=$(timeout 30 adb shell settings get system screen_off_timeout 2>&1 | tr -d '\r' || true)
+  case "$out" in
+    *"Broken pipe"*|*"Failure calling service"*|*"not found"*|*"Unknown"*|*"Error"*) return 1 ;;
+  esac
+  # An empty answer is also a failure: settings always returns a value.
+  [ -n "$out" ] || return 1
+  return 0
+}
+
 # Wait until Android's framework services are actually available, not merely
 # until sys.boot_completed flips to 1. On hosted API 35 emulators adb can be
-# reachable while ActivityManager/PackageManager are still absent.
+# reachable while ActivityManager/PackageManager are still absent, and even
+# then the command services can fail a live round-trip (run 37909577314).
+# Require the package/activity/input/settings services to be registered AND a
+# real `settings get` round-trip to succeed before touching the APK.
 wait_android_services() {
   local max_checks="${1:-60}"
   local sleep_seconds="${2:-5}"
-  local i package_state activity_state
-  echo "Waiting for Android package/activity services..."
+  local i package_state activity_state input_state settings_state
+  echo "Waiting for Android package/activity/input/settings services..."
   for ((i=1; i<=max_checks; i++)); do
     package_state=$(adb shell service check package 2>/dev/null | tr -d '\r' || true)
     activity_state=$(adb shell service check activity 2>/dev/null | tr -d '\r' || true)
-    if echo "$package_state" | grep -qi "found" && echo "$activity_state" | grep -qi "found"; then
+    input_state=$(adb shell service check input 2>/dev/null | tr -d '\r' || true)
+    settings_state=$(adb shell service check settings 2>/dev/null | tr -d '\r' || true)
+    if echo "$package_state" | grep -qi "found" \
+      && echo "$activity_state" | grep -qi "found" \
+      && echo "$input_state" | grep -qi "found" \
+      && echo "$settings_state" | grep -qi "found" \
+      && framework_cmd_ready; then
       echo "Android framework services ready on check ${i}/${max_checks}"
       return 0
     fi
-    echo "  Services not ready (check ${i}/${max_checks}): package='${package_state:-unavailable}', activity='${activity_state:-unavailable}'"
+    echo "  Services not ready (check ${i}/${max_checks}): package='${package_state:-unavailable}', activity='${activity_state:-unavailable}', input='${input_state:-unavailable}', settings='${settings_state:-unavailable}'"
     sleep "$sleep_seconds"
   done
-  echo "ERROR: Android package/activity services did not become ready" >&2
+  echo "ERROR: Android package/activity/input/settings services did not become ready" >&2
   adb shell getprop sys.boot_completed 2>/dev/null || true
   adb shell service list 2>/dev/null | head -40 || true
   return 1
+}
+
+# Re-assert the screen unlock with bounded retries.  The emulator-runner action
+# sends `input keyevent 82` once after boot, but in run 37909577314 that call
+# hit a broken pipe and aborted the step before this wrapper ran.  If a retry
+# ever reaches the wrapper with the screen still locked, the golden path's taps
+# would land on the keyguard instead of the app, so dismiss it explicitly here
+# before install/launch.  Best-effort and bounded: never fails the step.
+dismiss_keyguard() {
+  local attempt state
+  for attempt in 1 2 3 4 5; do
+    timeout 20 adb shell input keyevent 82 >/dev/null 2>&1 || true
+    timeout 20 adb shell wm dismiss-keyguard >/dev/null 2>&1 || true
+    sleep 2
+    state=$(timeout 20 adb shell dumpsys window 2>/dev/null | grep -m1 -iE 'mDreamingLockscreen|KeyguardShowing' || true)
+    case "$state" in
+      *"=true"*) echo "  Keyguard still showing after dismiss attempt ${attempt}/5"; sleep 2 ;;
+      *) echo "Keyguard dismissed on attempt ${attempt}/5"; return 0 ;;
+    esac
+  done
+  echo "WARNING: keyguard still showing after dismiss attempts; continuing" >&2
+  return 0
 }
 
 # 0. Quick boot state check
@@ -89,6 +139,9 @@ sleep 10
 # sys.boot_completed is not sufficient on hosted API 35 runners. Require the
 # framework services used by install/launch before touching the APK.
 wait_android_services 60 5
+
+# Re-assert the screen unlock before install/launch (see dismiss_keyguard).
+dismiss_keyguard
 
 # Verify adb is connected and log device state
 adb get-state 2>/dev/null || {

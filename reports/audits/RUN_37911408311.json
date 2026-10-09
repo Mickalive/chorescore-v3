@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "cycle": "37911408311",
+  "role": "builder",
+  "decision": "accept",
+  "summary": "Trusted verification passed (exit code 0). All product gates green: typecheck (0 errors), 658 tests, privacy contract (71), cost regression (29), i18n (9), Expo Android/iOS exports, Android prebuild, Android debug compile (374 tasks). Candidate repairs V4-09 finalizer wrapper for infrastructure failure in run 37909577314: adds framework_cmd_ready() liveness probe for input/settings services, extends wait_android_services() to require real settings round-trip, adds bounded dismiss_keyguard() re-assertion before install/launch. Test added verifying these repairs. No regressions against V4-01..V4-08. No must-fix findings.",
+  "checks": [
+    "typecheck:0-errors",
+    "tests:658-passed-31-suites",
+    "privacy:71-passed",
+    "cost:29-gates-passed",
+    "i18n:9-passed",
+    "expo-export:android-ios",
+    "android-prebuild:ok",
+    "android-debug-compile:374-tasks-success",
+    "trusted-verification:exit-code-0"
+  ],
+  "findings": []
+}
