@@ -126,6 +126,56 @@ export const CATALOG: Record<SupportedLocale, LocaleCatalog> = {
     'add.addExpense': 'Ajouter la dépense',
     'add.customSplitMismatch': 'Total des parts ({shares}) ≠ montant ({amount})',
 
+    // ── Add: categories (user-created only) ───────────────────
+    'add.categoryNone': 'Sans catégorie',
+    'add.categoryManage': 'Gérer les catégories',
+    'add.categoryCreate': 'Nouvelle catégorie',
+    'add.categoryNamePlaceholder': 'Nom de la catégorie',
+    'add.categoryCreateAction': 'Créer la catégorie',
+    'add.categoryRename': 'Renommer',
+    'add.categoryDelete': 'Supprimer',
+    'add.categoryDeleteConfirm':
+      'Supprimer « {name} » ? Les entrées passées gardent leur libellé.',
+    'add.categoryError': 'Impossible d’enregistrer la catégorie.',
+    'add.categoryRatio': 'Ratio par défaut',
+    'add.categoryRatioEqual': 'Partage égal',
+    'add.categoryRatioEnabled': 'Définir un ratio',
+    'add.categoryRatioSaved': 'Ratio enregistré.',
+    'add.categoryRatioHint':
+      'Utilisé comme défaut pour les nouvelles tâches de cette catégorie.',
+    'add.categoryWeightFor': 'Poids de {name}',
+
+    // ── Add: task split ───────────────────────────────────────
+    'add.splitCategory': 'Ratio de la catégorie',
+    'add.weights': 'Poids par personne',
+    'add.taskSplitMissingWeight':
+      'Un poids positif est requis pour chaque bénéficiaire.',
+
+    // ── Add: note + photo (optional) ──────────────────────────
+    'add.photoOptional': 'Photo (optionnel)',
+    'add.photoAdd': 'Ajouter une photo',
+    'add.photoAttached': 'Photo jointe',
+    'add.photoRemove': 'Retirer',
+    'add.photoUnavailable': 'Photos non configurées sur ce build.',
+    'add.photoError': 'Impossible d’ajouter la photo.',
+
+    // ── Add: members (replaces the old history section) ───────
+    'add.members': 'Membres',
+    'add.membersHint': 'Ajoutez un membre ou partagez un lien d’invitation.',
+    'add.addMemberPlaceholder': 'Nom du membre',
+    'add.memberAddError': 'Impossible d’ajouter ce membre.',
+    'add.inviteLink': 'Inviter par lien',
+    'add.linkedMember': 'Compte lié',
+    'add.namedMember': 'Membre nommé',
+
+    // ── Add: last created entry + share ───────────────────────
+    'add.addedTask': 'Tâche ajoutée.',
+    'add.addedExpense': 'Dépense ajoutée.',
+    'add.shareLast': 'Partager',
+    'add.errorValue': 'La valeur doit être positive.',
+    'add.errorSplit': 'Répartition invalide.',
+    'add.errorAmount': 'Montant invalide.',
+
     // ── Add: activity history ─────────────────────────────────
     'add.activity': 'Activité',
     'add.filterAll': 'Tout',
@@ -400,6 +450,53 @@ export const CATALOG: Record<SupportedLocale, LocaleCatalog> = {
     'add.notePlaceholder': 'Details…',
     'add.addExpense': 'Add expense',
     'add.customSplitMismatch': 'Total shares ({shares}) ≠ amount ({amount})',
+
+    // ── Add: categories (user-created only) ───────────────────
+    'add.categoryNone': 'No category',
+    'add.categoryManage': 'Manage categories',
+    'add.categoryCreate': 'New category',
+    'add.categoryNamePlaceholder': 'Category name',
+    'add.categoryCreateAction': 'Create category',
+    'add.categoryRename': 'Rename',
+    'add.categoryDelete': 'Delete',
+    'add.categoryDeleteConfirm': 'Delete “{name}”? Past entries keep their label.',
+    'add.categoryError': 'Could not save the category.',
+    'add.categoryRatio': 'Default ratio',
+    'add.categoryRatioEqual': 'Equal split',
+    'add.categoryRatioEnabled': 'Set a ratio',
+    'add.categoryRatioSaved': 'Ratio saved.',
+    'add.categoryRatioHint': 'Used as the default for new tasks in this category.',
+    'add.categoryWeightFor': 'Weight for {name}',
+
+    // ── Add: task split ───────────────────────────────────────
+    'add.splitCategory': 'Category ratio',
+    'add.weights': 'Weight per person',
+    'add.taskSplitMissingWeight': 'A positive weight is required for each beneficiary.',
+
+    // ── Add: note + photo (optional) ──────────────────────────
+    'add.photoOptional': 'Photo (optional)',
+    'add.photoAdd': 'Add a photo',
+    'add.photoAttached': 'Photo attached',
+    'add.photoRemove': 'Remove',
+    'add.photoUnavailable': 'Photos are not configured in this build.',
+    'add.photoError': 'Could not add the photo.',
+
+    // ── Add: members (replaces the old history section) ───────
+    'add.members': 'Members',
+    'add.membersHint': 'Add a member or share an invitation link.',
+    'add.addMemberPlaceholder': 'Member name',
+    'add.memberAddError': 'Could not add this member.',
+    'add.inviteLink': 'Invite with a link',
+    'add.linkedMember': 'Linked account',
+    'add.namedMember': 'Named member',
+
+    // ── Add: last created entry + share ───────────────────────
+    'add.addedTask': 'Task added.',
+    'add.addedExpense': 'Expense added.',
+    'add.shareLast': 'Share',
+    'add.errorValue': 'The value must be positive.',
+    'add.errorSplit': 'Invalid split.',
+    'add.errorAmount': 'Invalid amount.',
 
     // ── Add: activity history ─────────────────────────────────
     'add.activity': 'Activity',

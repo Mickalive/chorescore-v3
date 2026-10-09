@@ -23,6 +23,8 @@ import { LocalSecureStorageAdapter } from '../../infrastructure/local/LocalSecur
 import { LocalSyncAdapter } from '../../infrastructure/local/LocalSyncAdapter';
 import { LocalResearchAnalyticsAdapter } from '../../infrastructure/local/LocalResearchAnalyticsAdapter';
 import { LocalAttachmentAdapter } from '../../infrastructure/local/LocalAttachmentAdapter';
+import { E2EAttachmentAdapter } from '../../infrastructure/local/E2EAttachmentAdapter';
+import { isE2EAuthEnabled } from '../../infrastructure/local/e2eAuthConfig';
 import {
   createRepositories,
   createInMemoryRepositories,
@@ -151,10 +153,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     secureStorage: new LocalSecureStorageAdapter(),
     sync: new LocalSyncAdapter(),
     analytics: new LocalResearchAnalyticsAdapter(),
-    // V4-01: honest adapter — reports unavailable until a real photo
-    // provider is configured; the UI then hides the photo action instead of
-    // faking a pick.
-    attachments: new LocalAttachmentAdapter(),
+    // V4-01/V4-04: honest adapter in a normal build — reports unavailable
+    // until a real photo provider is configured; the UI then hides the photo
+    // action instead of faking a pick. The explicit, secretless E2E build gets
+    // a deterministic offline source so the real photo journey can be driven.
+    attachments: isE2EAuthEnabled()
+      ? new E2EAttachmentAdapter(true)
+      : new LocalAttachmentAdapter(),
   });
 
   // ── Data-change signal (pub/sub) ──────────────────────────────

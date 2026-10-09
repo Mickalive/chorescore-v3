@@ -4,14 +4,17 @@
  * Unified entry point for tasks and expenses.
  *
  * Task: free label, value (minutes or points), performed-by, beneficiaries,
- *   date, PersistentTask shortcuts. No chrono.
+ *   user-created category, equal / category-default / custom split, optional
+ *   note + photo, date, PersistentTask shortcuts. No chrono.
  * Expense: title, amount (integer minor units), currency, paid-by,
- *   participants, equal/custom split, date, note, free-text category.
+ *   participants, equal/custom split, user-created category, optional
+ *   note + photo, date.
  *
- * Categories are user-created only: no imposed taxonomy is seeded.
+ * Categories are user-created only: a group starts with zero categories and
+ * the category manager lives under the add action. No imposed taxonomy.
  *
- * History: compact unified list directly below the form with cursor-based
- * pagination across both repos. Mutations are optimistic and transactional.
+ * Below the form: a Members section (list, add-by-name, invite link) replaces
+ * the old activity history, which now lives under Balances.
  */
 
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
@@ -20,9 +23,9 @@ import {
   StyleSheet,
   TextInput,
   TouchableOpacity,
-  ScrollView,
   Alert,
 } from 'react-native';
+import { useRouter } from 'expo-router';
 import { ScreenContainer } from '../../src/ui/components/ScreenContainer';
 import { Text } from '../../src/ui/components/Text';
 import { Button } from '../../src/ui/components/Button';
@@ -31,46 +34,66 @@ import { colors, spacing, borderRadius } from '../../src/ui/design-system/theme'
 import { useApp } from '../../src/features/app/AppContext';
 import { useI18n } from '../../src/i18n';
 import {
-  ContributionEntry,
-  ExpenseEntry,
-  Member,
+  Attachment,
+  Category,
   ContributionUnit,
-  ActivityEntry,
   ExpenseSplitMode,
-  ExpenseParticipantShare,
+  Member,
   PersistentTask,
+  isLinkedMember,
 } from '../../src/domain/entities';
-import { paginateActivityLog, ActivityFilter } from '../../src/domain/calculations/activityLog';
-import { LocalSystemShareAdapter } from '../../src/infrastructure/local/LocalSystemShareAdapter';
+import {
+  buildCategoryDraft,
+  renameCategory,
+  setCategoryDefaultTaskRatio,
+} from '../../src/domain/services/categoryService';
+import {
+  TaskSplitChoice,
+  buildExpenseDraft,
+  buildTaskDraft,
+  expenseSharesFromRaw,
+  parseAmountToMinor,
+  parsePositiveNumber,
+  taskWeightsFromRaw,
+} from '../../src/domain/services/addEntryService';
 
 // ── Types ──────────────────────────────────────────────────────
 
-type EntryMode = 'contribution' | 'expense';
+type EntryMode = 'task' | 'expense';
 
-interface ContributionFormData {
+interface TaskFormData {
   label: string;
   value: string;
   performedByMemberId: string;
   beneficiaryMemberIds: string[];
+  categoryId: string | null;
   occurredAt: Date;
   persistentTaskId: string | null;
+  note: string;
+  attachments: Attachment[];
 }
 
 interface ExpenseFormData {
   title: string;
-  amountRaw: string; // user-entered string, e.g. "42.50"
+  amountRaw: string;
   currency: string;
   paidByMemberId: string;
   participantMemberIds: string[];
   splitMode: ExpenseSplitMode;
-  customShares: Record<string, string>; // memberId -> amountRaw string
-  note: string;
-  category: string;
+  customShares: Record<string, string>;
+  categoryId: string | null;
   occurredAt: Date;
+  note: string;
+  attachments: Attachment[];
+}
+
+interface CategoryDraftForm {
+  name: string;
+  ratioEnabled: boolean;
+  weights: Record<string, string>;
 }
 
 const DEFAULT_CURRENCY = 'CHF';
-const PAGE_SIZE = 15;
 
 // ── Helpers ────────────────────────────────────────────────────
 
@@ -82,14 +105,6 @@ function formatAmountMinor(amountMinor: number, currency: string): string {
   const whole = Math.floor(amountMinor / 100);
   const cents = amountMinor % 100;
   return `${currency} ${whole}.${cents.toString().padStart(2, '0')}`;
-}
-
-function parseAmountToMinor(raw: string): number | null {
-  const cleaned = raw.replace(/[^0-9.,]/g, '').replace(',', '.');
-  if (!cleaned) return null;
-  const num = parseFloat(cleaned);
-  if (!Number.isFinite(num) || num <= 0) return null;
-  return Math.round(num * 100);
 }
 
 function formatDateShort(iso: string): string {
@@ -109,27 +124,66 @@ function formatDateTimeShort(d: Date): string {
   return `${day}/${month} ${hours}:${minutes}`;
 }
 
+interface CategoryOption {
+  id: string | null;
+  name: string;
+}
+
 // ── Component ──────────────────────────────────────────────────
 
 export default function AddScreen() {
   const { t } = useI18n();
-  const { currentHouseholdId, repos, currentUser, emitDataChange } = useApp();
-  const [mode, setMode] = useState<EntryMode>('contribution');
-  const [members, setMembers] = useState<Member[]>([]);
-  const [householdUnit, setHouseholdUnit] = useState<ContributionUnit>('minutes');
+  const router = useRouter();
+  const { currentHouseholdId, repos, currentUser, emitDataChange, addMember, services } = useApp();
 
-  // Contribution form
-  const [cForm, setCForm] = useState<ContributionFormData>({
+  const [mode, setMode] = useState<EntryMode>('task');
+  const [members, setMembers] = useState<Member[]>([]);
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [householdUnit, setHouseholdUnit] = useState<ContributionUnit>('minutes');
+  const [persistentTasks, setPersistentTasks] = useState<PersistentTask[]>([]);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Task split choice + raw weights
+  const [taskSplitChoice, setTaskSplitChoice] = useState<TaskSplitChoice>('equal');
+  const [taskWeightsRaw, setTaskWeightsRaw] = useState<Record<string, string>>({});
+
+  // Category manager
+  const [categoriesOpen, setCategoriesOpen] = useState(false);
+  const [categoryDraft, setCategoryDraft] = useState<CategoryDraftForm>({
+    name: '',
+    ratioEnabled: false,
+    weights: {},
+  });
+  const [editingCategoryId, setEditingCategoryId] = useState<string | null>(null);
+  const [editingCategoryName, setEditingCategoryName] = useState('');
+  const [ratioCategoryId, setRatioCategoryId] = useState<string | null>(null);
+  const [categoryRatioWeights, setCategoryRatioWeights] = useState<Record<string, string>>({});
+
+  // Members
+  const [newMemberName, setNewMemberName] = useState('');
+  const [isAddingMember, setIsAddingMember] = useState(false);
+
+  // Last created entry (offered for native share)
+  const [lastCreated, setLastCreated] = useState<{ kind: EntryMode; message: string } | null>(null);
+
+  const attachmentSeqRef = useRef(0);
+  const initialLoadDoneRef = useRef(false);
+
+  // Task form
+  const [taskForm, setTaskForm] = useState<TaskFormData>({
     label: '',
     value: '',
     performedByMemberId: '',
     beneficiaryMemberIds: [],
+    categoryId: null,
     occurredAt: todayLocal(),
     persistentTaskId: null,
+    note: '',
+    attachments: [],
   });
 
   // Expense form
-  const [eForm, setEForm] = useState<ExpenseFormData>({
+  const [expenseForm, setExpenseForm] = useState<ExpenseFormData>({
     title: '',
     amountRaw: '',
     currency: DEFAULT_CURRENCY,
@@ -137,33 +191,18 @@ export default function AddScreen() {
     participantMemberIds: [],
     splitMode: 'equal',
     customShares: {},
-    note: '',
-    category: '',
+    categoryId: null,
     occurredAt: todayLocal(),
+    note: '',
+    attachments: [],
   });
 
-  // History
-  const [historyContributions, setHistoryContributions] = useState<ContributionEntry[]>([]);
-  const [historyExpenses, setHistoryExpenses] = useState<ExpenseEntry[]>([]);
-  const [historyContribCursor, setHistoryContribCursor] = useState<string | null>(null);
-  const [historyExpenseCursor, setHistoryExpenseCursor] = useState<string | null>(null);
-  const [historyContribExhausted, setHistoryContribExhausted] = useState(false);
-  const [historyExpenseExhausted, setHistoryExpenseExhausted] = useState(false);
-  const [historyHasMore, setHistoryHasMore] = useState(false);
-  const [historyFilter, setHistoryFilter] = useState<ActivityFilter>('all');
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [persistentTasks, setPersistentTasks] = useState<PersistentTask[]>([]);
+  // ── Load members + household settings + categories ─────────
 
-  // Track whether initial load is done so filter effect doesn't double-fetch
-  const initialLoadDoneRef = useRef(false);
-
-  // Guard against concurrent loadHistory calls
-  const loadHistoryInFlightRef = useRef(false);
-
-  // Edit state
-  const [editingEntry, setEditingEntry] = useState<ActivityEntry | null>(null);
-
-  // ── Load members + household settings ──────────────────────
+  const loadCategories = useCallback(async () => {
+    if (!currentHouseholdId) return;
+    setCategories(await repos.categories.getByHousehold(currentHouseholdId));
+  }, [currentHouseholdId, repos]);
 
   const loadHousehold = useCallback(async () => {
     if (!currentHouseholdId) return;
@@ -171,17 +210,13 @@ export default function AddScreen() {
     setMembers(householdMembers);
 
     const household = await repos.households.getById(currentHouseholdId);
-    if (household) {
-      setHouseholdUnit(household.contributionUnit);
-    }
+    if (household) setHouseholdUnit(household.contributionUnit);
 
-    // Load persistent tasks for shortcuts
-    const tasks = await repos.tasks.getByHousehold(currentHouseholdId);
-    setPersistentTasks(tasks);
+    setPersistentTasks(await repos.tasks.getByHousehold(currentHouseholdId));
+    await loadCategories();
 
-    // Set defaults for member selectors
     if (householdMembers.length > 0) {
-      setCForm((prev) => ({
+      setTaskForm((prev) => ({
         ...prev,
         performedByMemberId: prev.performedByMemberId || householdMembers[0].id,
         beneficiaryMemberIds:
@@ -189,7 +224,7 @@ export default function AddScreen() {
             ? prev.beneficiaryMemberIds
             : householdMembers.map((m) => m.id),
       }));
-      setEForm((prev) => ({
+      setExpenseForm((prev) => ({
         ...prev,
         paidByMemberId: prev.paidByMemberId || householdMembers[0].id,
         participantMemberIds:
@@ -198,155 +233,316 @@ export default function AddScreen() {
             : householdMembers.map((m) => m.id),
       }));
     }
-  }, [currentHouseholdId, repos]);
-
-  // ── Load history (per-repo cursors, deterministic merge) ────
-
-  const loadHistory = useCallback(
-    async (loadMore: boolean = false) => {
-      if (!currentHouseholdId) return;
-
-      // Guard: skip if a load is already in flight
-      if (loadMore && loadHistoryInFlightRef.current) return;
-      loadHistoryInFlightRef.current = true;
-
-      try {
-        // Skip repos that are already exhausted (cursor=null, hasMore=false)
-        const contribCursor = loadMore ? historyContribCursor : null;
-        const expenseCursor = loadMore ? historyExpenseCursor : null;
-
-        const contribResult =
-          loadMore && historyContribExhausted
-            ? { items: [], cursor: null, hasMore: false }
-            : await repos.contributions.getByHouseholdPaginated(
-                currentHouseholdId,
-                { limit: PAGE_SIZE, cursor: contribCursor ?? undefined }
-              );
-        const expenseResult =
-          loadMore && historyExpenseExhausted
-            ? { items: [], cursor: null, hasMore: false }
-            : await repos.expenses.getByHouseholdPaginated(
-                currentHouseholdId,
-                { limit: PAGE_SIZE, cursor: expenseCursor ?? undefined }
-              );
-
-        if (!loadMore) {
-          // First page — replace
-          setHistoryContributions(contribResult.items);
-          setHistoryExpenses(expenseResult.items);
-        } else {
-          // Append — dedupe by entry id to prevent any residual duplicates
-          setHistoryContributions((prev) => {
-            const existingIds = new Set(prev.map((e) => e.id));
-            const newItems = contribResult.items.filter((e) => !existingIds.has(e.id));
-            return [...prev, ...newItems];
-          });
-          setHistoryExpenses((prev) => {
-            const existingIds = new Set(prev.map((e) => e.id));
-            const newItems = expenseResult.items.filter((e) => !existingIds.has(e.id));
-            return [...prev, ...newItems];
-          });
-        }
-
-        // Per-repo cursors: each advances independently
-        setHistoryContribCursor(contribResult.cursor);
-        setHistoryExpenseCursor(expenseResult.cursor);
-        setHistoryContribExhausted(contribResult.cursor === null && !contribResult.hasMore);
-        setHistoryExpenseExhausted(expenseResult.cursor === null && !expenseResult.hasMore);
-        setHistoryHasMore(contribResult.hasMore || expenseResult.hasMore);
-      } finally {
-        loadHistoryInFlightRef.current = false;
-      }
-    },
-    [currentHouseholdId, repos, historyContribCursor, historyExpenseCursor, historyContribExhausted, historyExpenseExhausted]
-  );
-
-  // ── Initial load (single effect, no redundant double-fetch) ──
+  }, [currentHouseholdId, repos, loadCategories]);
 
   useEffect(() => {
     if (initialLoadDoneRef.current) return;
     initialLoadDoneRef.current = true;
-
-    const load = async () => {
-      await loadHousehold();
-      await loadHistory(false);
-    };
-    load();
-  }, [loadHousehold, loadHistory]);
-
-  // ── Filter change reloads (after initial load only) ─────────
-
-  const prevFilterRef = useRef(historyFilter);
-
-  useEffect(() => {
-    if (!initialLoadDoneRef.current) return;
-    if (prevFilterRef.current === historyFilter) return;
-    prevFilterRef.current = historyFilter;
-    // Filter is applied in useMemo below; no re-fetch needed
-  }, [historyFilter]);
-
-  // ── Merged + paginated activity entries (no hard cap) ─────
-  // Repos already handle per-page limits; the merge step just
-  // combines, sorts by occurredAt DESC, and applies the type filter.
-  // We pass a large limit so all accumulated entries are shown.
-
-  const activityEntries = useMemo(() => {
-    const result = paginateActivityLog(historyContributions, historyExpenses, [], {
-      limit: 10_000,
-      filter: historyFilter,
+    loadHousehold().catch(() => {
+      // Keep the form usable; a later focus/retry can reload.
     });
-    return result.entries;
-  }, [historyContributions, historyExpenses, historyFilter]);
+  }, [loadHousehold]);
 
-  // ── Member name helper ────────────────────────────────────
+  // ── Derived values ─────────────────────────────────────────
 
   const memberName = useCallback(
     (memberId: string) => members.find((m) => m.id === memberId)?.name || t('state.unknownMember'),
     [members, t]
   );
 
-  // ── Submit contribution (optimistic) ──────────────────────
+  const selectedTaskCategory = useMemo(
+    () => categories.find((c) => c.id === taskForm.categoryId) ?? null,
+    [categories, taskForm.categoryId]
+  );
 
-  const submitContribution = async () => {
-    if (!currentHouseholdId || !cForm.label.trim() || !cForm.value) return;
-    const numericValue = parseFloat(cForm.value);
-    if (isNaN(numericValue) || numericValue <= 0) return;
+  const taskCategoryHasRatio = !!(
+    selectedTaskCategory?.defaultTaskRatio && selectedTaskCategory.defaultTaskRatio.length > 0
+  );
+
+  const effectiveSplitChoice: TaskSplitChoice =
+    taskSplitChoice === 'custom'
+      ? 'custom'
+      : taskCategoryHasRatio && taskSplitChoice === 'category'
+      ? 'category'
+      : 'equal';
+
+  const taskWeightRaw = useMemo(() => {
+    const raw: Record<string, string> = { ...taskWeightsRaw };
+    for (const id of taskForm.beneficiaryMemberIds) {
+      if (raw[id] === undefined) raw[id] = '1';
+    }
+    return raw;
+  }, [taskWeightsRaw, taskForm.beneficiaryMemberIds]);
+
+  const customTaskWeights = useMemo(
+    () => taskWeightsFromRaw(taskForm.beneficiaryMemberIds, taskWeightRaw),
+    [taskForm.beneficiaryMemberIds, taskWeightRaw]
+  );
+
+  const parsedAmountMinor = useMemo(
+    () => parseAmountToMinor(expenseForm.amountRaw),
+    [expenseForm.amountRaw]
+  );
+
+  const expenseCustomShares = useMemo(
+    () => expenseSharesFromRaw(expenseForm.participantMemberIds, expenseForm.customShares),
+    [expenseForm.participantMemberIds, expenseForm.customShares]
+  );
+
+  const expenseCustomTotal = useMemo(
+    () => (expenseCustomShares ?? []).reduce((sum, share) => sum + share.amountMinor, 0),
+    [expenseCustomShares]
+  );
+
+  const expenseCustomValid =
+    expenseForm.splitMode !== 'custom' ||
+    (expenseCustomShares !== null &&
+      parsedAmountMinor !== null &&
+      expenseCustomTotal === parsedAmountMinor);
+
+  const categoryOptions: CategoryOption[] = useMemo(
+    () => [{ id: null, name: t('add.categoryNone') }, ...categories.map((c) => ({ id: c.id, name: c.name }))],
+    [categories, t]
+  );
+
+  // ── Members ────────────────────────────────────────────────
+
+  const handleAddMember = async () => {
+    const name = newMemberName.trim();
+    if (!name || !currentHouseholdId || isAddingMember) return;
+    setIsAddingMember(true);
+    try {
+      await addMember(currentHouseholdId, name);
+      setNewMemberName('');
+      await loadHousehold();
+    } catch {
+      Alert.alert(t('state.error'), t('add.memberAddError'));
+    } finally {
+      setIsAddingMember(false);
+    }
+  };
+
+  // ── Photos ─────────────────────────────────────────────────
+
+  const attachmentsAvailable = services.attachments.isAvailable();
+
+  const addPhoto = async (apply: (attachment: Attachment) => void) => {
+    if (!currentHouseholdId) return;
+    try {
+      const source = await services.attachments.pickPhoto();
+      if (!source) return;
+      const handle = await services.attachments.save(source, currentHouseholdId);
+      attachmentSeqRef.current += 1;
+      apply({
+        id: `att-${Date.now()}-${attachmentSeqRef.current}`,
+        kind: 'photo',
+        ref: handle.ref,
+        mimeType: handle.mimeType,
+        byteSize: handle.byteSize,
+        width: handle.width,
+        height: handle.height,
+        createdAt: new Date().toISOString(),
+      });
+    } catch {
+      Alert.alert(t('state.error'), t('add.photoError'));
+    }
+  };
+
+  const removePhoto = (
+    attachments: Attachment[],
+    id: string,
+  ): Attachment[] => attachments.filter((attachment) => attachment.id !== id);
+
+  // ── Category management ────────────────────────────────────
+
+  const resetCategoryDraft = () =>
+    setCategoryDraft({ name: '', ratioEnabled: false, weights: {} });
+
+  const handleCreateCategory = async () => {
+    if (!currentHouseholdId) return;
+    try {
+      const allMemberIds = members.map((m) => m.id);
+      const weights = categoryDraft.ratioEnabled
+        ? taskWeightsFromRaw(allMemberIds, categoryDraft.weights)
+        : null;
+      if (categoryDraft.ratioEnabled && !weights) {
+        Alert.alert(t('state.error'), t('add.categoryError'));
+        return;
+      }
+      const draft = buildCategoryDraft({
+        householdId: currentHouseholdId,
+        name: categoryDraft.name,
+        defaultTaskRatio: weights,
+      });
+      await repos.categories.create({
+        householdId: draft.householdId,
+        name: draft.name,
+        defaultTaskRatio: draft.defaultTaskRatio,
+      });
+      resetCategoryDraft();
+      await loadCategories();
+    } catch {
+      Alert.alert(t('state.error'), t('add.categoryError'));
+    }
+  };
+
+  const startRenameCategory = (category: Category) => {
+    setEditingCategoryId(category.id);
+    setEditingCategoryName(category.name);
+  };
+
+  const handleRenameCategory = async (category: Category) => {
+    try {
+      await repos.categories.update(category.id, renameCategory(editingCategoryName));
+      setEditingCategoryId(null);
+      await loadCategories();
+    } catch {
+      Alert.alert(t('state.error'), t('add.categoryError'));
+    }
+  };
+
+  const handleDeleteCategory = (category: Category) => {
+    Alert.alert(
+      t('add.categoryDelete'),
+      t('add.categoryDeleteConfirm', { name: category.name }),
+      [
+        { text: t('action.cancel'), style: 'cancel' },
+        {
+          text: t('add.categoryDelete'),
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await repos.categories.delete(category.id);
+              setTaskForm((prev) =>
+                prev.categoryId === category.id ? { ...prev, categoryId: null } : prev,
+              );
+              setExpenseForm((prev) =>
+                prev.categoryId === category.id ? { ...prev, categoryId: null } : prev,
+              );
+              await loadCategories();
+            } catch {
+              Alert.alert(t('state.error'), t('add.categoryError'));
+            }
+          },
+        },
+      ],
+    );
+  };
+
+  const toggleRatioEditor = (category: Category) => {
+    if (ratioCategoryId === category.id) {
+      setRatioCategoryId(null);
+      return;
+    }
+    const raw: Record<string, string> = {};
+    for (const weight of category.defaultTaskRatio ?? []) {
+      raw[weight.memberId] = String(weight.weight);
+    }
+    for (const member of members) {
+      if (raw[member.id] === undefined) raw[member.id] = '1';
+    }
+    setCategoryRatioWeights(raw);
+    setRatioCategoryId(category.id);
+  };
+
+  const handleSaveCategoryRatio = async (category: Category) => {
+    try {
+      const weights = taskWeightsFromRaw(
+        members.map((m) => m.id),
+        categoryRatioWeights,
+      );
+      if (!weights) {
+        Alert.alert(t('state.error'), t('add.categoryError'));
+        return;
+      }
+      await repos.categories.update(category.id, setCategoryDefaultTaskRatio(weights));
+      setRatioCategoryId(null);
+      await loadCategories();
+      Alert.alert(t('add.categoryRatio'), t('add.categoryRatioSaved'));
+    } catch {
+      Alert.alert(t('state.error'), t('add.categoryError'));
+    }
+  };
+
+  const handleClearCategoryRatio = async (category: Category) => {
+    try {
+      await repos.categories.update(category.id, { defaultTaskRatio: null });
+      setRatioCategoryId(null);
+      await loadCategories();
+    } catch {
+      Alert.alert(t('state.error'), t('add.categoryError'));
+    }
+  };
+
+  // ── Task submit ────────────────────────────────────────────
+
+  const resetTaskForm = () => {
+    setTaskForm((prev) => ({
+      label: '',
+      value: '',
+      performedByMemberId: prev.performedByMemberId,
+      beneficiaryMemberIds: prev.beneficiaryMemberIds,
+      categoryId: null,
+      occurredAt: todayLocal(),
+      persistentTaskId: null,
+      note: '',
+      attachments: [],
+    }));
+    setTaskSplitChoice('equal');
+    setTaskWeightsRaw({});
+  };
+
+  const submitTask = async () => {
+    if (!currentHouseholdId || isSubmitting) return;
+    const value = parsePositiveNumber(taskForm.value);
+    if (value === null) {
+      Alert.alert(t('state.error'), t('add.errorValue'));
+      return;
+    }
+    if (effectiveSplitChoice === 'custom' && customTaskWeights === null) {
+      Alert.alert(t('state.error'), t('add.taskSplitMissingWeight'));
+      return;
+    }
 
     setIsSubmitting(true);
     try {
-      const entryData = {
+      const built = buildTaskDraft({
         householdId: currentHouseholdId,
-        label: cForm.label.trim(),
-        performedByMemberId: cForm.performedByMemberId,
-        beneficiaryMemberIds:
-          cForm.beneficiaryMemberIds.length > 0
-            ? cForm.beneficiaryMemberIds
-            : members.map((m) => m.id),
-        value: numericValue,
+        label: taskForm.label,
+        value,
         unit: householdUnit,
-        persistentTaskId: cForm.persistentTaskId,
-        occurredAt: cForm.occurredAt.toISOString(),
+        performedByMemberId: taskForm.performedByMemberId,
+        beneficiaryMemberIds:
+          taskForm.beneficiaryMemberIds.length > 0
+            ? taskForm.beneficiaryMemberIds
+            : members.map((m) => m.id),
+        occurredAt: taskForm.occurredAt.toISOString(),
         createdBy: currentUser?.userId || '',
-      };
-
-      // Optimistic write: write to local store immediately
-      const created = await repos.contributions.create(entryData);
-
-      // Update local history immediately (optimistic UI)
-      setHistoryContributions((prev) => [created, ...prev]);
-
-      // Notify other screens (e.g. Balances) of the new contribution
-      emitDataChange('contribution', currentHouseholdId);
-
-      // Reset form
-      setCForm({
-        label: '',
-        value: '',
-        performedByMemberId: cForm.performedByMemberId,
-        beneficiaryMemberIds: cForm.beneficiaryMemberIds,
-        occurredAt: todayLocal(),
-        persistentTaskId: null,
+        persistentTaskId: taskForm.persistentTaskId,
+        category: selectedTaskCategory,
+        splitChoice: effectiveSplitChoice,
+        customWeights: effectiveSplitChoice === 'custom' ? customTaskWeights : null,
+        note: taskForm.note,
+        attachments: taskForm.attachments,
       });
+      if (!built.ok) {
+        Alert.alert(t('state.error'), built.error === 'value-invalid' ? t('add.errorValue') : t('add.errorTask'));
+        return;
+      }
+
+      const created = await repos.contributions.create(built.draft);
+      emitDataChange('contribution', currentHouseholdId);
+      setLastCreated({
+        kind: 'task',
+        message: t('share.taskLine', {
+          label: created.label,
+          value: created.value,
+          unit: created.unit === 'minutes' ? t('unit.minutesShort') : t('unit.pointsShort'),
+          member: memberName(created.performedByMemberId),
+          date: formatDateShort(created.occurredAt),
+        }),
+      });
+      resetTaskForm();
     } catch {
       Alert.alert(t('state.error'), t('add.errorTask'));
     } finally {
@@ -354,70 +550,72 @@ export default function AddScreen() {
     }
   };
 
-  // ── Submit expense (optimistic) ──────────────────────────
+  // ── Expense submit ─────────────────────────────────────────
+
+  const resetExpenseForm = () => {
+    setExpenseForm((prev) => ({
+      title: '',
+      amountRaw: '',
+      currency: prev.currency,
+      paidByMemberId: prev.paidByMemberId,
+      participantMemberIds: prev.participantMemberIds,
+      splitMode: 'equal',
+      customShares: {},
+      categoryId: null,
+      occurredAt: todayLocal(),
+      note: '',
+      attachments: [],
+    }));
+  };
 
   const submitExpense = async () => {
-    if (!currentHouseholdId || !eForm.title.trim() || !eForm.amountRaw) return;
-    const amountMinor = parseAmountToMinor(eForm.amountRaw);
-    if (amountMinor === null) return;
-    if (eForm.participantMemberIds.length === 0) return;
-
-    // Block: custom split sum must match amountMinor
-    if (eForm.splitMode === 'custom') {
-      const totalShares = eForm.participantMemberIds.reduce((sum, mid) => {
-        return sum + (parseAmountToMinor(eForm.customShares[mid] || '0') || 0);
-      }, 0);
-      if (totalShares !== amountMinor) return;
+    if (!currentHouseholdId || isSubmitting) return;
+    if (parsedAmountMinor === null) {
+      Alert.alert(t('state.error'), t('add.errorAmount'));
+      return;
+    }
+    if (expenseForm.splitMode === 'custom' && !expenseCustomValid) {
+      Alert.alert(t('state.error'), t('add.errorSplit'));
+      return;
     }
 
     setIsSubmitting(true);
     try {
-      // Compute custom shares if custom split
-      let customShares: ExpenseParticipantShare[] | undefined;
-      if (eForm.splitMode === 'custom') {
-        customShares = eForm.participantMemberIds.map((memberId) => ({
-          memberId,
-          amountMinor: parseAmountToMinor(eForm.customShares[memberId] || '0') || 0,
-        }));
+      const built = buildExpenseDraft({
+        householdId: currentHouseholdId,
+        title: expenseForm.title,
+        amountMinor: parsedAmountMinor,
+        currency: expenseForm.currency,
+        paidByMemberId: expenseForm.paidByMemberId,
+        participantMemberIds:
+          expenseForm.participantMemberIds.length > 0
+            ? expenseForm.participantMemberIds
+            : members.map((m) => m.id),
+        splitMode: expenseForm.splitMode,
+        customShares: expenseForm.splitMode === 'custom' ? expenseCustomShares : null,
+        occurredAt: expenseForm.occurredAt.toISOString(),
+        createdBy: currentUser?.userId || '',
+        category: categories.find((c) => c.id === expenseForm.categoryId) ?? null,
+        note: expenseForm.note,
+        attachments: expenseForm.attachments,
+      });
+      if (!built.ok) {
+        Alert.alert(t('state.error'), built.error === 'amount-invalid' ? t('add.errorAmount') : t('add.errorExpense'));
+        return;
       }
 
-      const entryData = {
-        householdId: currentHouseholdId,
-        title: eForm.title.trim(),
-        amountMinor,
-        currency: eForm.currency.toUpperCase() || DEFAULT_CURRENCY,
-        paidByMemberId: eForm.paidByMemberId,
-        participantMemberIds: eForm.participantMemberIds,
-        splitMode: eForm.splitMode,
-        customShares,
-        note: eForm.note.trim() || undefined,
-        category: eForm.category || undefined,
-        occurredAt: eForm.occurredAt.toISOString(),
-        createdBy: currentUser?.userId || '',
-      };
-
-      // Optimistic write
-      const created = await repos.expenses.create(entryData);
-
-      // Update local history immediately
-      setHistoryExpenses((prev) => [created, ...prev]);
-
-      // Notify other screens (e.g. Balances) of the new expense
+      const created = await repos.expenses.create(built.draft);
       emitDataChange('expense', currentHouseholdId);
-
-      // Reset form
-      setEForm({
-        title: '',
-        amountRaw: '',
-        currency: eForm.currency,
-        paidByMemberId: eForm.paidByMemberId,
-        participantMemberIds: eForm.participantMemberIds,
-        splitMode: 'equal',
-        customShares: {},
-        note: '',
-        category: '',
-        occurredAt: todayLocal(),
+      setLastCreated({
+        kind: 'expense',
+        message: t('share.expenseLine', {
+          title: created.title,
+          amount: formatAmountMinor(created.amountMinor, created.currency),
+          member: memberName(created.paidByMemberId),
+          date: formatDateShort(created.occurredAt),
+        }),
       });
+      resetExpenseForm();
     } catch {
       Alert.alert(t('state.error'), t('add.errorExpense'));
     } finally {
@@ -425,205 +623,10 @@ export default function AddScreen() {
     }
   };
 
-  // ── Edit entry ───────────────────────────────────────────
-
-  const startEdit = (entry: ActivityEntry) => {
-    setEditingEntry(entry);
-    if (entry.type === 'contribution') {
-      const e = entry.entry as ContributionEntry;
-      setMode('contribution');
-      setCForm({
-        label: e.label,
-        value: e.value.toString(),
-        performedByMemberId: e.performedByMemberId,
-        beneficiaryMemberIds: e.beneficiaryMemberIds,
-        occurredAt: new Date(e.occurredAt),
-        persistentTaskId: e.persistentTaskId,
-      });
-    } else if (entry.type === 'expense') {
-      const e = entry.entry as ExpenseEntry;
-      setMode('expense');
-      const customSharesRaw: Record<string, string> = {};
-      if (e.customShares) {
-        for (const s of e.customShares) {
-          customSharesRaw[s.memberId] = (s.amountMinor / 100).toFixed(2);
-        }
-      }
-      setEForm({
-        title: e.title,
-        amountRaw: (e.amountMinor / 100).toFixed(2),
-        currency: e.currency,
-        paidByMemberId: e.paidByMemberId,
-        participantMemberIds: e.participantMemberIds,
-        splitMode: e.splitMode,
-        customShares: customSharesRaw,
-        note: e.note || '',
-        category: e.category || '',
-        occurredAt: new Date(e.occurredAt),
-      });
-    }
-  };
-
-  const cancelEdit = () => {
-    setEditingEntry(null);
-    setCForm((prev) => ({
-      ...prev,
-      label: '',
-      value: '',
-      occurredAt: todayLocal(),
-      persistentTaskId: null,
-    }));
-    setEForm((prev) => ({
-      ...prev,
-      title: '',
-      amountRaw: '',
-      note: '',
-      category: '',
-      occurredAt: todayLocal(),
-    }));
-  };
-
-  const submitEdit = async () => {
-    if (!editingEntry) return;
-
-    try {
-      if (editingEntry.type === 'contribution') {
-        const existing = editingEntry.entry as ContributionEntry;
-        const numericValue = parseFloat(cForm.value);
-        if (isNaN(numericValue) || numericValue <= 0) return;
-
-        // Optimistic update
-        const updated = await repos.contributions.update(existing.id, {
-          label: cForm.label.trim(),
-          performedByMemberId: cForm.performedByMemberId,
-          beneficiaryMemberIds: cForm.beneficiaryMemberIds,
-          value: numericValue,
-          occurredAt: cForm.occurredAt.toISOString(),
-          modifiedBy: currentUser?.userId,
-        });
-
-        // Replace in local history
-        setHistoryContributions((prev) =>
-          prev.map((e) => (e.id === updated.id ? updated : e))
-        );
-      } else if (editingEntry.type === 'expense') {
-        const existing = editingEntry.entry as ExpenseEntry;
-        const amountMinor = parseAmountToMinor(eForm.amountRaw);
-        if (amountMinor === null) return;
-
-        let customShares: ExpenseParticipantShare[] | undefined;
-        if (eForm.splitMode === 'custom') {
-          customShares = eForm.participantMemberIds.map((memberId) => ({
-            memberId,
-            amountMinor: parseAmountToMinor(eForm.customShares[memberId] || '0') || 0,
-          }));
-        }
-
-        const updated = await repos.expenses.update(existing.id, {
-          title: eForm.title.trim(),
-          amountMinor,
-          currency: eForm.currency.toUpperCase(),
-          paidByMemberId: eForm.paidByMemberId,
-          participantMemberIds: eForm.participantMemberIds,
-          splitMode: eForm.splitMode,
-          customShares,
-          note: eForm.note.trim() || undefined,
-          category: eForm.category || undefined,
-          occurredAt: eForm.occurredAt.toISOString(),
-          modifiedBy: currentUser?.userId,
-        });
-
-        setHistoryExpenses((prev) =>
-          prev.map((e) => (e.id === updated.id ? updated : e))
-        );
-      }
-
-      setEditingEntry(null);
-
-      // Notify other screens (e.g. Balances) of the edit
-      if (currentHouseholdId) {
-        if (editingEntry.type === 'cross-ledger-settlement') {
-          emitDataChange('settlement', currentHouseholdId);
-        } else {
-          emitDataChange(editingEntry.type, currentHouseholdId);
-        }
-      }
-
-      cancelEdit();
-    } catch {
-      Alert.alert(t('state.error'), t('add.errorEdit'));
-    }
-  };
-
-  // ── Delete entry (with error handling) ─────────────────────
-
-  const handleDelete = (entry: ActivityEntry) => {
-    Alert.alert(t('add.deleteTitle'), t('add.deleteConfirm'), [
-      { text: t('action.cancel'), style: 'cancel' },
-      {
-        text: t('action.delete'),
-        style: 'destructive',
-        onPress: async () => {
-          try {
-            if (entry.type === 'contribution') {
-              await repos.contributions.delete(entry.entry.id);
-              setHistoryContributions((prev) =>
-                prev.filter((e) => e.id !== entry.entry.id)
-              );
-            } else if (entry.type === 'expense') {
-              await repos.expenses.delete(entry.entry.id);
-              setHistoryExpenses((prev) =>
-                prev.filter((e) => e.id !== entry.entry.id)
-              );
-            }
-            // Notify other screens (e.g. Balances) of the deletion
-            if (currentHouseholdId) {
-              if (entry.type === 'cross-ledger-settlement') {
-                emitDataChange('settlement', currentHouseholdId);
-              } else {
-                emitDataChange(entry.type, currentHouseholdId);
-              }
-            }
-          } catch {
-            Alert.alert(t('state.error'), t('add.errorDelete'));
-          }
-        },
-      },
-    ]);
-  };
-
-  // ── Share entry ───────────────────────────────────────────
-
-  const handleShare = async (entry: ActivityEntry) => {
-    let message = '';
-    if (entry.type === 'contribution') {
-      const e = entry.entry as ContributionEntry;
-      message = t('share.taskLine', {
-        label: e.label,
-        value: e.value,
-        unit: e.unit === 'minutes' ? t('unit.minutesShort') : t('unit.pointsShort'),
-        member: memberName(e.performedByMemberId),
-        date: formatDateShort(e.occurredAt),
-      });
-    } else if (entry.type === 'expense') {
-      const e = entry.entry as ExpenseEntry;
-      message = t('share.expenseLine', {
-        title: e.title,
-        amount: formatAmountMinor(e.amountMinor, e.currency),
-        member: memberName(e.paidByMemberId),
-        date: formatDateShort(e.occurredAt),
-      });
-    }
-    if (message) {
-      const shareAdapter = new LocalSystemShareAdapter();
-      await shareAdapter.share({ message });
-    }
-  };
-
-  // ── Toggle member in beneficiary/participant list ─────────
+  // ── Interactions ───────────────────────────────────────────
 
   const toggleBeneficiary = (memberId: string) => {
-    setCForm((prev) => {
+    setTaskForm((prev) => {
       const ids = prev.beneficiaryMemberIds.includes(memberId)
         ? prev.beneficiaryMemberIds.filter((id) => id !== memberId)
         : [...prev.beneficiaryMemberIds, memberId];
@@ -632,7 +635,7 @@ export default function AddScreen() {
   };
 
   const toggleParticipant = (memberId: string) => {
-    setEForm((prev) => {
+    setExpenseForm((prev) => {
       const ids = prev.participantMemberIds.includes(memberId)
         ? prev.participantMemberIds.filter((id) => id !== memberId)
         : [...prev.participantMemberIds, memberId];
@@ -640,24 +643,252 @@ export default function AddScreen() {
     });
   };
 
-  // ── Custom split validation (memoized for button disable + inline error) ──
+  const selectTaskCategory = (categoryId: string | null) => {
+    setTaskForm((prev) => ({ ...prev, categoryId }));
+    const category = categoryId ? categories.find((c) => c.id === categoryId) : null;
+    const hasRatio = !!(category?.defaultTaskRatio && category.defaultTaskRatio.length > 0);
+    setTaskSplitChoice((prev) => {
+      if (prev === 'custom') return prev;
+      return hasRatio ? 'category' : 'equal';
+    });
+  };
 
-  const customSplitValidation = useMemo(() => {
-    if (eForm.splitMode !== 'custom') return { valid: true, totalShares: 0, totalAmount: 0 };
-    const amountMinor = parseAmountToMinor(eForm.amountRaw) || 0;
-    const totalShares = eForm.participantMemberIds.reduce((sum, mid) => {
-      return sum + (parseAmountToMinor(eForm.customShares[mid] || '0') || 0);
-    }, 0);
-    return {
-      valid: amountMinor === 0 || totalShares === amountMinor,
-      totalShares,
-      totalAmount: amountMinor,
-    };
-  }, [eForm.splitMode, eForm.participantMemberIds, eForm.customShares, eForm.amountRaw]);
-
-  // ── Render ─────────────────────────────────────────────────
+  const pickDateTime = (current: Date, onPick: (date: Date) => void) => {
+    Alert.alert(t('add.dateTime'), formatDateTimeShort(current), [
+      { text: t('add.dateNow'), onPress: () => onPick(new Date()) },
+      { text: t('add.dateHourAgo'), onPress: () => onPick(new Date(Date.now() - 3600000)) },
+      {
+        text: t('add.dateYesterday'),
+        onPress: () => {
+          const d = new Date();
+          d.setDate(d.getDate() - 1);
+          onPick(d);
+        },
+      },
+      { text: t('action.cancel'), style: 'cancel' },
+    ]);
+  };
 
   const unitLabel = householdUnit === 'minutes' ? t('unit.minutesShort') : t('unit.pointsShort');
+
+  // ── Render helpers ─────────────────────────────────────────
+
+  const renderCategoryChips = (
+    selectedId: string | null,
+    onSelect: (id: string | null) => void,
+  ) => (
+    <View style={styles.chipRow}>
+      {categoryOptions.map((option) => {
+        const selected = selectedId === option.id;
+        return (
+          <TouchableOpacity
+            key={option.id ?? 'none'}
+            style={[styles.memberChip, selected && styles.memberChipActive]}
+            onPress={() => onSelect(option.id)}
+            accessibilityRole="button"
+            accessibilityState={{ selected }}
+          >
+            <Text variant="caption" color={selected ? colors.textOnPrimary : colors.textSecondary}>
+              {option.name}
+            </Text>
+          </TouchableOpacity>
+        );
+      })}
+    </View>
+  );
+
+  const renderPhotoField = (
+    attachments: Attachment[],
+    onChange: (next: Attachment[]) => void,
+  ) => (
+    <View style={styles.inputGroup}>
+      <Text variant="caption">{t('add.photoOptional')}</Text>
+      {attachments.map((attachment) => (
+        <View key={attachment.id} style={styles.shareRow}>
+          <Text variant="body" style={styles.shareName}>
+            {t('add.photoAttached')}
+          </Text>
+          <TouchableOpacity
+            onPress={() => onChange(removePhoto(attachments, attachment.id))}
+            style={styles.actionButton}
+          >
+            <Text variant="caption" color={colors.balanceNegative}>
+              {t('add.photoRemove')}
+            </Text>
+          </TouchableOpacity>
+        </View>
+      ))}
+      {attachmentsAvailable ? (
+        <Button
+          title={t('add.photoAdd')}
+          variant="secondary"
+          size="small"
+          onPress={() => addPhoto((attachment) => onChange([...attachments, attachment]))}
+          style={styles.photoButton}
+        />
+      ) : (
+        <Text variant="caption" color={colors.textMuted} style={styles.hint}>
+          {t('add.photoUnavailable')}
+        </Text>
+      )}
+    </View>
+  );
+
+  const renderCategoryManager = () => (
+    <View style={styles.managerSection}>
+      <Text variant="caption">{t('add.categoryCreate')}</Text>
+      <TextInput
+        style={styles.input}
+        value={categoryDraft.name}
+        onChangeText={(value) => setCategoryDraft((prev) => ({ ...prev, name: value }))}
+        placeholder={t('add.categoryNamePlaceholder')}
+        placeholderTextColor={colors.textMuted}
+      />
+      <TouchableOpacity
+        style={styles.managerRow}
+        onPress={() =>
+          setCategoryDraft((prev) => ({ ...prev, ratioEnabled: !prev.ratioEnabled }))
+        }
+        accessibilityRole="button"
+        accessibilityState={{ selected: categoryDraft.ratioEnabled }}
+      >
+        <Text variant="caption">
+          {categoryDraft.ratioEnabled ? '✓ ' : ''}
+          {t('add.categoryRatioEnabled')}
+        </Text>
+      </TouchableOpacity>
+      {categoryDraft.ratioEnabled &&
+        members.map((member) => (
+          <View key={member.id} style={styles.shareRow}>
+            <Text variant="caption" style={styles.shareName}>
+              {t('add.categoryWeightFor', { name: member.name })}
+            </Text>
+            <TextInput
+              style={[styles.input, styles.shareInput]}
+              value={categoryDraft.weights[member.id] ?? '1'}
+              onChangeText={(value) =>
+                setCategoryDraft((prev) => ({
+                  ...prev,
+                  weights: { ...prev.weights, [member.id]: value },
+                }))
+              }
+              keyboardType="numeric"
+              placeholder="1"
+              placeholderTextColor={colors.textMuted}
+            />
+          </View>
+        ))}
+      <Button
+        title={t('add.categoryCreateAction')}
+        variant="secondary"
+        size="small"
+        onPress={handleCreateCategory}
+        disabled={!categoryDraft.name.trim()}
+        style={styles.managerAction}
+      />
+
+      {categories.length === 0 ? (
+        <Text variant="caption" color={colors.textMuted} style={styles.hint}>
+          {t('add.categoryRatioHint')}
+        </Text>
+      ) : (
+        categories.map((category) => (
+          <View key={category.id} style={styles.categoryRow}>
+            <View style={styles.categoryInfo}>
+              {editingCategoryId === category.id ? (
+                <TextInput
+                  style={styles.input}
+                  value={editingCategoryName}
+                  onChangeText={setEditingCategoryName}
+                  placeholder={t('add.categoryNamePlaceholder')}
+                  placeholderTextColor={colors.textMuted}
+                  autoFocus
+                />
+              ) : (
+                <Text variant="body">{category.name}</Text>
+              )}
+              <Text variant="caption" color={colors.textSecondary}>
+                {category.defaultTaskRatio && category.defaultTaskRatio.length > 0
+                  ? t('add.categoryRatio')
+                  : t('add.categoryRatioEqual')}
+              </Text>
+            </View>
+            <View style={styles.actionsRow}>
+              <TouchableOpacity
+                style={styles.actionButton}
+                onPress={() =>
+                  editingCategoryId === category.id
+                    ? handleRenameCategory(category)
+                    : startRenameCategory(category)
+                }
+              >
+                <Text variant="caption" color={colors.textSecondary}>
+                  {editingCategoryId === category.id ? t('action.save') : t('add.categoryRename')}
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.actionButton}
+                onPress={() => toggleRatioEditor(category)}
+              >
+                <Text variant="caption" color={colors.textSecondary}>
+                  {t('add.categoryRatio')}
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.actionButton}
+                onPress={() => handleDeleteCategory(category)}
+              >
+                <Text variant="caption" color={colors.balanceNegative}>
+                  {t('add.categoryDelete')}
+                </Text>
+              </TouchableOpacity>
+            </View>
+
+            {ratioCategoryId === category.id && (
+              <View style={styles.ratioEditor}>
+                <Text variant="caption" color={colors.textSecondary} style={styles.hint}>
+                  {t('add.categoryRatioHint')}
+                </Text>
+                {members.map((member) => (
+                  <View key={member.id} style={styles.shareRow}>
+                    <Text variant="caption" style={styles.shareName}>
+                      {t('add.categoryWeightFor', { name: member.name })}
+                    </Text>
+                    <TextInput
+                      style={[styles.input, styles.shareInput]}
+                      value={categoryRatioWeights[member.id] ?? '1'}
+                      onChangeText={(value) =>
+                        setCategoryRatioWeights((prev) => ({ ...prev, [member.id]: value }))
+                      }
+                      keyboardType="numeric"
+                      placeholder="1"
+                      placeholderTextColor={colors.textMuted}
+                    />
+                  </View>
+                ))}
+                <View style={styles.actionsRow}>
+                  <Button
+                    title={t('action.save')}
+                    variant="secondary"
+                    size="small"
+                    onPress={() => handleSaveCategoryRatio(category)}
+                  />
+                  <Button
+                    title={t('add.categoryRatioEqual')}
+                    variant="ghost"
+                    size="small"
+                    onPress={() => handleClearCategoryRatio(category)}
+                  />
+                </View>
+              </View>
+            )}
+          </View>
+        ))
+      )}
+    </View>
+  );
+
+  // ── Render ─────────────────────────────────────────────────
 
   return (
     <ScreenContainer>
@@ -668,19 +899,19 @@ export default function AddScreen() {
       {/* Mode switch */}
       <View style={styles.modeSwitch}>
         <TouchableOpacity
-          style={[styles.modeButton, mode === 'contribution' && styles.modeButtonActive]}
-          onPress={() => { setMode('contribution'); cancelEdit(); }}
+          style={[styles.modeButton, mode === 'task' && styles.modeButtonActive]}
+          onPress={() => setMode('task')}
         >
           <Text
             variant="tabLabel"
-            color={mode === 'contribution' ? colors.textOnPrimary : colors.textSecondary}
+            color={mode === 'task' ? colors.textOnPrimary : colors.textSecondary}
           >
             {t('add.modeTask')}
           </Text>
         </TouchableOpacity>
         <TouchableOpacity
           style={[styles.modeButton, mode === 'expense' && styles.modeButtonActive]}
-          onPress={() => { setMode('expense'); cancelEdit(); }}
+          onPress={() => setMode('expense')}
         >
           <Text
             variant="tabLabel"
@@ -691,70 +922,57 @@ export default function AddScreen() {
         </TouchableOpacity>
       </View>
 
-      {/* ── Task Form ────────────────────────────── */}
-      {mode === 'contribution' && (
+      {/* ── Task form ────────────────────────────── */}
+      {mode === 'task' && (
         <Card style={styles.formCard}>
-          {editingEntry && editingEntry.type === 'contribution' && (
-            <View style={styles.editBanner}>
-              <Text variant="caption" color={colors.primary}>{t('add.editBanner')}</Text>
-              <Button title={t('action.cancel')} variant="ghost" size="small" onPress={cancelEdit} />
-            </View>
-          )}
-
           <View style={styles.inputGroup}>
             <Text variant="caption">{t('add.label')}</Text>
             <TextInput
               style={styles.input}
-              value={cForm.label}
-              onChangeText={(value) => setCForm((p) => ({ ...p, label: value }))}
+              value={taskForm.label}
+              onChangeText={(value) => setTaskForm((prev) => ({ ...prev, label: value }))}
               placeholder={t('add.labelPlaceholder')}
               placeholderTextColor={colors.textMuted}
             />
           </View>
 
-          {/* PersistentTask shortcuts */}
           {persistentTasks.length > 0 && (
             <View style={styles.inputGroup}>
               <Text variant="caption">{t('add.shortcuts')}</Text>
-              <View style={styles.memberRow}>
-                {persistentTasks.map((pt) => (
-                  <TouchableOpacity
-                    key={pt.id}
-                    style={[
-                      styles.memberChip,
-                      cForm.persistentTaskId === pt.id && styles.memberChipActive,
-                    ]}
-                    onPress={() => {
-                      if (cForm.persistentTaskId === pt.id) {
-                        // Deselect: clear persistentTaskId
-                        setCForm((p) => ({ ...p, persistentTaskId: null }));
-                      } else {
-                        // Select: prefill label, value, and beneficiaries
-                        setCForm((p) => ({
-                          ...p,
-                          persistentTaskId: pt.id,
-                          label: pt.name,
-                          value: pt.defaultValue.toString(),
-                          beneficiaryMemberIds:
-                            pt.defaultBeneficiaryMemberIds && pt.defaultBeneficiaryMemberIds.length > 0
-                              ? pt.defaultBeneficiaryMemberIds
-                              : p.beneficiaryMemberIds,
-                        }));
-                      }
-                    }}
-                  >
-                    <Text
-                      variant="caption"
-                      color={
-                        cForm.persistentTaskId === pt.id
-                          ? colors.textOnPrimary
-                          : colors.textSecondary
-                      }
+              <View style={styles.chipRow}>
+                {persistentTasks.map((pt) => {
+                  const selected = taskForm.persistentTaskId === pt.id;
+                  return (
+                    <TouchableOpacity
+                      key={pt.id}
+                      style={[styles.memberChip, selected && styles.memberChipActive]}
+                      onPress={() => {
+                        if (selected) {
+                          setTaskForm((prev) => ({ ...prev, persistentTaskId: null }));
+                        } else {
+                          setTaskForm((prev) => ({
+                            ...prev,
+                            persistentTaskId: pt.id,
+                            label: pt.name,
+                            value: pt.defaultValue.toString(),
+                            beneficiaryMemberIds:
+                              pt.defaultBeneficiaryMemberIds &&
+                              pt.defaultBeneficiaryMemberIds.length > 0
+                                ? pt.defaultBeneficiaryMemberIds
+                                : prev.beneficiaryMemberIds,
+                          }));
+                        }
+                      }}
                     >
-                      {pt.name}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
+                      <Text
+                        variant="caption"
+                        color={selected ? colors.textOnPrimary : colors.textSecondary}
+                      >
+                        {pt.name}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
               </View>
             </View>
           )}
@@ -763,58 +981,117 @@ export default function AddScreen() {
             <Text variant="caption">{t('add.value', { unit: unitLabel })}</Text>
             <TextInput
               style={styles.input}
-              value={cForm.value}
-              onChangeText={(value) => setCForm((p) => ({ ...p, value }))}
+              value={taskForm.value}
+              onChangeText={(value) => setTaskForm((prev) => ({ ...prev, value }))}
               placeholder={householdUnit === 'minutes' ? '15' : '3'}
               placeholderTextColor={colors.textMuted}
               keyboardType="numeric"
             />
           </View>
 
-          {/* Done by */}
+          {/* Category */}
           <View style={styles.inputGroup}>
-            <Text variant="caption">{t('add.performedBy')}</Text>
-            <View style={styles.memberRow}>
-              {members.map((m) => (
+            <Text variant="caption">{t('add.category')}</Text>
+            {renderCategoryChips(taskForm.categoryId, selectTaskCategory)}
+          </View>
+
+          {/* Split */}
+          <View style={styles.inputGroup}>
+            <Text variant="caption">{t('add.split')}</Text>
+            <View style={styles.splitRow}>
+              <TouchableOpacity
+                style={[styles.splitButton, effectiveSplitChoice === 'equal' && styles.splitButtonActive]}
+                onPress={() => setTaskSplitChoice('equal')}
+              >
+                <Text
+                  variant="caption"
+                  color={effectiveSplitChoice === 'equal' ? colors.textOnPrimary : colors.textSecondary}
+                >
+                  {t('add.splitEqual')}
+                </Text>
+              </TouchableOpacity>
+              {taskCategoryHasRatio && (
                 <TouchableOpacity
-                  key={m.id}
                   style={[
-                    styles.memberChip,
-                    cForm.performedByMemberId === m.id && styles.memberChipActive,
+                    styles.splitButton,
+                    effectiveSplitChoice === 'category' && styles.splitButtonActive,
                   ]}
-                  onPress={() => setCForm((p) => ({ ...p, performedByMemberId: m.id }))}
+                  onPress={() => setTaskSplitChoice('category')}
                 >
                   <Text
                     variant="caption"
                     color={
-                      cForm.performedByMemberId === m.id
+                      effectiveSplitChoice === 'category'
                         ? colors.textOnPrimary
                         : colors.textSecondary
                     }
                   >
-                    {m.name}
+                    {t('add.splitCategory')}
                   </Text>
                 </TouchableOpacity>
-              ))}
+              )}
+              <TouchableOpacity
+                style={[styles.splitButton, effectiveSplitChoice === 'custom' && styles.splitButtonActive]}
+                onPress={() => setTaskSplitChoice('custom')}
+              >
+                <Text
+                  variant="caption"
+                  color={effectiveSplitChoice === 'custom' ? colors.textOnPrimary : colors.textSecondary}
+                >
+                  {t('add.splitCustom')}
+                </Text>
+              </TouchableOpacity>
             </View>
           </View>
 
-          {/* Done for */}
+          {/* Custom weights */}
+          {effectiveSplitChoice === 'custom' && (
+            <View style={styles.inputGroup}>
+              <Text variant="caption">{t('add.weights')}</Text>
+              {taskForm.beneficiaryMemberIds.length === 0 ? (
+                <Text variant="caption" color={colors.balanceNegative} style={styles.hint}>
+                  {t('add.taskSplitMissingWeight')}
+                </Text>
+              ) : (
+                taskForm.beneficiaryMemberIds.map((memberId) => (
+                  <View key={memberId} style={styles.shareRow}>
+                    <Text variant="body" style={styles.shareName}>
+                      {memberName(memberId)}
+                    </Text>
+                    <TextInput
+                      style={[styles.input, styles.shareInput]}
+                      value={taskWeightRaw[memberId] ?? '1'}
+                      onChangeText={(value) =>
+                        setTaskWeightsRaw((prev) => ({ ...prev, [memberId]: value }))
+                      }
+                      keyboardType="numeric"
+                      placeholder="1"
+                      placeholderTextColor={colors.textMuted}
+                    />
+                  </View>
+                ))
+              )}
+              {taskForm.beneficiaryMemberIds.length > 0 && customTaskWeights === null && (
+                <Text variant="caption" color={colors.balanceNegative} style={styles.hint}>
+                  {t('add.taskSplitMissingWeight')}
+                </Text>
+              )}
+            </View>
+          )}
+
+          {/* Performed by */}
           <View style={styles.inputGroup}>
-            <Text variant="caption">{t('add.beneficiaries')}</Text>
-            <View style={styles.memberRow}>
+            <Text variant="caption">{t('add.performedBy')}</Text>
+            <View style={styles.chipRow}>
               {members.map((m) => {
-                const selected = cForm.beneficiaryMemberIds.includes(m.id);
+                const selected = taskForm.performedByMemberId === m.id;
                 return (
                   <TouchableOpacity
                     key={m.id}
                     style={[styles.memberChip, selected && styles.memberChipActive]}
-                    onPress={() => toggleBeneficiary(m.id)}
+                    onPress={() => setTaskForm((prev) => ({ ...prev, performedByMemberId: m.id }))}
                   >
-                    <Text
-                      variant="caption"
-                      color={selected ? colors.textOnPrimary : colors.textSecondary}
-                    >
+                    <Text variant="caption" color={selected ? colors.textOnPrimary : colors.textSecondary}>
                       {m.name}
                     </Text>
                   </TouchableOpacity>
@@ -823,57 +1100,97 @@ export default function AddScreen() {
             </View>
           </View>
 
+          {/* Beneficiaries */}
+          <View style={styles.inputGroup}>
+            <Text variant="caption">{t('add.beneficiaries')}</Text>
+            <View style={styles.chipRow}>
+              {members.map((m) => {
+                const selected = taskForm.beneficiaryMemberIds.includes(m.id);
+                return (
+                  <TouchableOpacity
+                    key={m.id}
+                    style={[styles.memberChip, selected && styles.memberChipActive]}
+                    onPress={() => toggleBeneficiary(m.id)}
+                  >
+                    <Text variant="caption" color={selected ? colors.textOnPrimary : colors.textSecondary}>
+                      {m.name}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          </View>
+
+          {/* Note */}
+          <View style={styles.inputGroup}>
+            <Text variant="caption">{t('add.noteOptional')}</Text>
+            <TextInput
+              style={styles.input}
+              value={taskForm.note}
+              onChangeText={(value) => setTaskForm((prev) => ({ ...prev, note: value }))}
+              placeholder={t('add.notePlaceholder')}
+              placeholderTextColor={colors.textMuted}
+              multiline
+            />
+          </View>
+
+          {renderPhotoField(taskForm.attachments, (next) =>
+            setTaskForm((prev) => ({ ...prev, attachments: next })),
+          )}
+
           {/* Date / Time */}
           <View style={styles.inputGroup}>
             <Text variant="caption">{t('add.dateTime')}</Text>
             <TouchableOpacity
               style={styles.dateTimeButton}
-              onPress={() => {
-                Alert.alert(
-                  t('add.dateTime'),
-                  formatDateTimeShort(cForm.occurredAt),
-                  [
-                    { text: t('add.dateNow'), onPress: () => setCForm((p) => ({ ...p, occurredAt: new Date() })) },
-                    { text: t('add.dateHourAgo'), onPress: () => setCForm((p) => ({ ...p, occurredAt: new Date(Date.now() - 3600000) })) },
-                    { text: t('add.dateYesterday'), onPress: () => {
-                      const d = new Date(); d.setDate(d.getDate() - 1); setCForm((p) => ({ ...p, occurredAt: d }));
-                    }},
-                    { text: t('action.cancel'), style: 'cancel' },
-                  ]
-                );
-              }}
+              onPress={() =>
+                pickDateTime(taskForm.occurredAt, (date) =>
+                  setTaskForm((prev) => ({ ...prev, occurredAt: date })),
+                )
+              }
             >
-              <Text variant="body">{formatDateTimeShort(cForm.occurredAt)}</Text>
+              <Text variant="body">{formatDateTimeShort(taskForm.occurredAt)}</Text>
             </TouchableOpacity>
           </View>
 
           <Button
-            title={editingEntry ? t('add.update') : t('add.addTask')}
+            title={t('add.addTask')}
             variant="primary"
-            onPress={editingEntry ? submitEdit : submitContribution}
-            disabled={!cForm.label.trim() || !cForm.value || isSubmitting}
+            onPress={submitTask}
+            disabled={
+              !taskForm.label.trim() ||
+              !taskForm.value ||
+              isSubmitting ||
+              (effectiveSplitChoice === 'custom' && customTaskWeights === null)
+            }
             loading={isSubmitting}
             style={styles.submitButton}
           />
+
+          <TouchableOpacity
+            style={styles.manageToggle}
+            onPress={() => setCategoriesOpen((prev) => !prev)}
+            accessibilityRole="button"
+            accessibilityState={{ expanded: categoriesOpen }}
+          >
+            <Text variant="caption" color={colors.textSecondary}>
+              {t('add.categoryManage')}
+            </Text>
+          </TouchableOpacity>
+
+          {categoriesOpen && renderCategoryManager()}
         </Card>
       )}
 
-      {/* ── Expense Form ─────────────────────────────────── */}
+      {/* ── Expense form ─────────────────────────────────── */}
       {mode === 'expense' && (
         <Card style={styles.formCard}>
-          {editingEntry && editingEntry.type === 'expense' && (
-            <View style={styles.editBanner}>
-              <Text variant="caption" color={colors.primary}>{t('add.editBanner')}</Text>
-              <Button title={t('action.cancel')} variant="ghost" size="small" onPress={cancelEdit} />
-            </View>
-          )}
-
           <View style={styles.inputGroup}>
             <Text variant="caption">{t('add.titleLabel')}</Text>
             <TextInput
               style={styles.input}
-              value={eForm.title}
-              onChangeText={(value) => setEForm((p) => ({ ...p, title: value }))}
+              value={expenseForm.title}
+              onChangeText={(value) => setExpenseForm((prev) => ({ ...prev, title: value }))}
               placeholder={t('add.titlePlaceholder')}
               placeholderTextColor={colors.textMuted}
             />
@@ -884,17 +1201,17 @@ export default function AddScreen() {
             <View style={styles.amountRow}>
               <TextInput
                 style={[styles.input, styles.amountInput]}
-                value={eForm.amountRaw}
-                onChangeText={(value) => setEForm((p) => ({ ...p, amountRaw: value }))}
+                value={expenseForm.amountRaw}
+                onChangeText={(value) => setExpenseForm((prev) => ({ ...prev, amountRaw: value }))}
                 placeholder="42.50"
                 placeholderTextColor={colors.textMuted}
                 keyboardType="decimal-pad"
               />
               <TextInput
                 style={[styles.input, styles.currencyInput]}
-                value={eForm.currency}
+                value={expenseForm.currency}
                 onChangeText={(value) =>
-                  setEForm((p) => ({ ...p, currency: value.toUpperCase().slice(0, 3) }))
+                  setExpenseForm((prev) => ({ ...prev, currency: value.toUpperCase().slice(0, 3) }))
                 }
                 placeholder="CHF"
                 placeholderTextColor={colors.textMuted}
@@ -904,50 +1221,48 @@ export default function AddScreen() {
             </View>
           </View>
 
+          {/* Category */}
+          <View style={styles.inputGroup}>
+            <Text variant="caption">{t('add.category')}</Text>
+            {renderCategoryChips(expenseForm.categoryId, (id) =>
+              setExpenseForm((prev) => ({ ...prev, categoryId: id })),
+            )}
+          </View>
+
           {/* Paid by */}
           <View style={styles.inputGroup}>
             <Text variant="caption">{t('add.paidBy')}</Text>
-            <View style={styles.memberRow}>
-              {members.map((m) => (
-                <TouchableOpacity
-                  key={m.id}
-                  style={[
-                    styles.memberChip,
-                    eForm.paidByMemberId === m.id && styles.memberChipActive,
-                  ]}
-                  onPress={() => setEForm((p) => ({ ...p, paidByMemberId: m.id }))}
-                >
-                  <Text
-                    variant="caption"
-                    color={
-                      eForm.paidByMemberId === m.id
-                        ? colors.textOnPrimary
-                        : colors.textSecondary
-                    }
+            <View style={styles.chipRow}>
+              {members.map((m) => {
+                const selected = expenseForm.paidByMemberId === m.id;
+                return (
+                  <TouchableOpacity
+                    key={m.id}
+                    style={[styles.memberChip, selected && styles.memberChipActive]}
+                    onPress={() => setExpenseForm((prev) => ({ ...prev, paidByMemberId: m.id }))}
                   >
-                    {m.name}
-                  </Text>
-                </TouchableOpacity>
-              ))}
+                    <Text variant="caption" color={selected ? colors.textOnPrimary : colors.textSecondary}>
+                      {m.name}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
             </View>
           </View>
 
           {/* Participants */}
           <View style={styles.inputGroup}>
             <Text variant="caption">{t('add.participants')}</Text>
-            <View style={styles.memberRow}>
+            <View style={styles.chipRow}>
               {members.map((m) => {
-                const selected = eForm.participantMemberIds.includes(m.id);
+                const selected = expenseForm.participantMemberIds.includes(m.id);
                 return (
                   <TouchableOpacity
                     key={m.id}
                     style={[styles.memberChip, selected && styles.memberChipActive]}
                     onPress={() => toggleParticipant(m.id)}
                   >
-                    <Text
-                      variant="caption"
-                      color={selected ? colors.textOnPrimary : colors.textSecondary}
-                    >
+                    <Text variant="caption" color={selected ? colors.textOnPrimary : colors.textSecondary}>
                       {m.name}
                     </Text>
                   </TouchableOpacity>
@@ -961,33 +1276,23 @@ export default function AddScreen() {
             <Text variant="caption">{t('add.split')}</Text>
             <View style={styles.splitRow}>
               <TouchableOpacity
-                style={[
-                  styles.splitButton,
-                  eForm.splitMode === 'equal' && styles.splitButtonActive,
-                ]}
-                onPress={() => setEForm((p) => ({ ...p, splitMode: 'equal' }))}
+                style={[styles.splitButton, expenseForm.splitMode === 'equal' && styles.splitButtonActive]}
+                onPress={() => setExpenseForm((prev) => ({ ...prev, splitMode: 'equal' }))}
               >
                 <Text
                   variant="caption"
-                  color={
-                    eForm.splitMode === 'equal' ? colors.textOnPrimary : colors.textSecondary
-                  }
+                  color={expenseForm.splitMode === 'equal' ? colors.textOnPrimary : colors.textSecondary}
                 >
                   {t('add.splitEqual')}
                 </Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={[
-                  styles.splitButton,
-                  eForm.splitMode === 'custom' && styles.splitButtonActive,
-                ]}
-                onPress={() => setEForm((p) => ({ ...p, splitMode: 'custom' }))}
+                style={[styles.splitButton, expenseForm.splitMode === 'custom' && styles.splitButtonActive]}
+                onPress={() => setExpenseForm((prev) => ({ ...prev, splitMode: 'custom' }))}
               >
                 <Text
                   variant="caption"
-                  color={
-                    eForm.splitMode === 'custom' ? colors.textOnPrimary : colors.textSecondary
-                  }
+                  color={expenseForm.splitMode === 'custom' ? colors.textOnPrimary : colors.textSecondary}
                 >
                   {t('add.splitCustom')}
                 </Text>
@@ -996,21 +1301,21 @@ export default function AddScreen() {
           </View>
 
           {/* Custom shares */}
-          {eForm.splitMode === 'custom' && (
+          {expenseForm.splitMode === 'custom' && (
             <View style={styles.inputGroup}>
               <Text variant="caption">{t('add.customShares')}</Text>
-              {eForm.participantMemberIds.map((memberId) => (
+              {expenseForm.participantMemberIds.map((memberId) => (
                 <View key={memberId} style={styles.shareRow}>
                   <Text variant="body" style={styles.shareName}>
                     {memberName(memberId)}
                   </Text>
                   <TextInput
                     style={[styles.input, styles.shareInput]}
-                    value={eForm.customShares[memberId] || ''}
+                    value={expenseForm.customShares[memberId] || ''}
                     onChangeText={(value) =>
-                      setEForm((p) => ({
-                        ...p,
-                        customShares: { ...p.customShares, [memberId]: value },
+                      setExpenseForm((prev) => ({
+                        ...prev,
+                        customShares: { ...prev.customShares, [memberId]: value },
                       }))
                     }
                     placeholder="0.00"
@@ -1019,183 +1324,147 @@ export default function AddScreen() {
                   />
                 </View>
               ))}
+              {!expenseCustomValid && parsedAmountMinor !== null && (
+                <Text variant="caption" color={colors.balanceNegative} style={styles.hint}>
+                  {t('add.customSplitMismatch', {
+                    shares: (expenseCustomTotal / 100).toFixed(2),
+                    amount: (parsedAmountMinor / 100).toFixed(2),
+                  })}
+                </Text>
+              )}
             </View>
           )}
-
-          {/* Category — free text, user-created only */}
-          <View style={styles.inputGroup}>
-            <Text variant="caption">{t('add.category')}</Text>
-            <TextInput
-              style={styles.input}
-              value={eForm.category}
-              onChangeText={(value) => setEForm((p) => ({ ...p, category: value }))}
-              placeholder={t('add.categoryPlaceholder')}
-              placeholderTextColor={colors.textMuted}
-            />
-          </View>
 
           {/* Note */}
           <View style={styles.inputGroup}>
             <Text variant="caption">{t('add.noteOptional')}</Text>
             <TextInput
               style={styles.input}
-              value={eForm.note}
-              onChangeText={(value) => setEForm((p) => ({ ...p, note: value }))}
+              value={expenseForm.note}
+              onChangeText={(value) => setExpenseForm((prev) => ({ ...prev, note: value }))}
               placeholder={t('add.notePlaceholder')}
               placeholderTextColor={colors.textMuted}
               multiline
             />
           </View>
 
+          {renderPhotoField(expenseForm.attachments, (next) =>
+            setExpenseForm((prev) => ({ ...prev, attachments: next })),
+          )}
+
           {/* Date / Time */}
           <View style={styles.inputGroup}>
             <Text variant="caption">{t('add.dateTime')}</Text>
             <TouchableOpacity
               style={styles.dateTimeButton}
-              onPress={() => {
-                Alert.alert(
-                  t('add.dateTime'),
-                  formatDateTimeShort(eForm.occurredAt),
-                  [
-                    { text: t('add.dateNow'), onPress: () => setEForm((p) => ({ ...p, occurredAt: new Date() })) },
-                    { text: t('add.dateHourAgo'), onPress: () => setEForm((p) => ({ ...p, occurredAt: new Date(Date.now() - 3600000) })) },
-                    { text: t('add.dateYesterday'), onPress: () => {
-                      const d = new Date(); d.setDate(d.getDate() - 1); setEForm((p) => ({ ...p, occurredAt: d }));
-                    }},
-                    { text: t('action.cancel'), style: 'cancel' },
-                  ]
-                );
-              }}
+              onPress={() =>
+                pickDateTime(expenseForm.occurredAt, (date) =>
+                  setExpenseForm((prev) => ({ ...prev, occurredAt: date })),
+                )
+              }
             >
-              <Text variant="body">{formatDateTimeShort(eForm.occurredAt)}</Text>
+              <Text variant="body">{formatDateTimeShort(expenseForm.occurredAt)}</Text>
             </TouchableOpacity>
           </View>
 
-          {/* Custom split sum validation */}
-          {eForm.splitMode === 'custom' && !customSplitValidation.valid && (
-            <Text variant="caption" color={colors.balanceNegative} style={{ marginBottom: spacing.sm }}>
-              {t('add.customSplitMismatch', {
-                shares: (customSplitValidation.totalShares / 100).toFixed(2),
-                amount: (customSplitValidation.totalAmount / 100).toFixed(2),
-              })}
-            </Text>
-          )}
-
           <Button
-            title={editingEntry ? t('add.update') : t('add.addExpense')}
+            title={t('add.addExpense')}
             variant="primary"
-            onPress={editingEntry ? submitEdit : submitExpense}
-            disabled={!eForm.title.trim() || !eForm.amountRaw || isSubmitting || (eForm.splitMode === 'custom' && !customSplitValidation.valid)}
+            onPress={submitExpense}
+            disabled={
+              !expenseForm.title.trim() ||
+              !expenseForm.amountRaw ||
+              isSubmitting ||
+              (expenseForm.splitMode === 'custom' && !expenseCustomValid)
+            }
             loading={isSubmitting}
             style={styles.submitButton}
           />
+
+          <TouchableOpacity
+            style={styles.manageToggle}
+            onPress={() => setCategoriesOpen((prev) => !prev)}
+            accessibilityRole="button"
+            accessibilityState={{ expanded: categoriesOpen }}
+          >
+            <Text variant="caption" color={colors.textSecondary}>
+              {t('add.categoryManage')}
+            </Text>
+          </TouchableOpacity>
+
+          {categoriesOpen && renderCategoryManager()}
         </Card>
       )}
 
-      {/* ── History ─────────────────────────────────────── */}
-      <View style={styles.historySection}>
-        <View style={styles.historyHeader}>
-          <Text variant="sectionTitle">{t('add.activity')}</Text>
-          <View style={styles.filterRow}>
-            {(['all', 'contribution', 'expense'] as ActivityFilter[]).map((f) => (
-              <TouchableOpacity
-                key={f}
-                style={[styles.filterChip, historyFilter === f && styles.filterChipActive]}
-                onPress={() => setHistoryFilter(f)}
-              >
-                <Text
-                  variant="caption"
-                  color={historyFilter === f ? colors.textOnPrimary : colors.textSecondary}
-                >
-                  {f === 'all'
-                    ? t('add.filterAll')
-                    : f === 'contribution'
-                    ? t('add.filterTasks')
-                    : t('add.filterExpenses')}
-                </Text>
-              </TouchableOpacity>
-            ))}
+      {/* ── Last created entry: share through the native sheet ── */}
+      {lastCreated && (
+        <Card style={styles.lastCreatedCard}>
+          <Text variant="body">
+            {lastCreated.kind === 'task' ? t('add.addedTask') : t('add.addedExpense')}
+          </Text>
+          <View style={styles.actionsRow}>
+            <Button
+              title={t('add.shareLast')}
+              variant="secondary"
+              size="small"
+              onPress={() => services.share.share({ message: lastCreated.message })}
+            />
+            <Button
+              title={t('action.close')}
+              variant="ghost"
+              size="small"
+              onPress={() => setLastCreated(null)}
+            />
           </View>
+        </Card>
+      )}
+
+      {/* ── Members (replaces the old history section) ───────── */}
+      <Card style={styles.membersCard}>
+        <Text variant="sectionTitle" style={styles.membersTitle}>
+          {t('add.members')}
+        </Text>
+        <Text variant="caption" color={colors.textSecondary} style={styles.hint}>
+          {t('add.membersHint')}
+        </Text>
+
+        {members.map((member) => (
+          <View key={member.id} style={styles.memberLine}>
+            <Text variant="body" style={styles.shareName}>
+              {member.name}
+            </Text>
+            <Text variant="caption" color={colors.textSecondary}>
+              {isLinkedMember(member) ? t('add.linkedMember') : t('add.namedMember')}
+            </Text>
+          </View>
+        ))}
+
+        <View style={styles.memberAddRow}>
+          <TextInput
+            style={[styles.input, styles.memberAddInput]}
+            value={newMemberName}
+            onChangeText={setNewMemberName}
+            placeholder={t('add.addMemberPlaceholder')}
+            placeholderTextColor={colors.textMuted}
+          />
+          <Button
+            title={t('action.add')}
+            variant="secondary"
+            size="small"
+            onPress={handleAddMember}
+            disabled={!newMemberName.trim() || isAddingMember}
+            loading={isAddingMember}
+          />
         </View>
 
-        {activityEntries.length === 0 ? (
-          <Text variant="body" style={styles.emptyText}>
-            {t('add.emptyActivity')}
-          </Text>
-        ) : (
-          activityEntries.map((entry) => (
-            <View key={entry.entry.id} style={styles.historyRow}>
-              <View style={styles.historyTypeBadge}>
-                <Text
-                  variant="caption"
-                  color={
-                    entry.type === 'contribution'
-                      ? colors.balancePositive
-                      : entry.type === 'expense'
-                      ? colors.balanceNegative
-                      : colors.textSecondary
-                  }
-                >
-                  {entry.type === 'contribution' ? 'T' : entry.type === 'expense' ? 'D' : 'S'}
-                </Text>
-              </View>
-              <View style={styles.historyInfo}>
-                <Text variant="body" numberOfLines={1} style={styles.historyLabel}>
-                  {entry.type === 'contribution'
-                    ? (entry.entry as ContributionEntry).label
-                    : entry.type === 'expense'
-                    ? (entry.entry as ExpenseEntry).title
-                    : t('add.settlement')}
-                </Text>
-                <Text variant="caption" numberOfLines={1}>
-                  {entry.type === 'contribution'
-                    ? `${memberName((entry.entry as ContributionEntry).performedByMemberId)} · ${(entry.entry as ContributionEntry).value} ${(entry.entry as ContributionEntry).unit === 'minutes' ? t('unit.minutesShort') : t('unit.pointsShort')}`
-                    : entry.type === 'expense'
-                    ? `${memberName((entry.entry as ExpenseEntry).paidByMemberId)} · ${formatAmountMinor((entry.entry as ExpenseEntry).amountMinor, (entry.entry as ExpenseEntry).currency)}`
-                    : ''}
-                  {' · '}
-                  {formatDateShort(entry.entry.occurredAt)}
-                </Text>
-              </View>
-              <View style={styles.historyActions}>
-                <TouchableOpacity
-                  onPress={() => startEdit(entry)}
-                  style={styles.actionButton}
-                >
-                  <Text variant="caption" color={colors.textSecondary}>
-                    {t('action.editShort')}
-                  </Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  onPress={() => handleShare(entry)}
-                  style={styles.actionButton}
-                >
-                  <Text variant="caption" color={colors.textSecondary}>
-                    {t('action.shareShort')}
-                  </Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  onPress={() => handleDelete(entry)}
-                  style={styles.actionButton}
-                >
-                  <Text variant="caption" color={colors.balanceNegative}>
-                    {t('action.deleteShort')}
-                  </Text>
-                </TouchableOpacity>
-              </View>
-            </View>
-          ))
-        )}
-
-        {historyHasMore && (
-          <Button
-            title={t('action.loadMore')}
-            variant="secondary"
-            onPress={() => loadHistory(true)}
-            style={styles.loadMoreButton}
-          />
-        )}
-      </View>
+        <Button
+          title={t('add.inviteLink')}
+          variant="ghost"
+          size="small"
+          onPress={() => router.push('/invite')}
+          style={styles.inviteButton}
+        />
+      </Card>
     </ScreenContainer>
   );
 }
@@ -1225,15 +1494,6 @@ const styles = StyleSheet.create({
   formCard: {
     marginBottom: spacing.lg,
   },
-  editBanner: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: spacing.md,
-    paddingBottom: spacing.sm,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.divider,
-  },
   inputGroup: {
     marginBottom: spacing.md,
   },
@@ -1258,6 +1518,12 @@ const styles = StyleSheet.create({
   currencyInput: {
     width: 70,
     textAlign: 'center',
+  },
+  chipRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
+    marginTop: spacing.xs,
   },
   memberRow: {
     flexDirection: 'row',
@@ -1286,6 +1552,7 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.xs,
     borderRadius: borderRadius.sm,
     borderWidth: 1,
     borderColor: colors.border,
@@ -1312,6 +1579,12 @@ const styles = StyleSheet.create({
   submitButton: {
     marginTop: spacing.sm,
   },
+  manageToggle: {
+    alignSelf: 'center',
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+    marginTop: spacing.sm,
+  },
   dateTimeButton: {
     backgroundColor: colors.background,
     borderWidth: 1,
@@ -1320,66 +1593,78 @@ const styles = StyleSheet.create({
     padding: spacing.md,
     marginTop: spacing.xs,
   },
-  historySection: {
+  hint: {
+    marginTop: spacing.xs,
+  },
+  photoButton: {
+    marginTop: spacing.sm,
+    alignSelf: 'flex-start',
+  },
+  managerSection: {
     marginTop: spacing.md,
+    paddingTop: spacing.md,
+    borderTopWidth: 1,
+    borderTopColor: colors.divider,
   },
-  historyHeader: {
-    marginBottom: spacing.md,
-  },
-  filterRow: {
+  managerRow: {
     flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: spacing.sm,
+  },
+  managerAction: {
+    marginTop: spacing.sm,
+    alignSelf: 'flex-start',
+  },
+  categoryRow: {
+    marginTop: spacing.md,
+    paddingTop: spacing.sm,
+    borderTopWidth: 1,
+    borderTopColor: colors.divider,
+  },
+  categoryInfo: {
+    marginBottom: spacing.xs,
+  },
+  actionsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
     gap: spacing.sm,
     marginTop: spacing.sm,
   },
-  filterChip: {
-    paddingHorizontal: spacing.md,
+  actionButton: {
+    paddingHorizontal: spacing.sm,
     paddingVertical: spacing.xs,
-    borderRadius: borderRadius.sm,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.surface,
   },
-  filterChipActive: {
-    backgroundColor: colors.primary,
-    borderColor: colors.primary,
+  ratioEditor: {
+    marginTop: spacing.sm,
   },
-  historyRow: {
+  lastCreatedCard: {
+    marginBottom: spacing.lg,
+  },
+  membersCard: {
+    marginBottom: spacing.lg,
+  },
+  membersTitle: {
+    marginBottom: spacing.xs,
+  },
+  memberLine: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingVertical: spacing.sm,
     borderBottomWidth: 1,
     borderBottomColor: colors.divider,
   },
-  historyTypeBadge: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    backgroundColor: colors.surfaceAlt,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: spacing.sm,
-  },
-  historyInfo: {
-    flex: 1,
-    marginRight: spacing.sm,
-  },
-  historyLabel: {
-    marginBottom: 2,
-  },
-  historyActions: {
+  memberAddRow: {
     flexDirection: 'row',
+    alignItems: 'center',
     gap: spacing.sm,
-  },
-  actionButton: {
-    paddingHorizontal: spacing.sm,
-    paddingVertical: spacing.xs,
-  },
-  emptyText: {
-    color: colors.textSecondary,
-    textAlign: 'center',
-    paddingVertical: spacing.xl,
-  },
-  loadMoreButton: {
     marginTop: spacing.md,
+  },
+  memberAddInput: {
+    flex: 1,
+    marginTop: 0,
+  },
+  inviteButton: {
+    marginTop: spacing.sm,
+    alignSelf: 'flex-start',
   },
 });

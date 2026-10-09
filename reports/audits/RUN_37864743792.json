@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "cycle": "37864743792",
+  "role": "builder",
+  "decision": "accept",
+  "summary": "V4-04 implementation fully satisfies all acceptance criteria. The Add tab exposes Task|Expense switch, user-created categories with default ratio snapshotting, equal/category/custom task splits with override precedence, exact integer-minor-unit expense splits (equal/custom), optional notes and photos on both entry types, a Members section replacing the old activity history, and native share sheet integration. All V3 invariants (zero-sum ledgers, local-first, delta sync, privacy separation) are preserved. No regressions in V4-01 through V4-03. Trusted verification passed with 588 tests, privacy gate, cost gates, and i18n checks all green.",
+  "checks": [
+    "typecheck",
+    "unit-tests (588 passed)",
+    "privacy-release-contract",
+    "cost-regression-gates (21 gates passed)",
+    "i18n-catalog-parity (FR/EN with French accents)",
+    "expo-android-export",
+    "v4-04-domain-tests",
+    "v4-04-ui-source-tests"
+  ],
+  "findings": []
+}
