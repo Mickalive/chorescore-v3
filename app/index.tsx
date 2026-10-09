@@ -41,6 +41,8 @@ export default function HomeScreen() {
   } = useApp();
   const [signingInProvider, setSigningInProvider] = useState<SocialProvider | null>(null);
   const [newGroupName, setNewGroupName] = useState('');
+  const [memberNames, setMemberNames] = useState<string[]>([]);
+  const [memberInput, setMemberInput] = useState('');
   const [showCreate, setShowCreate] = useState(false);
   const [memberCounts, setMemberCounts] = useState<Record<string, number>>({});
 
@@ -85,12 +87,32 @@ export default function HomeScreen() {
   const handleCreateHousehold = async () => {
     if (!newGroupName.trim()) return;
     try {
-      await createHousehold(newGroupName.trim());
+      await createHousehold(newGroupName.trim(), memberNames);
       setNewGroupName('');
+      setMemberNames([]);
+      setMemberInput('');
       setShowCreate(false);
     } catch {
       Alert.alert(t('state.error'), t('groups.createError'));
     }
+  };
+
+  const handleAddMemberName = () => {
+    const name = memberInput.trim();
+    if (!name) return;
+    setMemberNames((current) => [...current, name]);
+    setMemberInput('');
+  };
+
+  const handleRemoveMemberName = (index: number) => {
+    setMemberNames((current) => current.filter((_, i) => i !== index));
+  };
+
+  const handleCloseCreate = () => {
+    setShowCreate(false);
+    setNewGroupName('');
+    setMemberNames([]);
+    setMemberInput('');
   };
 
   const handleProviderSignIn = async (provider: SocialProvider) => {
@@ -214,6 +236,48 @@ export default function HomeScreen() {
               placeholderTextColor={colors.textMuted}
             />
           </View>
+
+          <View style={styles.inputGroup}>
+            <Text variant="caption">{t('groups.membersLabel')}</Text>
+            <View style={styles.memberInputRow}>
+              <TextInput
+                style={[styles.input, styles.memberInput]}
+                value={memberInput}
+                onChangeText={setMemberInput}
+                placeholder={t('groups.memberNamePlaceholder')}
+                placeholderTextColor={colors.textMuted}
+                onSubmitEditing={handleAddMemberName}
+                returnKeyType="done"
+              />
+              <Button
+                title={t('action.add')}
+                variant="secondary"
+                size="small"
+                onPress={handleAddMemberName}
+                disabled={!memberInput.trim()}
+              />
+            </View>
+            {memberNames.length > 0 && (
+              <View style={styles.memberChips}>
+                {memberNames.map((memberName, index) => (
+                  <TouchableOpacity
+                    key={`${memberName}-${index}`}
+                    onPress={() => handleRemoveMemberName(index)}
+                    style={styles.memberChip}
+                    accessibilityRole="button"
+                    accessibilityLabel={t('groups.removeMember', { name: memberName })}
+                  >
+                    <Text variant="caption">{memberName}</Text>
+                    <Text variant="caption" color={colors.textMuted}>{'  ×'}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            )}
+            <Text variant="caption" color={colors.textSecondary} style={styles.memberHelp}>
+              {t('groups.membersHelp')}
+            </Text>
+          </View>
+
           <View style={styles.createActions}>
             <Button
               title={t('action.create')}
@@ -224,10 +288,7 @@ export default function HomeScreen() {
             <Button
               title={t('action.cancel')}
               variant="ghost"
-              onPress={() => {
-                setShowCreate(false);
-                setNewGroupName('');
-              }}
+              onPress={handleCloseCreate}
               size="small"
             />
           </View>
@@ -271,6 +332,34 @@ const styles = StyleSheet.create({
   },
   inputGroup: {
     marginBottom: spacing.md,
+  },
+  memberInputRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    marginTop: spacing.xs,
+  },
+  memberInput: {
+    flex: 1,
+  },
+  memberChips: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
+    marginTop: spacing.sm,
+  },
+  memberChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
+    borderRadius: borderRadius.sm,
+    backgroundColor: colors.surfaceAlt,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  memberHelp: {
+    marginTop: spacing.sm,
   },
   input: {
     backgroundColor: colors.surface,

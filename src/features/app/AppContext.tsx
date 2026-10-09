@@ -32,6 +32,10 @@ import { createScopedRepositories } from '../../infrastructure/repositories/Scop
 import { AuthUser, AttachmentGateway } from '../../application/ports';
 import { Household, Member } from '../../domain/entities';
 import {
+  addGroupMember,
+  createGroupWithMembers,
+} from '../../application/use-cases/groupMembers';
+import {
   ensureDemoFixture,
   loadHouseholdsForUser,
   DEMO_HOUSEHOLD_ID,
@@ -59,11 +63,13 @@ interface AppState {
   households: Household[];
   currentHouseholdId: string | null;
   setCurrentHouseholdId: (id: string | null) => void;
-  createHousehold: (name: string) => Promise<Household>;
+  createHousehold: (name: string, memberNames?: string[]) => Promise<Household>;
   loadHouseholds: (userId?: string) => Promise<void>;
 
   // Members
   getMembersForHousehold: (householdId: string) => Promise<Member[]>;
+  /** Add a named member to an existing group (post-creation). */
+  addMember: (householdId: string, name: string) => Promise<Member>;
 
   // Repositories (exposed for screens — scoped to current user)
   repos: AllRepositories;
@@ -138,7 +144,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [ensureReposReady]);
 
   const servicesRef = useRef({
-    auth: new LocalAuthAdapter(),
+    auth: new LocalAuthAdapter({ secureStorage: new LocalSecureStorageAdapter() }),
     share: new LocalSystemShareAdapter(),
     notifications: new LocalNotificationAdapter(),
     calendar: new LocalCalendarAdapter(),
@@ -208,6 +214,32 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     await loadHouseholds(user.userId);
   }, [loadHouseholds]);
 
+  // Keep the latest session-activation callback reachable from the one-shot
+  // restore effect without making that effect re-run on every render.
+  const applySignedInUserRef = useRef(applySignedInUser);
+  useEffect(() => {
+    applySignedInUserRef.current = applySignedInUser;
+  }, [applySignedInUser]);
+
+  // V4-03: restore a persisted session on launch. A normal build (honest
+  // adapters) returns null, so the sign-in screen stays; the explicit E2E build
+  // gets its deterministic secretless session and lands directly on Groups.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      await ensureReposReady();
+      const token = await servicesRef.current.auth.restoreSession().catch(() => null);
+      if (cancelled || !token) return;
+      const user = servicesRef.current.auth.getCurrentUser();
+      if (user) {
+        await applySignedInUserRef.current(user);
+      }
+    })().catch(() => {
+      // A failed restore must never block the app: the sign-in screen remains.
+    });
+    return () => { cancelled = true; };
+  }, [ensureReposReady]);
+
   const signIn = useCallback(async (email: string, _password: string) => {
     // Gate on repository readiness: an early sign-in must not skip the fixture.
     await ensureReposReady();
@@ -242,35 +274,30 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setCurrentHouseholdId(null);
   }, []);
 
-  const createHousehold = useCallback(async (name: string) => {
+  const createHousehold = useCallback(async (name: string, memberNames: string[] = []) => {
     if (!currentUser) throw new Error('Not authenticated');
     await ensureReposReady();
-    const repos = reposRef.current;
-    const household = await repos.households.create({
+    const result = await createGroupWithMembers(reposRef.current, {
       name,
-      ownerId: currentUser.userId,
-      contributionUnit: 'minutes',
-      crossLedgerCompensationEnabled: false,
-      contributionToMoneyRate: null,
+      owner: { userId: currentUser.userId, displayName: currentUser.displayName || 'Membre' },
+      memberNames,
     });
-    await repos.memberships.create({
-      userId: currentUser.userId,
-      householdId: household.id,
-      role: 'OWNER',
-    });
-    const user = await repos.users.getById(currentUser.userId);
-    await repos.members.create({
-      householdId: household.id,
-      name: user?.displayName || 'Membre',
-      userId: currentUser.userId,
-    });
+    emitDataChange('household', result.household.id);
+    emitDataChange('member', result.household.id);
     await loadHouseholds(currentUser.userId);
-    return household;
-  }, [currentUser, ensureReposReady, loadHouseholds]);
+    return result.household;
+  }, [currentUser, ensureReposReady, loadHouseholds, emitDataChange]);
 
   const getMembersForHousehold = useCallback(async (householdId: string) => {
     return reposRef.current.members.getByHousehold(householdId);
   }, []);
+
+  const addMember = useCallback(async (householdId: string, name: string) => {
+    await ensureReposReady();
+    const member = await addGroupMember(reposRef.current, householdId, name);
+    emitDataChange('member', householdId);
+    return member;
+  }, [ensureReposReady, emitDataChange]);
 
   const value: AppState = {
     currentUser,
@@ -284,6 +311,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     createHousehold,
     loadHouseholds,
     getMembersForHousehold,
+    addMember,
     repos: reposRef.current,
     rawRepos: rawReposRef.current,
     emitDataChange,

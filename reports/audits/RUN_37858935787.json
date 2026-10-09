@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "cycle": "37858935787",
+  "role": "builder",
+  "decision": "accept",
+  "summary": "V4-03 correctly implements social authentication (Google/Apple/Facebook) behind honest ports/adapters, persistent session with direct arrival on Groups after first sign-in, group creation with multiple named members, post-creation member addition, link-only invitations shared via native share sheet, and preserved group options. All V4 Constitution requirements for auth, groups, members, and invitations are met. No demo/email-password in normal UI. E2E secretless session is invisible in normal builds. V2 warm palette (terracotta/cream/sage) is used. i18n FR/EN with correct French accents. All 559 tests pass including privacy, cost, and i18n gates. No regressions of previously accepted V3 invariants.",
+  "checks": [
+    "typecheck",
+    "unit-tests (559 passed)",
+    "privacy-check (71 tests passed)",
+    "cost-check (21 gates passed)",
+    "i18n-check (9 tests passed)",
+    "V4-03 specific tests (auth, groups, members, invitations)",
+    "V2 warm palette verification",
+    "No Contribution/Premium/Standard/Pro/chrono in UI",
+    "Honest auth adapters (social providers return null)",
+    "Secretless E2E session gate",
+    "Session persistence and restoration",
+    "Group creation with named members (atomic transaction)",
+    "Member count on group cards",
+    "No Invite button on group card",
+    "Post-creation member addition",
+    "Link-only invitations with native share",
+    "Group options with members/invite/unit/compensation"
+  ],
+  "findings": []
+}

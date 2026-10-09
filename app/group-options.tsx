@@ -30,14 +30,17 @@ import { Card } from '../src/ui/components/Card';
 import { colors, spacing, borderRadius } from '../src/ui/design-system/theme';
 import { useApp } from '../src/features/app/AppContext';
 import { useI18n } from '../src/i18n';
-import { Household, ContributionUnit } from '../src/domain/entities';
+import { Household, ContributionUnit, Member, isLinkedMember } from '../src/domain/entities';
 import { planUnitChange, validateUnitChange } from '../src/domain/services/unitChangeService';
 
 export default function GroupOptionsScreen() {
   const router = useRouter();
   const { t } = useI18n();
-  const { currentHouseholdId, repos, emitDataChange } = useApp();
+  const { currentHouseholdId, repos, emitDataChange, addMember } = useApp();
   const [household, setHousehold] = useState<Household | null>(null);
+  const [members, setMembers] = useState<Member[]>([]);
+  const [newMemberName, setNewMemberName] = useState('');
+  const [isAddingMember, setIsAddingMember] = useState(false);
   const [name, setName] = useState('');
   const [unit, setUnit] = useState<ContributionUnit>('minutes');
   const [compensationEnabled, setCompensationEnabled] = useState(false);
@@ -65,6 +68,30 @@ export default function GroupOptionsScreen() {
   useEffect(() => {
     loadHousehold();
   }, [loadHousehold]);
+
+  const loadMembers = useCallback(async () => {
+    if (!currentHouseholdId) return;
+    setMembers(await repos.members.getByHousehold(currentHouseholdId));
+  }, [currentHouseholdId, repos]);
+
+  useEffect(() => {
+    loadMembers();
+  }, [loadMembers]);
+
+  const handleAddMember = async () => {
+    const trimmed = newMemberName.trim();
+    if (!currentHouseholdId || !trimmed) return;
+    setIsAddingMember(true);
+    try {
+      await addMember(currentHouseholdId, trimmed);
+      setNewMemberName('');
+      await loadMembers();
+    } catch {
+      Alert.alert(t('state.error'), t('groupOptions.memberAddError'));
+    } finally {
+      setIsAddingMember(false);
+    }
+  };
 
   const handleSaveName = async () => {
     if (!currentHouseholdId || !name.trim() || !household) return;
@@ -199,6 +226,60 @@ export default function GroupOptionsScreen() {
               disabled={!name.trim() || name.trim() === household.name || isSaving}
             />
           </View>
+        </Card>
+
+        {/* Members */}
+        <Text variant="sectionTitle" style={styles.sectionTitle}>
+          {t('groupOptions.members')}
+        </Text>
+        <Card style={styles.card}>
+          {members.length === 0 ? (
+            <Text variant="body" color={colors.textSecondary}>
+              {t('groupOptions.membersEmpty')}
+            </Text>
+          ) : (
+            members.map((member) => (
+              <View key={member.id} style={styles.memberRow}>
+                <Text variant="body" style={styles.memberName}>{member.name}</Text>
+                <Text variant="caption" color={colors.textSecondary}>
+                  {isLinkedMember(member)
+                    ? t('groupOptions.linkedMember')
+                    : t('groupOptions.namedMember')}
+                </Text>
+              </View>
+            ))
+          )}
+          <View style={[styles.inputRow, styles.addMemberRow]}>
+            <TextInput
+              style={styles.input}
+              value={newMemberName}
+              onChangeText={setNewMemberName}
+              placeholder={t('groupOptions.addMemberPlaceholder')}
+              placeholderTextColor={colors.textMuted}
+              onSubmitEditing={handleAddMember}
+              returnKeyType="done"
+            />
+            <Button
+              title={t('action.add')}
+              variant="secondary"
+              size="small"
+              onPress={handleAddMember}
+              disabled={!newMemberName.trim() || isAddingMember}
+              loading={isAddingMember}
+            />
+          </View>
+        </Card>
+
+        {/* Invitation by link */}
+        <Card style={styles.card}>
+          <Text variant="body" style={styles.inviteHint}>
+            {t('groupOptions.inviteHint')}
+          </Text>
+          <Button
+            title={t('groupOptions.invite')}
+            variant="secondary"
+            onPress={() => router.push('/invite')}
+          />
         </Card>
 
         {/* Task unit */}
@@ -337,6 +418,24 @@ const styles = StyleSheet.create({
     padding: spacing.md,
     fontSize: 16,
     color: colors.text,
+  },
+  memberRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: spacing.sm,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.divider,
+  },
+  memberName: {
+    flex: 1,
+    marginRight: spacing.sm,
+  },
+  addMemberRow: {
+    marginTop: spacing.md,
+  },
+  inviteHint: {
+    marginBottom: spacing.md,
   },
   unitToggle: {
     flexDirection: 'row',

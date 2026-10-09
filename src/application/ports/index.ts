@@ -30,6 +30,13 @@ export interface AuthSessionToken {
   refreshToken?: string;
   expiresAt: string;
   provider: 'email' | 'google' | 'apple' | 'facebook' | 'local';
+  /**
+   * Optional profile carried with the session so a restored session can
+   * rebuild the signed-in user without a network round-trip. Persisted only in
+   * the local secure store (V4-03), never released to the analytics plane.
+   */
+  displayName?: string;
+  email?: string;
 }
 
 export interface AuthUser {
@@ -139,7 +146,8 @@ export interface InvitationGateway {
 export interface InvitationCreateData {
   householdId: string;
   invitedByUserId: string;
-  invitedEmail: string;
+  /** Optional recipient context; link-only invitations omit it. */
+  invitedEmail?: string;
   role?: 'MEMBER' | 'ADMIN';
 }
 

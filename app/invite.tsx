@@ -1,9 +1,9 @@
 /**
- * ChoreScore V3 — Invitation Screen
+ * ChoreScore V4 — Invitation Screen
  *
- * Create and share invitations for the current group.
- * Uses the existing invitation port (SystemShareGateway) to open
- * the native share sheet with the invite link.
+ * Invitations are shared by link only, after the group exists. The link is
+ * generated locally and opened in the native share sheet through the injected
+ * SystemShareGateway port (no fake share).
  *
  * Free for all. No premium gating. No plan limits.
  */
@@ -12,7 +12,6 @@ import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   StyleSheet,
-  TextInput,
   ScrollView,
   Alert,
   TouchableOpacity,
@@ -22,12 +21,11 @@ import { ScreenContainer } from '../src/ui/components/ScreenContainer';
 import { Text } from '../src/ui/components/Text';
 import { Button } from '../src/ui/components/Button';
 import { Card } from '../src/ui/components/Card';
-import { colors, spacing, borderRadius } from '../src/ui/design-system/theme';
+import { colors, spacing } from '../src/ui/design-system/theme';
 import { useApp } from '../src/features/app/AppContext';
 import { useI18n } from '../src/i18n';
 import { Invitation } from '../src/domain/entities';
 import { createInvitation } from '../src/domain/services/invitationService';
-import { LocalSystemShareAdapter } from '../src/infrastructure/local/LocalSystemShareAdapter';
 
 const DEEP_LINK_BASE = 'https://chorescore.app/join';
 
@@ -35,7 +33,6 @@ export default function InviteScreen() {
   const router = useRouter();
   const { t, locale } = useI18n();
   const { currentHouseholdId, currentUser, repos, services } = useApp();
-  const [email, setEmail] = useState('');
   const [existingInvitations, setExistingInvitations] = useState<Invitation[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -49,70 +46,44 @@ export default function InviteScreen() {
     loadInvitations();
   }, [loadInvitations]);
 
-  const handleInvite = async () => {
-    if (!currentHouseholdId || !currentUser || !email.trim()) return;
-    const trimmedEmail = email.trim().toLowerCase();
+  const shareLink = useCallback(async (token: string, groupName?: string) => {
+    const link = `${DEEP_LINK_BASE}/${token}`;
+    await services.share.share({
+      title: groupName ? t('invite.shareTitle', { group: groupName }) : t('invite.linkTitle'),
+      message: groupName
+        ? t('invite.shareMessage', { group: groupName, link })
+        : t('invite.linkMessage', { link }),
+      url: link,
+    });
+  }, [services, t]);
 
-    if (!trimmedEmail.includes('@')) {
-      Alert.alert(t('state.error'), t('invite.emailError'));
-      return;
-    }
-
-    // Idempotency check: already has pending invitation for this email?
-      const existing = existingInvitations.find(
-        (i) => i.invitedEmail === trimmedEmail,
-      );
-      if (existing) {
-        const link = `${DEEP_LINK_BASE}/${existing.linkToken}`;
-        const shareAdapter = new LocalSystemShareAdapter();
-        await shareAdapter.share({
-          title: t('invite.linkTitle'),
-          message: t('invite.linkMessage', { link }),
-          url: link,
-        });
-        setEmail('');
-        return;
-      }
-
+  const handleCreateAndShare = async () => {
+    if (!currentHouseholdId || !currentUser) return;
     setIsSubmitting(true);
     try {
       const household = await repos.households.getById(currentHouseholdId);
       if (!household) throw new Error(t('invite.groupNotFound'));
 
+      // Reuse the current pending link so repeated taps never pile up
+      // one-time invitations; otherwise create a fresh link-only invitation.
+      const existing = existingInvitations[0];
+      if (existing) {
+        await shareLink(existing.linkToken, household.name);
+        return;
+      }
+
       const invData = createInvitation({
         household,
         invitedByUserId: currentUser.userId,
-        invitedEmail: trimmedEmail,
       });
-
       const created = await repos.invitations.create(invData);
-
-      // Share via system share sheet
-      const link = `${DEEP_LINK_BASE}/${created.linkToken}`;
-      const shareAdapter = new LocalSystemShareAdapter();
-      await shareAdapter.share({
-        title: t('invite.shareTitle', { group: household.name }),
-        message: t('invite.shareMessage', { group: household.name, link }),
-        url: link,
-      });
-
-      setEmail('');
+      await shareLink(created.linkToken, household.name);
       await loadInvitations();
     } catch {
       Alert.alert(t('state.error'), t('invite.createError'));
     } finally {
       setIsSubmitting(false);
     }
-  };
-
-  const handleShareLink = async (token: string) => {
-    const link = `${DEEP_LINK_BASE}/${token}`;
-    const shareAdapter = new LocalSystemShareAdapter();
-    await shareAdapter.share({
-      title: t('invite.linkTitle'),
-      message: t('invite.linkMessage', { link }),
-      url: link,
-    });
   };
 
   return (
@@ -128,28 +99,17 @@ export default function InviteScreen() {
         </View>
 
         <Card style={styles.card}>
-          <View style={styles.inputRow}>
-            <TextInput
-              style={styles.input}
-              value={email}
-              onChangeText={setEmail}
-              placeholder={t('invite.emailPlaceholder')}
-              placeholderTextColor={colors.textMuted}
-              keyboardType="email-address"
-              autoCapitalize="none"
-            />
-            <Button
-              title={t('invite.invite')}
-              variant="primary"
-              size="small"
-              onPress={handleInvite}
-              disabled={!email.trim() || isSubmitting}
-              loading={isSubmitting}
-            />
-          </View>
-          <Text variant="caption" color={colors.textSecondary} style={styles.hint}>
-            {t('invite.hint')}
+          <Text variant="body" style={styles.hint}>
+            {t('invite.linkOnlyHint')}
           </Text>
+          <Button
+            title={t('invite.createLink')}
+            variant="primary"
+            onPress={handleCreateAndShare}
+            disabled={!currentHouseholdId || isSubmitting}
+            loading={isSubmitting}
+            style={styles.shareButton}
+          />
         </Card>
 
         {existingInvitations.length > 0 && (
@@ -161,7 +121,9 @@ export default function InviteScreen() {
               <Card key={inv.id} style={styles.inviteCard}>
                 <View style={styles.inviteRow}>
                   <View style={styles.inviteInfo}>
-                    <Text variant="body">{inv.invitedEmail}</Text>
+                    <Text variant="body">
+                      {inv.invitedEmail || t('invite.linkLabel')}
+                    </Text>
                     <Text variant="caption" color={colors.textSecondary}>
                       {t('invite.createdOn', {
                         date: new Date(inv.createdAt).toLocaleDateString(
@@ -174,7 +136,7 @@ export default function InviteScreen() {
                     title={t('invite.reshare')}
                     variant="ghost"
                     size="small"
-                    onPress={() => handleShareLink(inv.linkToken)}
+                    onPress={() => shareLink(inv.linkToken)}
                   />
                 </View>
               </Card>
@@ -197,23 +159,11 @@ const styles = StyleSheet.create({
   card: {
     marginBottom: spacing.md,
   },
-  inputRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-  },
-  input: {
-    flex: 1,
-    backgroundColor: colors.background,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: borderRadius.sm,
-    padding: spacing.md,
-    fontSize: 16,
-    color: colors.text,
-  },
   hint: {
-    marginTop: spacing.sm,
+    marginBottom: spacing.md,
+  },
+  shareButton: {
+    width: '100%',
   },
   sectionTitle: {
     marginBottom: spacing.md,

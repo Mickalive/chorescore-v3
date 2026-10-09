@@ -19,7 +19,12 @@ import { Household, Invitation, Membership, Member, MembershipRole } from '../en
 export interface CreateInvitationInput {
   household: Household;
   invitedByUserId: string;
-  invitedEmail: string;
+  /**
+   * V4-03: invitations are shared by link. An email is optional context only
+   * (e.g. pre-filled recipient); a link-only invitation has no email and is
+   * still a complete, shareable invitation.
+   */
+  invitedEmail?: string;
   role?: MembershipRole;
 }
 
@@ -57,8 +62,9 @@ function generateLinkToken(): string {
  * Validate invitation creation inputs.
  */
 export function validateCreateInvitation(input: CreateInvitationInput): void {
-  if (!input.invitedEmail || !input.invitedEmail.includes('@')) {
-    throw new Error('A valid email is required');
+  const email = input.invitedEmail?.trim();
+  if (email && !email.includes('@')) {
+    throw new Error('A valid email is required when one is provided');
   }
   if (!input.invitedByUserId) {
     throw new Error('Inviter user ID is required');
@@ -82,7 +88,7 @@ export function createInvitation(input: CreateInvitationInput): Omit<Invitation,
   return {
     householdId: input.household.id,
     invitedByUserId: input.invitedByUserId,
-    invitedEmail: input.invitedEmail,
+    invitedEmail: input.invitedEmail?.trim() ?? '',
     role: input.role ?? 'MEMBER',
     status: 'pending',
     linkToken: generateLinkToken(),
