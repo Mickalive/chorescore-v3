@@ -38,11 +38,7 @@ import {
   addGroupMember,
   createGroupWithMembers,
 } from '../../application/use-cases/groupMembers';
-import {
-  ensureDemoFixture,
-  loadHouseholdsForUser,
-  DEMO_HOUSEHOLD_ID,
-} from './demoFixture';
+import { loadHouseholdsForUser } from './demoFixture';
 
 /** Types of data-change events that screens can emit. */
 export type DataChangeType = 'contribution' | 'expense' | 'settlement' | 'household' | 'member' | 'todo';
@@ -227,8 +223,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     // already-scoped set. This prevents stale callerUserId from a
     // previous session leaking into the new session's scope.
     reposRef.current = createScopedRepositories(rawReposRef.current, user.userId);
-    await ensureDemoFixture(reposRef.current, user);
-    setCurrentHouseholdId(DEMO_HOUSEHOLD_ID);
+    // A real or deterministic session must never fabricate household data.
+    // New users land on an empty Groups screen and create their own group,
+    // including the member names, through the normal creation flow.
+    setCurrentHouseholdId(null);
     await loadHouseholds(user.userId);
   }, [loadHouseholds]);
 
