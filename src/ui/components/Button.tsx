@@ -33,6 +33,12 @@ interface ButtonProps {
    * optional and provided by callers through the i18n layer.
    */
   loadingAccessibilityLabel?: string;
+  /**
+   * Stable identifier forwarded to the native touchable so the E2E golden
+   * path can drive this control by `resource-id` instead of a localized
+   * coordinate tap. Useful when two actions share the same visible label.
+   */
+  testID?: string;
 }
 
 export function Button({
@@ -46,6 +52,7 @@ export function Button({
   accessibilityLabel,
   accessibilityHint,
   loadingAccessibilityLabel,
+  testID,
 }: ButtonProps) {
   return (
     <TouchableOpacity
@@ -65,6 +72,7 @@ export function Button({
       onPress={onPress}
       disabled={disabled || loading}
       activeOpacity={0.7}
+      testID={testID}
     >
       {loading ? (
         <ActivityIndicator

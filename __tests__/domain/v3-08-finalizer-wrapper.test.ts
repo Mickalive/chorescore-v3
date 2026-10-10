@@ -646,4 +646,37 @@ describe('V4 golden-path label sourcing', () => {
       expect(e2e).toContain(`assertAbsent('${forbidden}')`);
     }
   });
+
+  test('create-group step drives a stable testID and retries until the form opens', () => {
+    // Trusted finalizer run 38021535805 lost the single coordinate tap on
+    // "Créer un groupe" while system_server was tombstoning: the inline create
+    // form never rendered, the screen dump was unchanged, and the golden path
+    // failed at groups.nameInput.  A single tap must not be trusted — the step
+    // must drive a stable testID and poll for the real form field.
+    const e2e = readRepo('scripts/e2e-android.js');
+    const rootScreen = readRepo('app/index.tsx');
+    const button = readRepo('src/ui/components/Button.tsx');
+
+    // The Groups root exposes a stable testID for the primary create action.
+    expect(rootScreen).toContain('testID="groups.createButton"');
+    // Button forwards testID to the native touchable (resource-id).
+    expect(button).toContain('testID?: string;');
+    expect(button).toContain('testID={testID}');
+
+    // The retrying helper exists and probes for the real form field.
+    expect(e2e).toContain('function openCreateGroupForm');
+    expect(e2e).toContain('function findTestIdOrEmpty');
+    expect(e2e).toContain("tapTestId('groups.createButton'");
+    expect(e2e).toContain("findTestIdOrEmpty('groups.nameInput')");
+    // The create step calls the helper immediately before typing the name.
+    expect(e2e).toMatch(
+      /openCreateGroupForm\(\);[\s\S]{0,200}typeIntoTestId\('groups\.nameInput'/
+    );
+    // The old non-waiting single tap + waitFor('Créer') is gone: waitFor
+    // matched the "Créer un groupe" button itself and never waited for the
+    // form, so a dropped tap was only detected much later at the name field.
+    expect(e2e).not.toMatch(
+      /tapLabel\('Créer un groupe',\s*\{\s*exact:\s*true\s*\}\);\s*waitFor\('Créer',\s*120000\)/
+    );
+  });
 });

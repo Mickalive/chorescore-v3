@@ -440,6 +440,61 @@ function tapTestId(testId, waitMs = 550) {
   return node;
 }
 
+/**
+ * Non-throwing probe: return the nodes matching a testID (possibly empty)
+ * without scrolling and without treating a miss as a failure.  Used to poll
+ * for a form that appears after a tap instead of trusting a single tap.
+ */
+function findTestIdOrEmpty(testId) {
+  try {
+    return findByTestId(testId, { scroll: false });
+  } catch (_) {
+    return [];
+  }
+}
+
+/**
+ * Open the inline "create group" form on the Groups root and wait until the
+ * name field is actually present.
+ *
+ * A single coordinate tap is not reliable on the unaccelerated API 35 x86_64
+ * emulator: trusted finalizer run 38021535805 tapped "Créer un groupe" while
+ * system_server was tombstoning (system_server pid 585 at 04:06:48, SystemUI
+ * "crashed too many times, killing!" moments earlier).  The tap was silently
+ * dropped, setShowCreate() never ran, the form never rendered, and the golden
+ * path failed later at `groups.nameInput` with an unchanged screen dump.
+ *
+ * This helper drives the stable `groups.createButton` testID and retries the
+ * tap, clearing any transient infra ANR overlay between attempts, until the
+ * form's name field appears.  It does NOT weaken the assertion: the form (and
+ * therefore the field) must still open or the golden path fails.
+ */
+function openCreateGroupForm(timeoutMs = 240000) {
+  const until = Date.now() + timeoutMs;
+  let lastError = null;
+  while (Date.now() < until) {
+    if (findTestIdOrEmpty('groups.nameInput').length) return;
+    // Clear a transient infra ANR overlay that could swallow the tap.  For an
+    // app ANR, dismissAnrOverlay() force-stops + relaunches the app, so the
+    // retry reopens the form on the fresh Groups screen.
+    dismissAnrOverlay();
+    try {
+      tapTestId('groups.createButton', 1500);
+    } catch (err) {
+      lastError = err;
+      // Fall back to the localized label for any build where the testID is
+      // absent; tapLabel() still validates that the control exists.
+      try { tapLabel('Créer un groupe', { exact: true }); } catch (_) {}
+    }
+    sleep(2000);
+    if (findTestIdOrEmpty('groups.nameInput').length) return;
+  }
+  throw new Error(
+    `Create-group form did not open: groups.nameInput not found` +
+      (lastError ? ` (${lastError.message})` : '')
+  );
+}
+
 /** Clear a focused text field by moving to the end and deleting characters. */
 function clearFocusedField(maxChars = 40) {
   shell('input', 'keyevent', 'KEYCODE_MOVE_END');
@@ -1249,8 +1304,11 @@ try {
 
   // 2. Create a group with two named members.
   console.log('Creating group with two named members...');
-  tapLabel('Créer un groupe', { exact: true });
-  waitFor('Créer', 120000);
+  // Retry the create action until the inline form's name field appears.  A
+  // single tap can be lost during an emulator SystemUI/system_server restart
+  // (see openCreateGroupForm); the old waitFor('Créer') matched the
+  // "Créer un groupe" button and so never actually waited for the form.
+  openCreateGroupForm();
   typeIntoTestId('groups.nameInput', 'e2e group');
   typeIntoTestId('groups.memberInput', 'alex');
   tapLabel('Ajouter', { exact: true });

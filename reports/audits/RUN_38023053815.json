@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "cycle": "38023053815",
+  "role": "builder",
+  "decision": "accept",
+  "summary": "V4-09 repair for trusted finalizer failure in run 38021535805 is complete and verified. The failure was an infrastructure flakiness: system_server tombstoning and SystemUI crash on the unaccelerated API 35 x86_64 emulator caused a single coordinate tap on 'Créer un groupe' to be silently dropped. The inline create form never rendered, and the golden path failed later at groups.nameInput with an unchanged screen dump. The repair adds a stable testID (groups.createButton) to the create button, extends Button to forward testID to the native touchable, and introduces openCreateGroupForm() — a retrying helper that drives the stable testID, polls for the form's name field, and clears transient infra ANR overlays between attempts. The old non-waiting single tap + waitFor('Créer') pattern is removed. All quality gates pass: 670 tests, privacy (71), cost (29), i18n (9), Expo Android/iOS exports, Android prebuild/debug compile. No regressions in V4-01..V4-08. No must-fix findings remain.",
+  "checks": [
+    "typecheck",
+    "test (670 passed)",
+    "privacy:check (71 passed)",
+    "cost:check (29 passed)",
+    "i18n:check (9 passed)",
+    "Expo Android export",
+    "Expo iOS export",
+    "Android prebuild",
+    "Android debug compile"
+  ],
+  "findings": []
+}

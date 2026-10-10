@@ -305,6 +305,7 @@ export default function HomeScreen() {
             title={t('groups.create')}
             variant="primary"
             onPress={() => setShowCreate(true)}
+            testID="groups.createButton"
           />
         </View>
       )}
