@@ -1,0 +1,54 @@
+name: ChoreScore V4 Release Repair
+
+on:
+  workflow_dispatch:
+    inputs:
+      failed_run:
+        description: Failed V4 finalizer run id
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  actions: write
+
+# Share the factory mutation lock: only one actor may change the V4 branch.
+concurrency:
+  group: chorescore-v4-factory
+  cancel-in-progress: false
+
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout control plane
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          path: control
+          fetch-depth: 0
+
+      - name: Checkout V4 product
+        uses: actions/checkout@v4
+        with:
+          ref: lab/chorescore-v4
+          path: product
+          fetch-depth: 0
+
+      - uses: ./control/.github/actions/setup-opencode
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: product/package-lock.json
+
+      - name: Fast release repair or escalation
+        working-directory: product
+        env:
+          FAILED_RUN_ID: ${{ inputs.failed_run }}
+          CONTROL_DIR: ${{ github.workspace }}/control
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: bash ../control/.github/scripts/release-repair-v4.sh
