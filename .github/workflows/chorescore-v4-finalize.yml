@@ -112,14 +112,19 @@ jobs:
           test -s "$apk"
 
       - name: Android API 35 install, launch and V4 golden path
-        uses: reactivecircus/android-emulator-runner@v2
         env:
           V4_E2E_REUSE_APK: ${{ steps.reuse.outputs.e2e_apk }}
-        with:
-          api-level: 35
-          arch: x86_64
-          profile: pixel_6
-          script: bash scripts/finalizer-e2e.sh
+          API_LEVEL: '35'
+          ARCH: x86_64
+          TARGET: default
+          PROFILE: pixel_6
+          EMULATOR_PORT: '5554'
+          EMULATOR_BOOT_TIMEOUT: '900'
+        run: |
+          set -euo pipefail
+          # Repository-owned boot avoids android-emulator-runner's fatal
+          # post-boot input/settings calls before Android services are live.
+          bash scripts/finalizer-e2e.sh
 
       - name: Trusted gates after reused E2E passes
         if: steps.reuse.outputs.has_reuse == 'true'
