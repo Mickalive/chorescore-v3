@@ -84,3 +84,7 @@ Le test réel doit démontrer :
 
 ## 10. Performance
 Le golden path n'autorise pas un full-history cloud reload à chaque écran. Les gates coût V3 restent obligatoires et sont étendues aux catégories, membres, photos et todo-expense.
+
+## 11. Budget CI et tokens
+
+`docs/CI_EFFICIENCY_POLICY.md` est contraignant. Un échec tardif reprend au point de panne le plus proche. Harness/infra utilisent la fast lane et réutilisent l'APK ; aucun Builder/Auditor/Director complet ni build/export lourd n'est autorisé sans invalidation réelle de la preuve correspondante. Les transitions d'état déterministes sont faites par shell, pas par LLM.
