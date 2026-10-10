@@ -2,6 +2,12 @@ name: ChoreScore V4 Finalizer
 
 on:
   workflow_dispatch:
+    inputs:
+      reuse_run:
+        description: Optional failed finalizer run whose preserved E2E x86 APK may be reused
+        required: false
+        default: ''
+        type: string
   schedule:
     - cron: '37 */3 * * *'
 
@@ -19,6 +25,7 @@ jobs:
     outputs:
       should_run: ${{ steps.state.outputs.should_run }}
       accepted_sha: ${{ steps.state.outputs.accepted_sha }}
+      reuse_run: ${{ steps.state.outputs.reuse_run }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -32,6 +39,7 @@ jobs:
           pending=$(git show "$sha:docs/RELEASE_STATUS.json" | jq -r '.pendingArtifact=="V4-09-RELEASE"')
           echo "should_run=$pending" >> "$GITHUB_OUTPUT"
           echo "accepted_sha=$sha" >> "$GITHUB_OUTPUT"
+          echo "reuse_run=${{ inputs.reuse_run || '' }}" >> "$GITHUB_OUTPUT"
 
   release:
     needs: prepare
@@ -53,7 +61,34 @@ jobs:
           distribution: temurin
           java-version: '17'
       - uses: gradle/actions/setup-gradle@v4
+
+      - name: Download reusable failed-run E2E APK
+        if: needs.prepare.outputs.reuse_run != ''
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: chorescore-v4-finalizer-diagnostics
+          path: ${{ runner.temp }}/v4-reuse
+          run-id: ${{ needs.prepare.outputs.reuse_run }}
+          github-token: ${{ github.token }}
+
+      - id: reuse
+        name: Detect reusable E2E APK
+        run: |
+          set -euo pipefail
+          apk=$(find "${RUNNER_TEMP}/v4-reuse" -type f -name 'e2e-release-x86.apk' 2>/dev/null | head -1 || true)
+          if [[ -n "$apk" && -s "$apk" ]]; then
+            echo "has_reuse=true" >> "$GITHUB_OUTPUT"
+            echo "e2e_apk=$apk" >> "$GITHUB_OUTPUT"
+            echo "Reusing E2E APK from finalizer run ${{ needs.prepare.outputs.reuse_run }}"
+          else
+            echo "has_reuse=false" >> "$GITHUB_OUTPUT"
+            echo "e2e_apk=" >> "$GITHUB_OUTPUT"
+            echo "No reusable E2E APK available; falling back to normal full build"
+          fi
+
       - name: Trusted V4 product, privacy, cost and i18n gates
+        if: steps.reuse.outputs.has_reuse != 'true'
         run: |
           set -euo pipefail
           test -s package-lock.json
@@ -69,6 +104,7 @@ jobs:
           jq -e '.scripts["e2e:android"]' package.json >/dev/null
 
       - name: Build x86_64 V4 release candidate for API 35
+        if: steps.reuse.outputs.has_reuse != 'true'
         run: |
           set -euo pipefail
           (cd android && ./gradlew :app:assembleRelease -PreactNativeArchitectures=x86_64 --no-daemon)
@@ -77,11 +113,29 @@ jobs:
 
       - name: Android API 35 install, launch and V4 golden path
         uses: reactivecircus/android-emulator-runner@v2
+        env:
+          V4_E2E_REUSE_APK: ${{ steps.reuse.outputs.e2e_apk }}
         with:
           api-level: 35
           arch: x86_64
           profile: pixel_6
           script: bash scripts/finalizer-e2e.sh
+
+      - name: Trusted gates after reused E2E passes
+        if: steps.reuse.outputs.has_reuse == 'true'
+        run: |
+          set -euo pipefail
+          test -s package-lock.json
+          npm ci --ignore-scripts --no-audit --no-fund
+          npm run check
+          if jq -e '.scripts["privacy:check"]' package.json >/dev/null 2>&1; then npm run privacy:check; fi
+          if jq -e '.scripts["cost:check"]' package.json >/dev/null 2>&1; then npm run cost:check; fi
+          if jq -e '.scripts["i18n:check"]' package.json >/dev/null 2>&1; then npm run i18n:check; fi
+          npx --no-install expo install --check
+          npx --no-install expo export --platform android --output-dir "$RUNNER_TEMP/v4-final-android-export"
+          npx --no-install expo export --platform ios --output-dir "$RUNNER_TEMP/v4-final-ios-export"
+          npx --no-install expo prebuild --platform android --no-install
+          jq -e '.scripts["e2e:android"]' package.json >/dev/null
 
       - name: Build final arm64-v8a V4 APK
         run: |
@@ -138,7 +192,7 @@ jobs:
             (.criteria[] | select(.id=="V4-09") | .evidence) += ["finalizer-run-"+$cycle,"android-release-apk-sha256-"+$apk,"android-api35-install-launch-v4-golden-path-green","ios-export-readiness-green","privacy-cost-i18n-gates-green"] |
             .pendingArtifact=null | .activeCriteria=[] | .openFindings=[] | .lastCycle=$cycle |
             .progressSummary="V4 RC complete: trusted finalizer passed product/privacy/cost/i18n gates, Android API35 V4 golden path, iOS export, and produced the final arm64-v8a APK." |
-            .factoryHealth.stalled=false | .factoryHealth.consecutiveNoProgress=0 | .factoryHealth.reason=null
+            .factoryHealth.stalled=false | .factoryHealth.consecutiveNoProgress=0 | .factoryHealth.releaseInfraRetries=0 | .factoryHealth.reason=null
           ' docs/RELEASE_STATUS.json > "$tmp"; mv "$tmp" docs/RELEASE_STATUS.json
           tmp=$(mktemp)
           jq '.builder.enabled=false | .builder.criterionId=null | .builder.objective="V4 RC complete." | .builder.scope="No further Builder work." | .builder.acceptance=[]' directives/TASKS.json > "$tmp"; mv "$tmp" directives/TASKS.json
@@ -181,4 +235,4 @@ jobs:
           git commit -m "release $run: reopen V4-09 repair"
           auth=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)
           git -c "http.extraheader=AUTHORIZATION: basic $auth" push origin HEAD:refs/heads/lab/chorescore-v4
-          gh workflow run chorescore-v4-factory.yml --repo '${{ github.repository }}' --ref main
+          gh workflow run chorescore-v4-release-repair.yml --repo '${{ github.repository }}' --ref main -f failed_run="$run"
