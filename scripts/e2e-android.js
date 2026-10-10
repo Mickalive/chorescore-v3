@@ -538,17 +538,26 @@ function openCreateGroupForm(timeoutMs = 240000) {
     // retry reopens the form on the fresh Groups screen.
     dismissAnrOverlay();
     attempts += 1;
+    // Use distinct activation strategies instead of repeating one injected
+    // gesture for minutes. On the empty Groups screen there can be both the
+    // EmptyState action and the bottom create button. A testID match may be
+    // technically present while sitting at an awkward/off-screen coordinate,
+    // so always try the visible localized action as an independent path.
     try {
-      // Held touch: more reliably delivered than a 0ms tap when
-      // system_server is loaded.
-      longPressNode(findByTestId('groups.createButton')[0]);
+      const createNode = findByTestId('groups.createButton')[0];
+      tapNode(createNode, 900);
+      if (findTestIdOrEmpty('groups.nameInput').length) return;
+      longPressNode(createNode, 150, 900);
     } catch (err) {
       lastError = err;
-      // Fall back to the localized label for any build where the testID is
-      // absent; tapLabel() still validates that the control exists.
-      try { tapLabel('Créer un groupe', { exact: true }); } catch (_) {}
     }
-    sleep(2000);
+    if (findTestIdOrEmpty('groups.nameInput').length) return;
+    try {
+      tapLabel('Créer un groupe', { exact: true, waitMs: 900 });
+    } catch (err) {
+      lastError = lastError || err;
+    }
+    sleep(1200);
     if (findTestIdOrEmpty('groups.nameInput').length) return;
     // Bounded recovery: after a few dropped touches the app's window/input
     // channel may be stale.  Relaunch to get a fresh one, then retry.  The
