@@ -1,12 +1,10 @@
 {
   "schemaVersion": 1,
   "milestone": "v4-rc",
-  "lastCycle": "37978957064",
-  "activeCriteria": [
-    "V4-09"
-  ],
-  "pendingArtifact": null,
-  "progressSummary": "V4-09 blocked on final Android release plus targeted named-member invitation linkage; both must pass before APK.",
+  "lastCycle": "38010351520",
+  "activeCriteria": [],
+  "pendingArtifact": "V4-09-RELEASE",
+  "progressSummary": "V4-09 accepted; trusted V4 mobile finalizer owns APK/API35/golden-path completion.",
   "criteria": [
     {
       "id": "V4-01",
@@ -74,32 +72,16 @@
         "audit-accepted-37911408311",
         "audit-accepted-37953161595",
         "audit-accepted-37967732186",
-        "audit-accepted-37978957064"
+        "audit-accepted-37978957064",
+        "audit-accepted-38010351520"
       ]
     }
   ],
-  "openFindings": [
-    {
-      "path": "release",
-      "problem": "Trusted V4 finalizer failed",
-      "evidence": "GitHub Actions V4 finalizer run 37988155828",
-      "mustFix": true,
-      "requiredFix": "Inspect the exact trusted finalizer failed logs and repair only the concrete V4 product/build/Android/E2E blocker. Distinguish infrastructure from product and do not repeat unchanged.",
-      "verification": "Trusted V4 finalizer must pass all gates and produce the final arm64-v8a APK."
-    },
-    {
-      "path": "member-invitation-link",
-      "problem": "V4 invitation can currently create a second linked member instead of linking the existing named member identity.",
-      "evidence": "Current join flow planInvitationAcceptance creates a new Member; named members created with the group carry userId=null and must be linked in place.",
-      "mustFix": true,
-      "requiredFix": "Allow inviting a specific named member. Carry the target memberId in the invitation and, on acceptance, update that existing member with the authenticated userId atomically with membership creation and invitation acceptance. Never match or merge by display name. Preserve the same memberId so all historical ledger references remain intact.",
-      "verification": "E2E/domain test: create group with named member Marie -> create/share invitation for Marie -> accept as authenticated Marie -> household has one Marie member with the original memberId and non-null userId; no duplicate member; historical entries referencing the original memberId remain unchanged."
-    }
-  ],
+  "openFindings": [],
   "factoryHealth": {
     "stalled": false,
     "consecutiveNoProgress": 0,
-    "lastProductSha": "a788b64a3e1b77eb0b9954e0ef26a95523726413",
+    "lastProductSha": "091ad00999dd173afd7e198f8ac4c00268d6b0cf",
     "reason": null
   }
 }
