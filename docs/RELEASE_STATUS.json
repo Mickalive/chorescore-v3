@@ -1,12 +1,12 @@
 {
   "schemaVersion": 1,
   "milestone": "v4-rc",
-  "lastCycle": "38028956169",
+  "lastCycle": "38035412339",
   "activeCriteria": [
     "V4-09"
   ],
   "pendingArtifact": null,
-  "progressSummary": "V4-09 reopened after trusted finalizer failure in run 38034294332",
+  "progressSummary": "Audited V4-09 requires targeted repair; safe WIP retained and autonomous loop continues.",
   "criteria": [
     {
       "id": "V4-01",
@@ -84,17 +84,17 @@
   "openFindings": [
     {
       "path": "release",
-      "problem": "Trusted V4 finalizer failed",
-      "evidence": "GitHub Actions V4 finalizer run 38034294332",
+      "problem": "The candidate does not repair the concrete trusted finalizer failure from Actions run 38034294332. It is a verification-only cycle with zero code/test/script delta, so the exact failing step is unchanged and the open must-fix release finding remains. No evidence was produced to separate an infrastructure/emulator failure from a product or finalizer-script defect, and the trusted verification does not run any finalizer step (no x86_64 release install, no API 35 golden path, no arm64-v8a APK).",
+      "evidence": "candidate metadata: cycle=38035412339, criterionId=V4-09, hasDelta=false, changedFiles=0, verificationOnly=true, agentExitCode=0, trustedVerificationExitCode=0 (/home/runner/work/_temp/candidate-builder/metadata.json + candidate.patch of 0 bytes). `git worktree list` shows HEAD abc7206 == accepted-pristine abc7206, and `diff -rq accepted-pristine .` reports no product/test/script difference (only .opencode scratch and the trusted log). docs/RELEASE_STATUS.json openFindings[0] = {path:'release', problem:'Trusted V4 finalizer failed', evidence:'GitHub Actions V4 finalizer run 38034294332', mustFix:true}. The objective itself mandates repairing run 38034294332 ('The candidate script will inject exact failed logs into reports/release-input'), yet reports/release-input does not exist at audit time and no change references it. Trusted verification TRUSTED_38035412339.md ends 'Trusted verification exit code: 0' after only `npm run check`, privacy:check, cost:check, i18n:check, `expo export` android+ios, `expo prebuild`, and `gradlew :app:assembleDebug` — none of the finalizer steps of docs/V4_RELEASE_ENGINEERING.md §2 (x86_64 release build, API 35 install/launch/golden path, arm64-v8a release APK, SHA-256, upload).",
       "mustFix": true,
-      "requiredFix": "Inspect the exact trusted finalizer failed logs and repair only the concrete V4 product/build/Android/E2E blocker. Distinguish infrastructure from product and do not repeat unchanged.",
-      "verification": "Trusted V4 finalizer must pass all gates and produce the final arm64-v8a APK."
+      "requiredFix": "Use the exact injected finalizer logs (reports/release-input/FINALIZER_38034294332.log) to identify the precise last product step reached, then ship a concrete, tested strategy change for that step in the finalizer surface (scripts/finalizer-e2e.sh, scripts/e2e-android.js, scripts/boot-emulator.sh) rather than an unchanged re-dispatch, per docs/V4_RELEASE_ENGINEERING.md §7. Distinguish product from Android/ADB/SystemUI/emulator infrastructure failure explicitly and cite the log lines; if it is purely infrastructure, still change the bounded strategy (e.g. emulator ownership/boot gate, readiness probes, ANR handling) rather than only re-running. Any change must preserve V4-01..V4-08 and the local-first/delta-only/privacy/cost invariants.",
+      "verification": "Trusted V4 finalizer (chorescore-v4-finalize.yml release job) must pass all gates and produce the final arm64-v8a APK with SHA-256 and 30-day artifact, including the API 35 x86_64 release install and the complete V4 golden path."
     }
   ],
   "factoryHealth": {
     "stalled": false,
-    "consecutiveNoProgress": 0,
-    "lastProductSha": "1f4e29fa0267a7a7ed4263c7c295752e6b2928cf",
+    "consecutiveNoProgress": 1,
+    "lastProductSha": "c6f93610299c7cf431a7003030f8f226d724e3e6",
     "reason": null
   }
 }

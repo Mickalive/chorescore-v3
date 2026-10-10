@@ -4,8 +4,8 @@
   "builder": {
     "enabled": true,
     "criterionId": "V4-09",
-    "objective": "REPAIR V4-09 trusted finalizer failure from Actions run 38034294332. The candidate script will inject exact failed logs into reports/release-input; use them as evidence.",
-    "scope": "Repair only the concrete finalizer blocker; preserve V4-01..V4-08.",
+    "objective": "REPAIR V4-09: Use the exact injected finalizer logs (reports/release-input/FINALIZER_38034294332.log) to identify the precise last product step reached, then ship a concrete, tested strategy change for that step in the finalizer surface (scripts/finalizer-e2e.sh, scripts/e2e-android.js, scripts/boot-emulator.sh) rather than an unchanged re-dispatch, per docs/V4_RELEASE_ENGINEERING.md §7. Distinguish product from Android/ADB/SystemUI/emulator infrastructure failure explicitly and cite the log lines; if it is purely infrastructure, still change the bounded strategy (e.g. emulator ownership/boot gate, readiness probes, ANR handling) rather than only re-running. Any change must preserve V4-01..V4-08 and the local-first/delta-only/privacy/cost invariants.",
+    "scope": "Repair only audited must-fix findings on the preserved V4 baseline. Use new evidence/strategy rather than merely increasing timeouts.",
     "acceptance": [
       "tests/privacy/cost/i18n verts",
       "Expo Android+iOS exports",
