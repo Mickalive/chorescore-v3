@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "cycle": "38035412339",
+  "role": "builder",
+  "decision": "repair",
+  "summary": "The V4-09 repair candidate for trusted finalizer run 38034294332 is verification-only: changedFiles=0, hasDelta=false, candidate.patch is 0 bytes, and the checkout is byte-identical to the accepted baseline (git worktree at abc7206 == accepted-pristine). Trusted verification passed (exit 0) but only re-validates the already-accepted baseline (typecheck, 670 tests / 32 suites, privacy 71, cost 29, i18n 9, Expo Android+iOS exports, Android prebuild + assembleDebug). It does NOT exercise the failing step of docs/V4_RELEASE_ENGINEERING.md §2: the x86_64 release build, the API 35 install/launch, the V4 golden path, or the final arm64-v8a release APK. The concrete must-fix blocker reopened by the finalizer (Actions run 38034294332, docs/RELEASE_STATUS.json openFindings[0].mustFix=true) is therefore not repaired: no product, test, or finalizer-script change exists to fix it, and the injected failed logs (reports/release-input/FINALIZER_38034294332.log) were deleted by .github/scripts/candidate-v4.sh:41 before the audit, so no new evidence distinguishes this failure from a product/script defect. Per V4_RELEASE_ENGINEERING.md §7 an identical unchanged re-dispatch is explicitly forbidden ('une répétition identique sans nouvelle preuve doit changer de stratégie'). A coherent no-delta candidate for a repair criterion is retained as WIP and requires the concrete blocker to be fixed, exactly as the prior V4-05 no-delta cycle (RUN_37870302637) was adjudicated. No V4-01..V4-08 regression was introduced (there is no change at all), but V4-09 must-fix work remains. Independent checks reproduced the green baseline: npm run check = 670 passed / 32 suites, privacy:check = 71 passed, cost:check = 29 passed, i18n:check = 9 passed.",
+  "checks": [
+    "candidate delta: hasDelta=false, changedFiles=0, candidate.patch 0 bytes; worktree identical to accepted-pristine abc7206",
+    "npm run typecheck + jest: 670 passed / 32 suites (independent)",
+    "npm run privacy:check: 71 passed, privacy release contract PASS (independent)",
+    "npm run cost:check: 29 gates PASS (independent)",
+    "npm run i18n:check: 9 passed (independent)",
+    "trusted verification TRUSTED_38035412339.md: exit 0 (product/privacy/cost/i18n + Expo Android+iOS export + Android prebuild + assembleDebug only)",
+    "trusted verification scope vs V4-09 finalizer: no x86_64 release build, no API 35 emulator install/launch, no golden path, no arm64-v8a release APK, no SHA-256, no 30-day artifact",
+    "docs/RELEASE_STATUS.json openFindings[0]: mustFix=true, evidence 'GitHub Actions V4 finalizer run 38034294332'",
+    "reports/release-input/FINALIZER_38034294332.log absent at audit time (removed by candidate-v4.sh line 41)"
+  ],
+  "findings": [
+    {
+      "path": "release",
+      "problem": "The candidate does not repair the concrete trusted finalizer failure from Actions run 38034294332. It is a verification-only cycle with zero code/test/script delta, so the exact failing step is unchanged and the open must-fix release finding remains. No evidence was produced to separate an infrastructure/emulator failure from a product or finalizer-script defect, and the trusted verification does not run any finalizer step (no x86_64 release install, no API 35 golden path, no arm64-v8a APK).",
+      "evidence": "candidate metadata: cycle=38035412339, criterionId=V4-09, hasDelta=false, changedFiles=0, verificationOnly=true, agentExitCode=0, trustedVerificationExitCode=0 (/home/runner/work/_temp/candidate-builder/metadata.json + candidate.patch of 0 bytes). `git worktree list` shows HEAD abc7206 == accepted-pristine abc7206, and `diff -rq accepted-pristine .` reports no product/test/script difference (only .opencode scratch and the trusted log). docs/RELEASE_STATUS.json openFindings[0] = {path:'release', problem:'Trusted V4 finalizer failed', evidence:'GitHub Actions V4 finalizer run 38034294332', mustFix:true}. The objective itself mandates repairing run 38034294332 ('The candidate script will inject exact failed logs into reports/release-input'), yet reports/release-input does not exist at audit time and no change references it. Trusted verification TRUSTED_38035412339.md ends 'Trusted verification exit code: 0' after only `npm run check`, privacy:check, cost:check, i18n:check, `expo export` android+ios, `expo prebuild`, and `gradlew :app:assembleDebug` — none of the finalizer steps of docs/V4_RELEASE_ENGINEERING.md §2 (x86_64 release build, API 35 install/launch/golden path, arm64-v8a release APK, SHA-256, upload).",
+      "mustFix": true,
+      "requiredFix": "Use the exact injected finalizer logs (reports/release-input/FINALIZER_38034294332.log) to identify the precise last product step reached, then ship a concrete, tested strategy change for that step in the finalizer surface (scripts/finalizer-e2e.sh, scripts/e2e-android.js, scripts/boot-emulator.sh) rather than an unchanged re-dispatch, per docs/V4_RELEASE_ENGINEERING.md §7. Distinguish product from Android/ADB/SystemUI/emulator infrastructure failure explicitly and cite the log lines; if it is purely infrastructure, still change the bounded strategy (e.g. emulator ownership/boot gate, readiness probes, ANR handling) rather than only re-running. Any change must preserve V4-01..V4-08 and the local-first/delta-only/privacy/cost invariants.",
+      "verification": "Trusted V4 finalizer (chorescore-v4-finalize.yml release job) must pass all gates and produce the final arm64-v8a APK with SHA-256 and 30-day artifact, including the API 35 x86_64 release install and the complete V4 golden path."
+    }
+  ]
+}
