@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "cycle": "38028956169",
+  "role": "builder",
+  "decision": "accept",
+  "summary": "V4-09 targeted invitation linkage is fully implemented and tested. The domain service (invitationService.ts) correctly handles targeted invitations by memberId, the join flow (join/[token].tsx) validates and links the exact named member, the UI (group-options.tsx, invite.tsx) exposes invitation creation for named members via native share sheet, and the repository layer records sync deltas for member updates. All 670 tests pass including the dedicated V4-09 test suite. Privacy, cost, i18n, typecheck, Expo exports, and Android prebuild all pass. No must-fix findings remain.",
+  "checks": [
+    "typecheck",
+    "test (670 passed)",
+    "privacy:check",
+    "cost:check",
+    "i18n:check",
+    "Expo Android export",
+    "Expo iOS export",
+    "Android prebuild/debug compile (BUILD SUCCESSFUL)"
+  ],
+  "findings": []
+}

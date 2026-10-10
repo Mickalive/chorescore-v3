@@ -358,6 +358,24 @@ function tapNode(node, waitMs = 550) {
   sleep(waitMs);
 }
 
+/**
+ * Activate a node with a held touch (DOWN, hold, UP) instead of a 0ms tap.
+ *
+ * `input tap` injects DOWN and UP with the same timestamp.  When
+ * system_server is loaded the UP can be dispatched before the DOWN has been
+ * delivered to the app, and React Native's Pressability never sees a
+ * complete press, so `onPress` does not fire.  A held touch gives the input
+ * pipeline time to deliver the DOWN before the UP.  React Native fires
+ * `onPress` on release even without an `onLongPress` handler, so this is a
+ * drop-in replacement for a tap on a TouchableOpacity.
+ */
+function longPressNode(node, holdMs = 150, waitMs = 1500) {
+  const b = bounds(node);
+  shell('input', 'swipe', String(b.x), String(b.y), String(b.x), String(b.y), String(holdMs));
+  _dumpCache = null;
+  sleep(waitMs);
+}
+
 function tapLabel(label, options = {}) {
   const node = findVisible(label, options);
   tapNode(node, options.waitMs || 550);
@@ -434,12 +452,6 @@ function findByTestId(testId, { scroll = true } = {}) {
   throw new Error(`UI node not found by testID: ${testId}`);
 }
 
-function tapTestId(testId, waitMs = 550) {
-  const node = findByTestId(testId)[0];
-  tapNode(node, waitMs);
-  return node;
-}
-
 /**
  * Non-throwing probe: return the nodes matching a testID (possibly empty)
  * without scrolling and without treating a miss as a failure.  Used to poll
@@ -458,28 +470,44 @@ function findTestIdOrEmpty(testId) {
  * name field is actually present.
  *
  * A single coordinate tap is not reliable on the unaccelerated API 35 x86_64
- * emulator: trusted finalizer run 38021535805 tapped "Créer un groupe" while
- * system_server was tombstoning (system_server pid 585 at 04:06:48, SystemUI
- * "crashed too many times, killing!" moments earlier).  The tap was silently
- * dropped, setShowCreate() never ran, the form never rendered, and the golden
- * path failed later at `groups.nameInput` with an unchanged screen dump.
+ * emulator.  Trusted finalizer run 38021535805 tapped "Créer un groupe" while
+ * system_server was tombstoning; run 38027023872 repeated the failure even
+ * with a 240s retry loop: the app was healthy (Groups rendered, MainActivity
+ * resumed, no app ANR, no JS error) but the screen never changed, so the tap
+ * was never processed.  The captured logcat shows system_server stalled in a
+ * PackageManager lock-contention storm driven by a com.android.bluetooth
+ * crash/restart loop — when system_server's main thread is stalled its
+ * InputDispatcher cannot deliver injected touches.
  *
- * This helper drives the stable `groups.createButton` testID and retries the
- * tap, clearing any transient infra ANR overlay between attempts, until the
- * form's name field appears.  It does NOT weaken the assertion: the form (and
- * therefore the field) must still open or the golden path fails.
+ * The previous strategy (retry the identical 0ms `input tap` for 240s) is
+ * replaced, per V4_RELEASE_ENGINEERING.md ("une répétition identique sans
+ * nouvelle preuve doit changer de stratégie, pas seulement augmenter les
+ * timeouts"), by three distinct mechanisms:
+ *
+ *   1. A held touch (`longPressNode`) instead of a 0ms tap, so the DOWN is
+ *      delivered before the UP even under load.
+ *   2. A bounded app relaunch (`relaunchApp`) every few dropped attempts, to
+ *      replace a stale window/input channel with a fresh one.
+ *   3. The emulator load source is removed up front by `stabilizeEmulator()`.
+ *
+ * It does NOT weaken the assertion: the form (and therefore the field) must
+ * still open or the golden path fails.
  */
 function openCreateGroupForm(timeoutMs = 240000) {
   const until = Date.now() + timeoutMs;
   let lastError = null;
+  let attempts = 0;
   while (Date.now() < until) {
     if (findTestIdOrEmpty('groups.nameInput').length) return;
     // Clear a transient infra ANR overlay that could swallow the tap.  For an
     // app ANR, dismissAnrOverlay() force-stops + relaunches the app, so the
     // retry reopens the form on the fresh Groups screen.
     dismissAnrOverlay();
+    attempts += 1;
     try {
-      tapTestId('groups.createButton', 1500);
+      // Held touch: more reliably delivered than a 0ms tap when
+      // system_server is loaded.
+      longPressNode(findByTestId('groups.createButton')[0]);
     } catch (err) {
       lastError = err;
       // Fall back to the localized label for any build where the testID is
@@ -488,6 +516,18 @@ function openCreateGroupForm(timeoutMs = 240000) {
     }
     sleep(2000);
     if (findTestIdOrEmpty('groups.nameInput').length) return;
+    // Bounded recovery: after a few dropped touches the app's window/input
+    // channel may be stale.  Relaunch to get a fresh one, then retry.  The
+    // deterministic E2E session restores Groups on launch.
+    if (attempts % 3 === 0) {
+      relaunchApp('create form still closed after repeated touches');
+      // The relaunched app needs to reach Groups again before the next touch.
+      const relaunchUntil = Date.now() + 120000;
+      while (Date.now() < relaunchUntil) {
+        if (findTestIdOrEmpty('groups.createButton').length) break;
+        sleep(2000);
+      }
+    }
   }
   throw new Error(
     `Create-group form did not open: groups.nameInput not found` +
@@ -547,6 +587,26 @@ function typeIntoTestIdNth(testId, index, value, { expected = value } = {}) {
 }
 
 function back() { shell('input', 'keyevent', 'KEYCODE_BACK'); sleep(500); }
+
+/**
+ * Force-stop and relaunch the app to obtain a fresh window and input channel.
+ *
+ * Used both for an app ANR (blocked main thread) and as a bounded recovery
+ * when injected touches are not being processed: a stale input channel or a
+ * window that lost input focus can silently swallow every tap even though the
+ * app process is healthy.  The deterministic E2E session is restored on
+ * launch, so the app lands back on Groups.  Resets the cold-start grace so
+ * the relaunched app is not killed by the stuck-app detector.
+ */
+function relaunchApp(reason) {
+  console.log(`  Relaunching app (${reason})`);
+  globalThis._lastForceStopTime = Date.now();
+  globalThis._appLaunchTime = Date.now();
+  try { shell('am', 'force-stop', packageName); } catch (_) {}
+  sleep(1000);
+  try { shell('monkey', '-p', packageName, '-c', 'android.intent.category.LAUNCHER', '1'); } catch (_) {}
+  sleep(15000); // Give the relaunched app time to initialize
+}
 
 /**
  * Dismiss a transient Android ANR overlay that can cover the app on
@@ -613,13 +673,7 @@ function dismissAnrOverlay() {
   if (isAppAnr) {
     // The app's main thread is blocked and won't recover within the
     // 5-second Wait grace.  Force-stop + relaunch to clear it.
-    console.log('  App ANR — force-stopping and relaunching to clear blocked main thread');
-    globalThis._lastForceStopTime = Date.now();
-    globalThis._appLaunchTime = Date.now();
-    try { shell('am', 'force-stop', packageName); } catch (_) {}
-    sleep(1000);
-    try { shell('monkey', '-p', packageName, '-c', 'android.intent.category.LAUNCHER', '1'); } catch (_) {}
-    sleep(15000); // Give the relaunched app time to initialize
+    relaunchApp('app ANR — clearing blocked main thread');
   } else {
     // Infra ANR: the app is alive and cold-starting.  Re-assert it as the
     // foreground task without a force-stop so its native-library load and
@@ -1216,6 +1270,46 @@ function launch() {
   console.log(`  App launched — ${Math.round(COLD_START_GRACE_MS / 1000)}s global cold-start grace started`);
 }
 
+/**
+ * Reduce emulator system load before the golden path.
+ *
+ * Trusted finalizer run 38027023872 failed because a coordinate tap on
+ * `groups.createButton` was never processed: the app was healthy (Groups
+ * rendered, MainActivity resumed, no app ANR, no JS error) but the screen
+ * never changed.  The captured logcat shows the unaccelerated API 35 x86_64
+ * emulator's `system_server` in a PackageManager lock-contention storm
+ * (`PackageManagerService.snapshotComputer` contended by 8+ threads) driven
+ * by a `com.android.bluetooth` crash/restart loop that broadcasts
+ * PACKAGE_CHANGED every couple of seconds, on top of ANR stack dumps for
+ * system_server/SystemUI/phone.  When system_server's main thread is stalled
+ * its InputDispatcher cannot deliver injected touches, so the tap is
+ * silently dropped — an infrastructure fault, not a product bug.
+ *
+ * The honest mitigation is to remove the load source: disable the
+ * crash-looping Bluetooth service and the animation scales, and keep the
+ * display interactive, so system_server can dispatch input.  Nothing about
+ * the app or the golden-path assertions is changed.
+ */
+function stabilizeEmulator() {
+  console.log('Stabilizing emulator (disable Bluetooth crash-loop + animations)...');
+  // Each command is bounded to 10s with a single attempt: a Bluetooth service
+  // stuck in its crash loop must not stall the golden path for 90s per call.
+  const opts = { timeoutMs: 10_000, retries: 1 };
+  // Stop the com.android.bluetooth crash/restart loop that hammers
+  // PackageManager and stalls system_server's input dispatch.  Both the
+  // modern and legacy entry points are attempted; either may be absent.
+  try { shell('cmd', 'bluetooth_manager', 'disable', opts); } catch (_) {}
+  try { shell('svc', 'bluetooth', 'disable', opts); } catch (_) {}
+  try { shell('settings', 'put', 'global', 'bluetooth_on', '0', opts); } catch (_) {}
+  // Reduce rendering load so the app's main thread is not starved.
+  try { shell('settings', 'put', 'global', 'window_animation_scale', '0', opts); } catch (_) {}
+  try { shell('settings', 'put', 'global', 'transition_animation_scale', '0', opts); } catch (_) {}
+  try { shell('settings', 'put', 'global', 'animator_duration_scale', '0', opts); } catch (_) {}
+  // Keep the display interactive so injected touches reach the app.
+  try { shell('svc', 'power', 'stayon', 'true', opts); } catch (_) {}
+  sleep(2000);
+}
+
 // ══════════════════════════════════════════════════════════════
 // V4 Golden Path
 // ══════════════════════════════════════════════════════════════
@@ -1261,6 +1355,10 @@ try {
   try { shell('svc', 'wifi', 'enable'); } catch (_) {}
   try { shell('svc', 'data', 'enable'); } catch (_) {}
   sleep(1000);
+
+  // Remove the emulator load source (Bluetooth crash/restart loop, animation
+  // scales) before launching, so system_server can dispatch injected input.
+  stabilizeEmulator();
 
   // 1. Launch — the explicit E2E build injects a deterministic local session,
   // so the app must land directly on Groups with no Demo/social sign-in screen.

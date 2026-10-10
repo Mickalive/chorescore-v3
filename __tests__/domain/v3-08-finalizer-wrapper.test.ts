@@ -416,11 +416,14 @@ describe('V3-08 finalizer wrapper contract', () => {
     expect(e2e).toMatch(/dismissAnrOverlay[\s\S]*isn't responding/);
     // Must distinguish app ANR from SystemUI ANR
     expect(e2e).toMatch(/dismissAnrOverlay[\s\S]*isAppAnr/);
-    // App ANR path must force-stop and relaunch
-    expect(e2e).toMatch(/App ANR[\s\S]*force-stop/);
-    expect(e2e).toMatch(/App ANR[\s\S]*monkey/);
-    // App ANR path must reset app launch time for fresh grace period
-    expect(e2e).toMatch(/App ANR[\s\S]*globalThis\._appLaunchTime\s*=\s*Date\.now\(\)/);
+    // App ANR path must force-stop and relaunch.  The recovery is shared with
+    // the create-form input recovery via the relaunchApp helper, which also
+    // resets the launch time for a fresh grace period.
+    expect(e2e).toMatch(/function relaunchApp[\s\S]*force-stop/);
+    expect(e2e).toMatch(/function relaunchApp[\s\S]*monkey/);
+    expect(e2e).toMatch(/function relaunchApp[\s\S]*globalThis\._appLaunchTime\s*=\s*Date\.now\(\)/);
+    // dismissAnrOverlay routes the app-ANR case through relaunchApp.
+    expect(e2e).toMatch(/isAppAnr[\s\S]*relaunchApp\(/);
     // SystemUI ANR path must NOT force-stop (just tap Wait)
     expect(e2e).toMatch(/dismissAnrOverlay[\s\S]*SystemUI/);
   });
@@ -647,12 +650,14 @@ describe('V4 golden-path label sourcing', () => {
     }
   });
 
-  test('create-group step drives a stable testID and retries until the form opens', () => {
+  test('create-group step drives a stable testID and changes strategy when the form stays closed', () => {
     // Trusted finalizer run 38021535805 lost the single coordinate tap on
-    // "Créer un groupe" while system_server was tombstoning: the inline create
-    // form never rendered, the screen dump was unchanged, and the golden path
-    // failed at groups.nameInput.  A single tap must not be trusted — the step
-    // must drive a stable testID and poll for the real form field.
+    // "Créer un groupe" while system_server was tombstoning.  Run 38027023872
+    // repeated the failure even with a 240s retry loop: the app was healthy
+    // (Groups rendered, MainActivity resumed, no app ANR, no JS error) but the
+    // screen never changed, so the tap was never processed.  Per
+    // V4_RELEASE_ENGINEERING.md, an identical repetition without new evidence
+    // must change strategy rather than only increase the timeout.
     const e2e = readRepo('scripts/e2e-android.js');
     const rootScreen = readRepo('app/index.tsx');
     const button = readRepo('src/ui/components/Button.tsx');
@@ -663,11 +668,21 @@ describe('V4 golden-path label sourcing', () => {
     expect(button).toContain('testID?: string;');
     expect(button).toContain('testID={testID}');
 
-    // The retrying helper exists and probes for the real form field.
+    // The helper exists and probes for the real form field.
     expect(e2e).toContain('function openCreateGroupForm');
     expect(e2e).toContain('function findTestIdOrEmpty');
-    expect(e2e).toContain("tapTestId('groups.createButton'");
     expect(e2e).toContain("findTestIdOrEmpty('groups.nameInput')");
+    // Strategy change 1: a held touch instead of a 0ms tap, so the DOWN is
+    // delivered before the UP even when system_server is loaded.
+    expect(e2e).toContain('function longPressNode');
+    expect(e2e).toContain("longPressNode(findByTestId('groups.createButton')[0])");
+    // Strategy change 2: a bounded app relaunch to replace a stale
+    // window/input channel after repeated dropped touches.
+    expect(e2e).toContain('function relaunchApp');
+    expect(e2e).toContain("relaunchApp('create form still closed after repeated touches')");
+    // Strategy change 3: the emulator load source is removed up front.
+    expect(e2e).toContain('function stabilizeEmulator');
+    expect(e2e).toMatch(/stabilizeEmulator\(\);[\s\S]{0,400}launch\(\)/);
     // The create step calls the helper immediately before typing the name.
     expect(e2e).toMatch(
       /openCreateGroupForm\(\);[\s\S]{0,200}typeIntoTestId\('groups\.nameInput'/
@@ -678,5 +693,7 @@ describe('V4 golden-path label sourcing', () => {
     expect(e2e).not.toMatch(
       /tapLabel\('Créer un groupe',\s*\{\s*exact:\s*true\s*\}\);\s*waitFor\('Créer',\s*120000\)/
     );
+    // The pure-retry strategy (identical 0ms tap in a loop) is gone.
+    expect(e2e).not.toContain("tapTestId('groups.createButton'");
   });
 });
