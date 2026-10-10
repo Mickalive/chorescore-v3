@@ -4,13 +4,6 @@ on:
   workflow_dispatch:
   schedule:
     - cron: '7 * * * *'
-  push:
-    branches: [main]
-    paths:
-      - '.opencode/agents/v4-builder.md'
-      - '.github/scripts/*v4*'
-      - '.github/workflows/chorescore-v4-factory.yml'
-      - '.github/workflows/chorescore-v4-finalize.yml'
 
 permissions:
   contents: write
