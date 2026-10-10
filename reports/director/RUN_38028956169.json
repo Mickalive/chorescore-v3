@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "cycle": "38028956169",
+  "decision": "stop",
+  "reason": "Audit decision: accept. The trusted manifest reports auditDecision=accept, criterionId=V4-09, hasDelta=true. The audit (reports/audits/RUN_38028956169.json/.md) accepts the V4-09 repair candidate with zero findings (findings=[]: no must-fix, no non-blocking). Trusted verification exit code 0 (reports/audits/TRUSTED_38028956169.md): typecheck 0 errors; 670 tests / 32 suites PASS; privacy release contract 71 tests PASS; cost regression gate 29 gates PASS; i18n 9 tests PASS; Expo Android AND iOS exports OK (Android .hbc 3.4MB, iOS .hbc 3.1MB); Android prebuild + gradlew :app:assembleDebug BUILD SUCCESSFUL (18m44s, 374 tasks). The accepted delta is the repair of trusted finalizer failure Actions run 38027023872 and touches only scripts/e2e-android.js (144 changed lines) plus its regression test __tests__/domain/v3-08-finalizer-wrapper.test.ts (41 changed lines) — no product, ledger, sync, analytics, privacy, theme, chrono or premium file changed. Diagnosis kept honest per V4_RELEASE_ENGINEERING section 1: the app was healthy (Groups rendered, MainActivity resumed, no app ANR, no JS error) but an identical 0ms input tap on groups.createButton was never processed for 240s because the unaccelerated API 35 x86_64 emulator's system_server was stalled in a PackageManager lock-contention storm driven by a com.android.bluetooth crash/restart loop, so InputDispatcher could not deliver injected touches — infrastructure, not product. Per section 7 ('une repetition identique sans nouvelle preuve doit changer de strategie, pas seulement augmenter les timeouts') the pure-retry strategy is replaced by three distinct mechanisms: longPressNode() held touch (DOWN delivered before UP), bounded relaunchApp() every 3 dropped attempts to obtain a fresh window/input channel, and stabilizeEmulator() run before launch to remove the load source (disable the crash-looping Bluetooth service, zero animation scales, keep display on). The golden-path assertion is NOT weakened: openCreateGroupForm() must still make groups.nameInput appear or the run fails, real ANRs still force-stop + relaunch, and the regression test asserts the identical-retry pattern (tapTestId('groups.createButton') is gone while the strategy changes are present. V4-01..V4-08 preserved, zero regression. V4-09 is the final roadmap criterion (priority 90): there is no next V4 criterion to author, so the factory Builder loop stops and the trusted shell owns the V4-09 state transition and handoff, exactly as for prior V4-09 acceptances (RUN_37888867393, RUN_37900691065, RUN_37911408311, RUN_37953161595, RUN_37967732186, RUN_37978957064, RUN_38010351520, RUN_38023053815). Final completion belongs exclusively to the trusted release finalizer: this cycle produced only product/privacy/cost/i18n/debug-build evidence — no x86_64 release install, no API 35 golden path, no arm64-v8a release APK, no SHA-256, no 30-day artifact — so the open release finding from run 38027023872 stays open until the ordered finalization of V4_RELEASE_ENGINEERING section 2 passes. No release gate weakened, skipped or reinterpreted.",
+  "progressEvidence": [
+    "auditDecision-accept-criterionId-V4-09-hasDelta-true",
+    "audit-findings-zero-findings-no-mustFix-no-non-blocking",
+    "trusted-verification-exit-0-typecheck-0-errors-670-tests-32-suites",
+    "privacy-release-contract-71-tests-PASS",
+    "cost-regression-gate-29-gates-PASS",
+    "i18n-check-9-tests-PASS",
+    "expo-export-android-OK-3.4MB-and-expo-export-ios-OK-3.1MB",
+    "android-prebuild-OK-assembleDebug-BUILD-SUCCESSFUL-374-tasks-18m44s",
+    "accepted-delta-repairs-trusted-finalizer-failure-run-38027023872-identical-0ms-tap-never-processed-while-system-server-stalled-in-PackageManager-lock-contention-driven-by-bluetooth-crash-loop-InputDispatcher-could-not-deliver-input",
+    "scope-limited-to-scripts-e2e-android.js-and-v3-08-finalizer-wrapper-test-ts-no-product-ledger-sync-analytics-privacy-theme-file-touched",
+    "strategy-change-not-timeout-increase-per-V4_RELEASE_ENGINEERING-section-7",
+    "longPressNode-held-touch-DOWN-before-UP-replaces-0ms-input-tap",
+    "bounded-relaunchApp-every-3-dropped-attempts-obtains-fresh-window-and-input-channel",
+    "stabilizeEmulator-run-before-launch-disables-crash-looping-bluetooth-service-zeros-animation-scales-keeps-display-on",
+    "golden-path-assertion-intact-groups-nameInput-must-still-open-or-run-fails",
+    "regression-test-proves-pure-retry-tapTestId-groups-createButton-pattern-removed-and-three-strategy-changes-present",
+    "app-ANRs-still-force-stop-and-relaunch-not-masked",
+    "V4-01-through-V4-08-preserved-zero-regression",
+    "V4-09-is-final-roadmap-criterion-priority-90-no-next-criterion-to-author",
+    "no-x86_64-release-install-API35-golden-path-arm64-v8a-APK-SHA-256-or-30-day-artifact-evidence-in-this-cycle-final-completion-not-claimed",
+    "open-release-finding-run-38027023872-stays-open-trusted-shell-owns-V4-09-state-transition-and-handoff",
+    "builder-loop-stops-trusted-finalizer-reruns-ordered-finalization-V4_RELEASE_ENGINEERING-section-2",
+    "finalizer-then-attests-v4-complete-only-with-no-open-finding",
+    "no-release-gate-weakened-skipped-or-reinterpreted",
+    "V3-foundations-two-ledgers-zero-sum-explicit-only-cross-ledger-compensation-rate-snapshot-historical-unit-semantics-local-first-delta-only-bounded-cost-incremental-analytics-privacy-separation-100-free-no-chrono-warm-adult-V2-visual-direction-preserved"
+  ]
+}

@@ -2,22 +2,11 @@
   "schemaVersion": 1,
   "milestone": "v4-rc",
   "builder": {
-    "enabled": true,
-    "criterionId": "V4-09",
-    "objective": "REPAIR V4-09 trusted finalizer failure from Actions run 38027023872. The candidate script will inject exact failed logs into reports/release-input; use them as evidence.",
-    "scope": "Repair only the concrete finalizer blocker; preserve V4-01..V4-08.",
-    "acceptance": [
-      "tests/privacy/cost/i18n verts",
-      "Expo Android+iOS exports",
-      "x86_64 release install API35",
-      "golden path V4 complet",
-      "aucun label interdit visible",
-      "arm64-v8a release APK",
-      "SHA-256",
-      "artifact 30 jours",
-      "aucun finding ouvert",
-      "named member invitation links same memberId without duplicate and preserves ledger history"
-    ],
+    "enabled": false,
+    "criterionId": null,
+    "objective": "V4-09 handed to trusted finalizer.",
+    "scope": "Trusted finalizer only.",
+    "acceptance": [],
     "previousCriteriaPreserved": [
       "V4-01: accepted and must not regress",
       "V4-02: accepted and must not regress",
