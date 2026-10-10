@@ -46,7 +46,7 @@ count=${#changed[@]}
 (( count <= 180 )) || { echo "::error::V4 candidate changed $count files"; exit 4; }
 for p in "${changed[@]}"; do
   case "$p" in
-    MAIN_PROMPT.md|AGENTS.md|governance/*|directives/*|docs/V4_CONSTITUTION.md|docs/V4_RELEASE_ENGINEERING.md|docs/V3_BACKEND_FRUGAL.md|docs/ROADMAP.md|docs/RELEASE_STATUS.json|docs/NEXT_CYCLE.md|.github/*|.opencode/*|opencode.json|reports/*)
+    MAIN_PROMPT.md|AGENTS.md|governance/*|directives/*|docs/V4_CONSTITUTION.md|docs/V4_RELEASE_ENGINEERING.md|docs/CI_EFFICIENCY_POLICY.md|docs/V3_BACKEND_FRUGAL.md|docs/ROADMAP.md|docs/RELEASE_STATUS.json|docs/NEXT_CYCLE.md|.github/*|.opencode/*|opencode.json|reports/*)
       echo "::error::V4 Builder changed protected path $p"; exit 5;;
   esac
 done
