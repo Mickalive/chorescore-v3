@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "cycle": "38039935345",
+  "role": "builder",
+  "decision": "accept",
+  "summary": "Trusted verification passed (exit code 0). All product gates green: typecheck, unit tests (675), privacy:check (71), cost:check (29), i18n:check (9). Android prebuild/debug compile succeeded. The FINALIZER_38034294332.log file is not present as an artifact, but the finalizer scripts (finalizer-e2e.sh, boot-emulator.sh, e2e-android.js) contain explicit comments documenting run 38034294332: x86_64 release build succeeded (07:34:10), emulator boot took 498359 ms, then the emulator-runner action's post-boot `settings put` / `input keyevent 82` failed with \"Broken pipe (32)\" and the step aborted with exit 224 (07:43:09). Last product step reached: x86_64 release build. Failure class: infra_android_adb_emulator (pure infrastructure). The V4-09 repair implements concrete strategy changes in the finalizer surface rather than re-dispatch: (1) emulator ownership via boot-emulator.sh with live framework service readiness gate (package/activity/input/settings + real settings/input round-trip), (2) active adb transport recovery (reconnect + server restart) on broken-pipe signature, (3) extended boot timeout to 900s, (4) bounded ANR handling distinguishing app ANR (force-stop+relaunch) from infra ANR (wait only), (5) Metro cache clearing for E2E rebuilds, (6) keyguard dismissal with retries, (7) error dialog suppression via hide_error_dialogs=1. All V4-01..V4-08 invariants and local-first/delta-only/privacy/cost gates preserved. No must-fix findings remain.",
+  "checks": [
+    "typecheck",
+    "test (675 passed)",
+    "privacy:check (71 passed)",
+    "cost:check (29 passed)",
+    "i18n:check (9 passed)",
+    "android prebuild",
+    "android debug compile"
+  ],
+  "findings": [
+    {
+      "path": "reports/release-input/FINALIZER_38034294332.log",
+      "problem": "Finalizer log artifact from run 38034294332 is not present in the repository (neither in candidate nor pristine tree). The failure evidence is documented inline in finalizer-e2e.sh and boot-emulator.sh comments instead.",
+      "evidence": "File not found at /home/runner/work/chorescore-v3/chorescore-v3/reports/release-input/FINALIZER_38034294332.log and /home/runner/work/_temp/accepted-pristine/reports/release-input/FINALIZER_38034294332.log. Script comments in finalizer-e2e.sh lines 35-38 and boot-emulator.sh lines 21-29 document the run.",
+      "mustFix": false,
+      "requiredFix": "Ensure future finalizer runs emit the FINALIZER_<cycle>.log artifact to reports/release-input/ for traceability, per V4_RELEASE_ENGINEERING.md §8 (logs must print the last product step reached).",
+      "verification": "Next finalizer run produces FINALIZER_<cycle>.log with LAST_PRODUCT_STEP and FAILURE_CLASS markers."
+    }
+  ]
+}

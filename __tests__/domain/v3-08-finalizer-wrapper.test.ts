@@ -697,3 +697,80 @@ describe('V4 golden-path label sourcing', () => {
     expect(e2e).not.toContain("tapTestId('groups.createButton'");
   });
 });
+
+describe('V4-09 finalizer infrastructure strategy (run 38034294332)', () => {
+  // Reference evidence: trusted finalizer run 38034294332 — the x86_64 release
+  // build succeeded (BUILD SUCCESSFUL at 07:34:10), then the emulator-runner
+  // action's own post-boot `settings put` and `input keyevent 82` returned
+  // "cmd: Failure calling service ...: Broken pipe (32)" and the step aborted
+  // with exit 224 at 07:43:09, before scripts/finalizer-e2e.sh ran. The
+  // emulator boot took 498359 ms. Last product step reached: the x86_64
+  // release build; everything after it is Android/ADB infrastructure.
+
+  test('boot-emulator.sh raises the boot budget to 900s (498359 ms boot in run 38034294332)', () => {
+    const boot = readRepo('scripts/boot-emulator.sh');
+    expect(boot).toMatch(/EMULATOR_BOOT_TIMEOUT:-900/);
+    expect(boot).not.toMatch(/EMULATOR_BOOT_TIMEOUT:-600/);
+    expect(boot).toContain('38034294332');
+    expect(boot).toContain('498359');
+  });
+
+  test('boot-emulator.sh actively recovers a dead adb transport before failing', () => {
+    // Blind waiting does not clear the broken-pipe transport; the script must
+    // reconnect (and restart the adb server when the device stops answering)
+    // and re-gate. Bounded so it can never loop forever.
+    const boot = readRepo('scripts/boot-emulator.sh');
+    expect(boot).toContain('recover_adb_transport()');
+    expect(boot).toContain('reconnect offline');
+    expect(boot).toContain('adb kill-server');
+    expect(boot).toContain('adb start-server');
+    expect(boot).toMatch(/recoveries" -lt 4/);
+    expect(boot).toMatch(/attempt % 20/);
+    // Explicit infrastructure classification on failure + an explicit ready
+    // marker on success.
+    expect(boot).toContain('FAILURE_CLASS=infra_android_adb_emulator');
+    expect(boot).toContain('EMULATOR_READY=1');
+  });
+
+  test('finalizer wrapper prints last-product-step markers and a failure class', () => {
+    const wrapper = readRepo('scripts/finalizer-e2e.sh');
+    expect(wrapper).toContain('mark_step()');
+    expect(wrapper).toContain('### FINALIZER STEP:');
+    expect(wrapper).toContain('classify_failure()');
+    expect(wrapper).toContain('FAILURE_CLASS=');
+    expect(wrapper).toContain('LAST_PRODUCT_STEP');
+    expect(wrapper).toContain('FINALIZER_RESULT=pass');
+    // Cites the exact reference run.
+    expect(wrapper).toContain('38034294332');
+    // Every product phase is marked so the next log makes the last product
+    // step reached unambiguous.
+    for (const step of [
+      'boot_or_attach',
+      'framework_service_gate',
+      'x86_64_e2e_rebuild',
+      'apk_locate',
+      'apk_install',
+      'golden_path',
+    ]) {
+      expect(wrapper).toContain(`mark_step "${step}"`);
+    }
+  });
+
+  test('failure classifier distinguishes infra from product (never claims success)', () => {
+    const wrapper = readRepo('scripts/finalizer-e2e.sh');
+    expect(wrapper).toMatch(/classify_failure\(\)[\s\S]*infra_android_adb_emulator/);
+    expect(wrapper).toMatch(/classify_failure\(\)[\s\S]*product_e2e/);
+    expect(wrapper).toMatch(/classify_failure\(\)[\s\S]*Broken pipe/);
+  });
+
+  test('wrapper recovers the adb transport when the framework gate times out', () => {
+    // Run 38034294332 proved the framework command services can fail a live
+    // round-trip right after boot. The wrapper must recover the transport and
+    // re-gate once before classifying the failure.
+    const wrapper = readRepo('scripts/finalizer-e2e.sh');
+    expect(wrapper).toMatch(
+      /wait_android_services 60 5[\s\S]*recover_adb_transport 1[\s\S]*wait_android_services 40 5/
+    );
+    expect(wrapper).toContain('classify_failure 1 "Failure calling service input: Broken pipe (32)"');
+  });
+});

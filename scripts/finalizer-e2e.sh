@@ -28,6 +28,34 @@ set -euo pipefail
 echo "=== ChoreScore V4 finalizer E2E ==="
 echo "Time: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
+# ── Last-product-step markers + failure classification (V4-09) ─────────
+# docs/V4_RELEASE_ENGINEERING.md requires the logs to make the last product
+# step reached and the failure class explicit, so a later cycle can tell a
+# product failure from an Android/ADB/SystemUI/emulator infrastructure
+# failure without guessing. Run 38034294332 is the reference: the x86_64
+# release build succeeded (07:34:10), then the emulator-runner action's own
+# post-boot `settings put` / `input keyevent 82` returned "Broken pipe (32)"
+# and the step aborted with exit 224 (07:43:09) before this wrapper ran.
+LAST_PRODUCT_STEP="wrapper_start"
+FAILURE_CLASS=""
+mark_step() {
+  LAST_PRODUCT_STEP="$1"
+  echo "### FINALIZER STEP: ${1}"
+}
+# Classify a failure from its exit code + collected signature. Infra class
+# covers adb/emulator/SystemUI transport failures; otherwise it is a product
+# E2E failure. Never claims success — only labels the evidence.
+classify_failure() {
+  local code="$1" signature="$2"
+  case "$signature" in
+    *"Broken pipe"*|*"Failure calling service"*|*"device offline"*|*"device not found"*|*"no devices"*|*"adb: "*|*"emulator: "*)
+      FAILURE_CLASS="infra_android_adb_emulator" ;;
+    *)
+      FAILURE_CLASS="product_e2e" ;;
+  esac
+  echo "FAILURE_CLASS=${FAILURE_CLASS} LAST_PRODUCT_STEP=${LAST_PRODUCT_STEP} exit=${code}"
+}
+
 # ── Emulator ownership fallback (V4-09 strategy change) ────────────────
 # The trusted workflow historically launched the emulator through
 # reactivecircus/android-emulator-runner@v2. That action's own
@@ -36,16 +64,18 @@ echo "Time: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
 # input service is not always live yet, so the call fails with
 # "cmd: Failure calling service input: Broken pipe (32)" and @actions/exec
 # aborts the WHOLE step with exit 224 — before this wrapper even starts
-# (trusted finalizer runs 37909577314, 37976784854). Because that abort
-# happens inside the action, hardening this wrapper cannot prevent it.
+# (trusted finalizer runs 37909577314, 37976784854, 38034294332). Because that
+# abort happens inside the action, hardening this wrapper cannot prevent it.
 #
 # Strategy change: this wrapper can also OWN the emulator lifecycle. When it
 # is invoked from a plain `run:` step (no device attached) it boots and gates
 # the emulator itself via scripts/boot-emulator.sh, which waits for a LIVE
 # input/settings round-trip before returning. The trusted workflow can then
 # drop the fragile action step and run `bash scripts/finalizer-e2e.sh`
-# directly. When the action is still used (device already attached) behaviour
-# is unchanged.
+# directly. When the action is still used (device already attached) the same
+# live gate applies, and a dead transport is actively recovered instead of
+# only re-probed.
+mark_step "boot_or_attach"
 adb start-server >/dev/null 2>&1 || true
 if ! adb get-state 2>/dev/null | grep -q '^device$'; then
   echo "No attached emulator detected — booting one via scripts/boot-emulator.sh"
@@ -54,6 +84,28 @@ fi
 # Bare `adb` calls below then target the booted device deterministically.
 export ANDROID_SERIAL="${ANDROID_SERIAL:-emulator-${EMULATOR_PORT:-5554}}"
 echo "Target device: ${ANDROID_SERIAL}"
+
+# Active adb transport recovery (shared signature with boot-emulator.sh).
+# Run 38034294332 showed the action's `settings put` and `input keyevent 82`
+# failing with "Broken pipe (32)" right after boot. Re-probing a dead
+# transport does not clear it; reconnecting — and restarting the server when
+# the device stops answering — does. Bounded by the caller.
+recover_adb_transport() {
+  local attempt="$1"
+  echo "  adb transport recovery ${attempt}: reconnect (broken-pipe signature)" >&2
+  timeout 15 adb reconnect offline >/dev/null 2>&1 || true
+  sleep 2
+  timeout 15 adb wait-for-device >/dev/null 2>&1 || true
+  if ! timeout 15 adb get-state >/dev/null 2>&1; then
+    echo "  adb transport recovery ${attempt}: restarting adb server" >&2
+    timeout 10 adb kill-server >/dev/null 2>&1 || true
+    sleep 3
+    timeout 15 adb start-server >/dev/null 2>&1 || true
+    sleep 2
+    timeout 30 adb wait-for-device >/dev/null 2>&1 || true
+  fi
+  sleep 2
+}
 
 # Probe whether the Android framework command services actually answer a real
 # round-trip.  In the trusted finalizer run 37909577314, right after
@@ -175,8 +227,20 @@ echo "Brief package manager settle (10s)..."
 sleep 10
 
 # sys.boot_completed is not sufficient on hosted API 35 runners. Require the
-# framework services used by install/launch before touching the APK.
-wait_android_services 60 5
+# framework services used by install/launch before touching the APK. If the
+# first gate times out, actively recover the dead adb transport (the proven
+# broken-pipe signature in runs 37909577314 / 37976784854 / 38034294332) and
+# re-gate once before classifying the failure.
+mark_step "framework_service_gate"
+if ! wait_android_services 60 5; then
+  echo "Framework services not ready — recovering adb transport and re-gating..."
+  recover_adb_transport 1
+  if ! wait_android_services 40 5; then
+    classify_failure 1 "Failure calling service input: Broken pipe (32)"
+    echo "ERROR: Android framework services unavailable after adb transport recovery" >&2
+    exit 1
+  fi
+fi
 
 # Re-assert the screen unlock before install/launch (see dismiss_keyguard).
 dismiss_keyguard
@@ -251,6 +315,7 @@ clear_metro_cache() {
 # artifact never contains the E2E session.
 E2E_REBUILT=0
 if [ "${EXPO_PUBLIC_E2E_AUTH:-}" != "1" ]; then
+  mark_step "x86_64_e2e_rebuild"
   echo "Rebuilding x86_64 release APK with EXPO_PUBLIC_E2E_AUTH=1..."
   export EXPO_PUBLIC_E2E_AUTH=1
   # Delete the JS bundle outputs so Gradle re-runs the bundle task.  Gradle
@@ -270,6 +335,7 @@ if [ "${EXPO_PUBLIC_E2E_AUTH:-}" != "1" ]; then
 fi
 
 # 1. Locate the release APK
+mark_step "apk_locate"
 apk=$(find android/app/build/outputs/apk/release -type f -name '*.apk' | head -1)
 if [ -z "$apk" ]; then
   echo "ERROR: No release APK found under android/app/build/outputs/apk/release" >&2
@@ -293,6 +359,7 @@ echo "APK: $apk ($(stat -c%s "$apk") bytes)"
 # at 300s per attempt, skipped entirely when the package is already
 # present, and falls back to push + pm install via the shell transport.
 echo "Installing APK..."
+mark_step "apk_install"
 echo "APK file: $apk ($(stat -c%s "$apk") bytes, $(sha256sum "$apk" | awk '{print $1}'))"
 INSTALL_ATTEMPTS=0
 MAX_ATTEMPTS=2
@@ -386,6 +453,7 @@ mkdir -p audit/android-e2e
 echo "Capturing pre-E2E logcat..."
 adb logcat -d -t 200 > audit/android-e2e/logcat-pre-e2e.txt 2>/dev/null || true
 set +e
+mark_step "golden_path"
 npm run e2e:android
 E2E_EXIT=$?
 set -e
@@ -395,6 +463,11 @@ mkdir -p audit/android-e2e
 echo "Capturing logcat for post-mortem..."
 adb logcat -d -t 300 > audit/android-e2e/logcat-finalizer.txt 2>/dev/null || true
 echo "E2E exit code: $E2E_EXIT"
+# Print the explicit last-product-step + failure class so a later cycle can
+# tell a product golden-path failure from adb/emulator infrastructure.
+if [ "$E2E_EXIT" -ne 0 ]; then
+  classify_failure "$E2E_EXIT" "$(cat audit/android-e2e/logcat-finalizer.txt 2>/dev/null || true)"
+fi
 
 # ── Diagnostic echo: make evidence survive step failure ────────────────
 # GitHub Actions preserves step output (stdout/stderr) in the workflow run
@@ -462,6 +535,10 @@ if [ "${E2E_REBUILT:-0}" -eq 1 ]; then
   # unset.  Metro's cache key ignores env vars, so the E2E-flagged transform
   # must be evicted or the arm64 bundle would embed the E2E session.
   clear_metro_cache
+fi
+
+if [ "$E2E_EXIT" -eq 0 ]; then
+  echo "FINALIZER_RESULT=pass LAST_PRODUCT_STEP=golden_path"
 fi
 
 exit "$E2E_EXIT"

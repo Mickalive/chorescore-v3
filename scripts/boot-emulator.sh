@@ -17,9 +17,18 @@
 #
 # @actions/exec treats the non-zero exit as fatal, so the WHOLE step aborts
 # with exit code 224 — before `scripts/finalizer-e2e.sh` is ever invoked
-# (trusted finalizer runs 37909577314 and 37976784854). This is an
-# emulator/ADB infrastructure failure, not a product failure, and it cannot
-# be repaired from inside the wrapper because the wrapper never runs.
+# (trusted finalizer runs 37909577314, 37976784854 and 38034294332). Run
+# 38034294332 is the latest confirmation and adds two facts:
+#   * the emulator took 498359 ms to boot (log line "Boot completed in
+#     498359 ms"), so the action's 600 s boot budget had almost no margin;
+#   * after `sys.boot_completed=1`, the action's own `settings put` returned
+#     "cmd: Failure calling service settings: Broken pipe (32)" twice and its
+#     `input keyevent 82` returned the same broken pipe, then the step aborted
+#     (exit 224) at 07:43:09 — while the x86_64 release build had already
+#     succeeded at 07:34:10. Last product step reached: the x86_64 release
+#     build. Everything after it failed in Android/ADB infrastructure.
+# This is an emulator/ADB infrastructure failure, not a product failure, and
+# it cannot be repaired from inside the wrapper because the wrapper never runs.
 #
 # The strategy therefore changes: instead of depending on the action's
 # fragile built-in unlock, the repository owns the emulator lifecycle.
@@ -27,6 +36,10 @@
 # the trusted workflow can drop the action step and run the wrapper directly.
 # This script waits for a LIVE `input`/`settings` round-trip before returning;
 # no `input keyevent 82` is issued until the input service answers for real.
+# It also ACTIVELY RECOVERS a dead adb transport instead of only waiting: the
+# proven broken-pipe signature is a transport/service failure, so the script
+# reconnects and, if needed, restarts the adb server before re-gating. Blind
+# waiting (and simply raising timeouts) does not clear it; reconnecting does.
 #
 # The current action-driven path is unchanged: the wrapper only calls this
 # script when `adb get-state` shows no attached device, so existing behaviour
@@ -39,7 +52,9 @@
 #   PROFILE                pixel_6
 #   AVD_NAME               chorescore_v4
 #   EMULATOR_PORT          5554
-#   EMULATOR_BOOT_TIMEOUT  600
+#   EMULATOR_BOOT_TIMEOUT  900  (raised from 600 after the 498359 ms boot in
+#                                run 38034294332; 600 s left ~100 s margin and
+#                                the framework readiness gate runs after it)
 
 set -euo pipefail
 
@@ -49,7 +64,7 @@ TARGET="${TARGET:-default}"
 PROFILE="${PROFILE:-pixel_6}"
 AVD_NAME="${AVD_NAME:-chorescore_v4}"
 EMULATOR_PORT="${EMULATOR_PORT:-5554}"
-EMULATOR_BOOT_TIMEOUT="${EMULATOR_BOOT_TIMEOUT:-600}"
+EMULATOR_BOOT_TIMEOUT="${EMULATOR_BOOT_TIMEOUT:-900}"
 SERIAL="emulator-${EMULATOR_PORT}"
 
 echo "=== ChoreScore V4 emulator boot ==="
@@ -161,8 +176,35 @@ live_probe() {
   return 0
 }
 
+# ── Active adb transport recovery ──────────────────────────────────────
+# The exact failure in runs 37909577314, 37976784854 and 38034294332 is
+# "Failure calling service input/settings: Broken pipe (32)" immediately
+# after boot. Re-issuing the same probe on the same dead transport never
+# recovers it, so actively reconnect the adb transport (and restart the
+# server when the device stops answering) before re-gating. Bounded: the
+# caller decides how many times to invoke this.
+recover_adb_transport() {
+  local attempt="$1"
+  echo "  adb transport recovery ${attempt}: reconnect (broken-pipe signature)" >&2
+  timeout 15 adb -s "$SERIAL" reconnect offline >/dev/null 2>&1 || true
+  sleep 2
+  timeout 15 adb -s "$SERIAL" wait-for-device >/dev/null 2>&1 || true
+  # If the transport is still dead, restart the server so the emulator
+  # re-registers a fresh transport from scratch.
+  if ! timeout 15 adb -s "$SERIAL" get-state >/dev/null 2>&1; then
+    echo "  adb transport recovery ${attempt}: restarting adb server" >&2
+    timeout 10 adb kill-server >/dev/null 2>&1 || true
+    sleep 3
+    timeout 15 adb start-server >/dev/null 2>&1 || true
+    sleep 2
+    timeout 30 adb -s "$SERIAL" wait-for-device >/dev/null 2>&1 || true
+  fi
+  sleep 2
+}
+
 echo "Waiting for framework services (package/activity/input/settings + live probe)..."
 ready=0
+recoveries=0
 for attempt in $(seq 1 120); do
   state=$(adb -s "$SERIAL" get-state 2>/dev/null | tr -d '\r' || true)
   package_state=$(adb -s "$SERIAL" shell service check package 2>/dev/null | tr -d '\r' || true)
@@ -180,10 +222,17 @@ for attempt in $(seq 1 120); do
     break
   fi
   echo "  not ready (${attempt}/120): state='${state:-unavailable}' package='${package_state:-unavailable}' activity='${activity_state:-unavailable}' input='${input_state:-unavailable}' settings='${settings_state:-unavailable}'"
+  # After a first waiting window, actively recover the transport instead of
+  # only polling (bounded to 4 recoveries).
+  if [ "$attempt" -ge 20 ] && [ "$recoveries" -lt 4 ] && [ $(( attempt % 20 )) -eq 0 ]; then
+    recoveries=$((recoveries + 1))
+    recover_adb_transport "$recoveries"
+  fi
   sleep 3
 done
 
 if [ "$ready" -ne 1 ]; then
+  echo "FAILURE_CLASS=infra_android_adb_emulator (emulator/framework services never became live)" >&2
   echo "ERROR: Android framework services did not become ready" >&2
   adb -s "$SERIAL" shell getprop sys.boot_completed 2>/dev/null || true
   adb -s "$SERIAL" shell service list 2>/dev/null | head -40 || true
@@ -197,4 +246,5 @@ fi
 timeout 20 adb -s "$SERIAL" shell input keyevent 82 >/dev/null 2>&1 || true
 timeout 20 adb -s "$SERIAL" shell wm dismiss-keyguard >/dev/null 2>&1 || true
 
+echo "EMULATOR_READY=1 serial=${SERIAL}"
 echo "Emulator ${SERIAL} is booted and framework services are live."
