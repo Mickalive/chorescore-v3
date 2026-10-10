@@ -1,6 +1,9 @@
 name: ChoreScore V4 Finalizer
 
 on:
+  push:
+    paths:
+      - '.github/trigger-v4-finalizer'
   workflow_dispatch:
     inputs:
       reuse_run:
