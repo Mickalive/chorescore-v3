@@ -25,3 +25,5 @@ Règles produit majeures :
 - application toujours 100 % gratuite.
 
 Le critère actif est dans `directives/TASKS.json`. Ne travailler que sur lui, préserver tous les critères V4 déjà acceptés et ne jamais régresser les fondations V3.
+
+Toute automation V4 respecte aussi `docs/CI_EFFICIENCY_POLICY.md`. L'efficacité CI est une contrainte de correction : classifier d'abord, réutiliser artifacts et preuves, réserver les LLM aux décisions non déterministes et éviter toute répétition de build/gate/token qui n'est pas invalidée par le delta.
