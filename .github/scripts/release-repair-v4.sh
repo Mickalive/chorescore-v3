@@ -17,7 +17,10 @@ infra_signature=false
 if grep -Eqi 'adb .*failed|adb.*exit code 224|spawnSync adb ETIMEDOUT|System UI.*not responding|Quickstep.*not responding|emulator.*(failed|ERROR)' "$log"; then infra_signature=true; fi
 
 dispatch_finalizer() {
-  gh workflow run chorescore-v4-finalize.yml --repo "$repo" --ref main
+  # Reuse the failed run's preserved E2E x86 APK when available. If an older
+  # run predates APK preservation, the finalizer detects that and falls back
+  # to the normal build automatically.
+  gh workflow run chorescore-v4-finalize.yml --repo "$repo" --ref main -f reuse_run="$run_id"
 }
 
 dispatch_factory() {
