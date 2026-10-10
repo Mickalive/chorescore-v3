@@ -62,6 +62,12 @@ export interface MemberRepository extends SeedableRepository<Member> {
   getByHouseholdPaginated(householdId: string, query?: PaginatedQuery): Promise<PaginatedResult<Member>>;
   getById(id: string): Promise<Member | null>;
   create(data: Omit<Member, 'id' | 'joinedAt'>): Promise<Member>;
+  /**
+   * V4-09: update an existing member. Used to link a named member to an
+   * account when a targeted invitation is accepted (userId becomes the
+   * accepting account id) without rewriting the member's identity or history.
+   */
+  update(id: string, data: Partial<Member>): Promise<Member>;
 }
 
 // ── V4-01: Category Repository ─────────────────────────────────

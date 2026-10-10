@@ -481,6 +481,14 @@ export class ScopedMemberRepository implements MemberRepository {
     await this.checkMembership(data.householdId);
     return this.inner.create(data);
   }
+
+  async update(id: string, data: Partial<Member>): Promise<Member> {
+    const member = await this.inner.getById(id);
+    if (member) {
+      await this.checkMembership(member.householdId);
+    }
+    return this.inner.update(id, data);
+  }
 }
 
 /**

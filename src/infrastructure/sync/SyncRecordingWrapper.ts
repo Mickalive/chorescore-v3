@@ -326,6 +326,12 @@ export class SyncRecordingMemberRepository implements MemberRepository {
     return created;
   }
 
+  async update(id: string, data: Partial<Member>): Promise<Member> {
+    const updated = await this.inner.update(id, data);
+    await this.recordDirty(updated, false);
+    return updated;
+  }
+
   private async recordDirty(entity: Member, deleted: boolean): Promise<void> {
     const revision = await getLocalRevision(this.syncState, entity.householdId, 'members');
     const record = createSyncRecordForEntity(

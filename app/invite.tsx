@@ -16,7 +16,7 @@ import {
   Alert,
   TouchableOpacity,
 } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { ScreenContainer } from '../src/ui/components/ScreenContainer';
 import { Text } from '../src/ui/components/Text';
 import { Button } from '../src/ui/components/Button';
@@ -24,7 +24,7 @@ import { Card } from '../src/ui/components/Card';
 import { colors, spacing } from '../src/ui/design-system/theme';
 import { useApp } from '../src/features/app/AppContext';
 import { useI18n } from '../src/i18n';
-import { Invitation } from '../src/domain/entities';
+import { Invitation, Member } from '../src/domain/entities';
 import { createInvitation } from '../src/domain/services/invitationService';
 
 const DEEP_LINK_BASE = 'https://chorescore.app/join';
@@ -33,7 +33,9 @@ export default function InviteScreen() {
   const router = useRouter();
   const { t, locale } = useI18n();
   const { currentHouseholdId, currentUser, repos, services } = useApp();
+  const { memberId } = useLocalSearchParams<{ memberId?: string }>();
   const [existingInvitations, setExistingInvitations] = useState<Invitation[]>([]);
+  const [targetMember, setTargetMember] = useState<Member | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const loadInvitations = useCallback(async () => {
@@ -45,6 +47,21 @@ export default function InviteScreen() {
   useEffect(() => {
     loadInvitations();
   }, [loadInvitations]);
+
+  // V4-09: a targeted invitation links an existing named member. Resolve the
+  // member so the screen can show who is being invited and create the
+  // invitation with the exact member id (never a name match).
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      if (!memberId || !currentHouseholdId) return;
+      const member = await repos.members.getById(memberId);
+      if (!cancelled) setTargetMember(member ?? null);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [memberId, currentHouseholdId, repos]);
 
   const shareLink = useCallback(async (token: string, groupName?: string) => {
     const link = `${DEEP_LINK_BASE}/${token}`;
@@ -65,8 +82,13 @@ export default function InviteScreen() {
       if (!household) throw new Error(t('invite.groupNotFound'));
 
       // Reuse the current pending link so repeated taps never pile up
-      // one-time invitations; otherwise create a fresh link-only invitation.
-      const existing = existingInvitations[0];
+      // one-time invitations. The reuse is scoped to the SAME target: a
+      // link-only invitation is only reused for the link-only screen, and a
+      // targeted invitation is only reused for the exact same member — never
+      // for a different member (V4-09: the link is by member id, not by name).
+      const existing = existingInvitations.find(
+        (inv) => (inv.targetMemberId ?? null) === (targetMember?.id ?? null),
+      );
       if (existing) {
         await shareLink(existing.linkToken, household.name);
         return;
@@ -75,6 +97,7 @@ export default function InviteScreen() {
       const invData = createInvitation({
         household,
         invitedByUserId: currentUser.userId,
+        targetMemberId: targetMember?.id ?? null,
       });
       const created = await repos.invitations.create(invData);
       await shareLink(created.linkToken, household.name);
@@ -100,10 +123,14 @@ export default function InviteScreen() {
 
         <Card style={styles.card}>
           <Text variant="body" style={styles.hint}>
-            {t('invite.linkOnlyHint')}
+            {targetMember
+              ? t('invite.targetedHint', { name: targetMember.name })
+              : t('invite.linkOnlyHint')}
           </Text>
           <Button
-            title={t('invite.createLink')}
+            title={targetMember
+              ? t('invite.createTargetedLink', { name: targetMember.name })
+              : t('invite.createLink')}
             variant="primary"
             onPress={handleCreateAndShare}
             disabled={!currentHouseholdId || isSubmitting}

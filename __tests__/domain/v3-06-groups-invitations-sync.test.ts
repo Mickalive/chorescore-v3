@@ -226,6 +226,7 @@ describe('V3-06 invitation lifecycle', () => {
       role: 'MEMBER',
       status: 'pending',
       linkToken: 'expired-token',
+      targetMemberId: null,
       createdAt: '2026-01-01T00:00:00.000Z',
       expiresAt: '2026-01-02T00:00:00.000Z', // Past
     };
@@ -245,6 +246,7 @@ describe('V3-06 invitation lifecycle', () => {
       role: 'MEMBER',
       status: 'revoked',
       linkToken: 'revoked-token',
+      targetMemberId: null,
       createdAt: '2026-09-01T00:00:00.000Z',
       expiresAt: '2026-09-08T00:00:00.000Z',
     };

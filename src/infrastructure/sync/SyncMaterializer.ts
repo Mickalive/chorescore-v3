@@ -288,7 +288,12 @@ async function upsertWithConflictResolution(
       const incoming = entity as unknown as Member;
       const existing = await repos.members.getById(record.id);
       if (existing) {
-        // Members don't have update — if remote wins, accept via seed (idempotent)
+        // V4-09: members now support update — when the remote wins, apply the
+        // incoming member (which may carry a userId link from an accepted
+        // targeted invitation) without changing the member's identity.
+        if (didRemoteWin(realLocalRevision, safeTimestamp(existing, 'joinedAt'), record.revision, record.updatedAt)) {
+          await repos.members.update(record.id, incoming);
+        }
       } else {
         await repos.members.seed([{ ...incoming, id: record.id }]);
       }

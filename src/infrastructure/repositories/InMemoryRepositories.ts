@@ -263,6 +263,14 @@ export class InMemoryMemberRepository implements MemberRepository {
     this.items.set(member.id, { ...member });
     return member;
   }
+
+  async update(id: string, data: Partial<Member>): Promise<Member> {
+    const existing = this.items.get(id);
+    if (!existing) throw new Error(`Member ${id} not found`);
+    const updated: Member = { ...existing, ...data, id: existing.id };
+    this.items.set(id, updated);
+    return updated;
+  }
 }
 
 // ── V4-01: InMemory Category Repository ────────────────────────

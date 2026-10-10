@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "cycle": "38010351520",
+  "role": "builder",
+  "decision": "accept",
+  "summary": "V4-09 targeted invitation linkage is correctly implemented. The feature allows creating a group with named members, then inviting a specific named member via a targeted invitation link. When that member accepts, their account is linked to the existing member identity (same memberId) instead of creating a duplicate. All ledger history referencing the original memberId is preserved. The implementation covers domain entities, invitation service, repositories (InMemory, SQLite, Scoped, SyncRecording), SQLite schema migration, UI screens (group-options, invite, join), i18n (FR/EN), and comprehensive tests. Trusted verification passed (exit code 0), all 669 tests pass, privacy/cost/i18n gates pass, Expo Android/iOS exports succeed, Android prebuild/debug compile succeeds.",
+  "checks": [
+    "typecheck",
+    "test (669 passed)",
+    "privacy:check",
+    "cost:check",
+    "i18n:check",
+    "Expo Android export",
+    "Expo iOS export",
+    "Android prebuild",
+    "Android debug compile"
+  ],
+  "findings": []
+}

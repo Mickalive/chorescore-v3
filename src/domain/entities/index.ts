@@ -297,6 +297,14 @@ export interface Invitation {
   status: InvitationStatus;
   /** Opaque token embedded in the share link / deep-link. */
   linkToken: string;
+  /**
+   * V4-09: when set, accepting this invitation links the named member with
+   * this id (same household, currently unlinked) instead of creating a new
+   * member. The link is by member id — never by name — so a group created
+   * with member names keeps exactly one identity per person and every ledger
+   * entry referencing that member keeps its history.
+   */
+  targetMemberId: string | null;
   createdAt: string;
   expiresAt: string;
 }

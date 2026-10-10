@@ -92,6 +92,23 @@ export default function JoinScreen() {
         return;
       }
 
+      // V4-09: a targeted invitation must resolve to the exact named member it
+      // references. The link is by member id — never by name — so two people
+      // with the same name can never collapse into one identity.
+      if (invitation.targetMemberId) {
+        const target = await rawRepos.members.getById(invitation.targetMemberId);
+        if (!target || target.householdId !== invitation.householdId) {
+          setStatus('error');
+          setErrorMessage(t('join.targetNotFound'));
+          return;
+        }
+        if (target.userId !== null && target.userId !== undefined && target.userId !== '') {
+          setStatus('error');
+          setErrorMessage(t('join.targetAlreadyLinked'));
+          return;
+        }
+      }
+
       setStatus('ready');
     } catch {
       setStatus('error');
@@ -126,8 +143,18 @@ export default function JoinScreen() {
         return;
       }
 
-      // Plan the atomic membership + member creation
-      const result = planInvitationAcceptance(invitation, currentUser.userId, currentUser.displayName);
+      // Plan the atomic membership + member creation. For a targeted
+      // invitation, the existing named member is passed so the acceptance
+      // LINKS it (same member id) instead of creating a duplicate.
+      const targetMember = invitation.targetMemberId
+        ? await rawRepos.members.getById(invitation.targetMemberId)
+        : null;
+      const result = planInvitationAcceptance(
+        invitation,
+        currentUser.userId,
+        currentUser.displayName,
+        targetMember,
+      );
 
       // Execute atomically in a transaction (using rawRepos for invitation-authorized writes)
       await rawRepos.withTransaction(async () => {
@@ -136,11 +163,19 @@ export default function JoinScreen() {
           householdId: result.membership.householdId,
           role: result.membership.role,
         });
-        await rawRepos.members.create({
-          householdId: result.member.householdId,
-          name: result.member.name,
-          userId: result.member.userId,
-        });
+        if (result.linksExistingMember) {
+          // V4-09: link the existing named member — no new member, no rewrite
+          // of the ledger entries that already reference this member id.
+          await rawRepos.members.update(result.member.id, {
+            userId: result.member.userId,
+          });
+        } else {
+          await rawRepos.members.create({
+            householdId: result.member.householdId,
+            name: result.member.name,
+            userId: result.member.userId,
+          });
+        }
         await rawRepos.invitations.updateStatus(invitation.id, 'accepted');
       });
 

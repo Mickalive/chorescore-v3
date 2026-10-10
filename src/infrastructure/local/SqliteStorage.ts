@@ -182,6 +182,9 @@ async function initializeSchema(database: SQLite.SQLiteDatabase): Promise<void> 
       role TEXT NOT NULL DEFAULT 'MEMBER',
       status TEXT NOT NULL DEFAULT 'pending',
       linkToken TEXT NOT NULL UNIQUE,
+      -- V4-09: targeted invitation — accepting links this named member
+      -- (same member id, no duplicate) instead of creating a new member.
+      targetMemberId TEXT,
       createdAt TEXT NOT NULL,
       expiresAt TEXT NOT NULL
     );
@@ -253,6 +256,8 @@ export const V4_COLUMN_MIGRATIONS: ColumnMigration[] = [
   { table: 'todo_items', column: 'categoryId', ddl: 'TEXT' },
   { table: 'todo_items', column: 'expenseAmountMinor', ddl: 'INTEGER' },
   { table: 'todo_items', column: 'expenseCurrency', ddl: 'TEXT' },
+  // invitations: targeted named-member linkage (V4-09)
+  { table: 'invitations', column: 'targetMemberId', ddl: 'TEXT' },
 ];
 
 type ColumnInfoRow = { name?: unknown };

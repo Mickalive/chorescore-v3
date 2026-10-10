@@ -239,12 +239,24 @@ export default function GroupOptionsScreen() {
           ) : (
             members.map((member) => (
               <View key={member.id} style={styles.memberRow}>
-                <Text variant="body" style={styles.memberName}>{member.name}</Text>
-                <Text variant="caption" color={colors.textSecondary}>
-                  {isLinkedMember(member)
-                    ? t('groupOptions.linkedMember')
-                    : t('groupOptions.namedMember')}
-                </Text>
+                <View style={styles.memberInfo}>
+                  <Text variant="body" style={styles.memberName}>{member.name}</Text>
+                  <Text variant="caption" color={colors.textSecondary}>
+                    {isLinkedMember(member)
+                      ? t('groupOptions.linkedMember')
+                      : t('groupOptions.namedMember')}
+                  </Text>
+                </View>
+                {!isLinkedMember(member) && (
+                  <Button
+                    title={t('groupOptions.inviteMember')}
+                    variant="ghost"
+                    size="small"
+                    onPress={() =>
+                      router.push({ pathname: '/invite', params: { memberId: member.id } })
+                    }
+                  />
+                )}
               </View>
             ))
           )}
@@ -434,6 +446,10 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.sm,
     borderBottomWidth: 1,
     borderBottomColor: colors.divider,
+  },
+  memberInfo: {
+    flex: 1,
+    marginRight: spacing.sm,
   },
   memberName: {
     flex: 1,

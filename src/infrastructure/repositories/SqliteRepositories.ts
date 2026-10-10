@@ -413,6 +413,24 @@ export class SqliteMemberRepository implements MemberRepository {
     );
     return member;
   }
+
+  async update(id: string, data: Partial<Member>): Promise<Member> {
+    const existing = await this.getById(id);
+    if (!existing) throw new Error(`Member ${id} not found`);
+    const db = await getDatabase();
+    const updated: Member = { ...existing, ...data, id: existing.id };
+    await db.runAsync(
+      'UPDATE members SET householdId = ?, name = ?, userId = ?, joinedAt = ? WHERE id = ?',
+      [
+        updated.householdId,
+        updated.name,
+        encodeMemberUserId(updated.userId),
+        updated.joinedAt,
+        id,
+      ]
+    );
+    return updated;
+  }
 }
 
 // ── V4-01: Category Repository ─────────────────────────────────
@@ -1402,8 +1420,8 @@ export class SqliteInvitationRepository implements InvitationRepository {
     const db = await getDatabase();
     for (const inv of items) {
       await db.runAsync(
-        'INSERT OR REPLACE INTO invitations (id, householdId, invitedByUserId, invitedEmail, role, status, linkToken, createdAt, expiresAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
-        [inv.id, inv.householdId, inv.invitedByUserId, inv.invitedEmail, inv.role, inv.status, inv.linkToken, inv.createdAt, inv.expiresAt],
+        'INSERT OR REPLACE INTO invitations (id, householdId, invitedByUserId, invitedEmail, role, status, linkToken, targetMemberId, createdAt, expiresAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        [inv.id, inv.householdId, inv.invitedByUserId, inv.invitedEmail, inv.role, inv.status, inv.linkToken, inv.targetMemberId ?? null, inv.createdAt, inv.expiresAt],
       );
     }
   }
@@ -1482,8 +1500,8 @@ export class SqliteInvitationRepository implements InvitationRepository {
       createdAt: new Date().toISOString(),
     };
     await db.runAsync(
-      'INSERT INTO invitations (id, householdId, invitedByUserId, invitedEmail, role, status, linkToken, createdAt, expiresAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
-      [invitation.id, invitation.householdId, invitation.invitedByUserId, invitation.invitedEmail, invitation.role, invitation.status, invitation.linkToken, invitation.createdAt, invitation.expiresAt],
+      'INSERT INTO invitations (id, householdId, invitedByUserId, invitedEmail, role, status, linkToken, targetMemberId, createdAt, expiresAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      [invitation.id, invitation.householdId, invitation.invitedByUserId, invitation.invitedEmail, invitation.role, invitation.status, invitation.linkToken, invitation.targetMemberId ?? null, invitation.createdAt, invitation.expiresAt],
     );
     return invitation;
   }
@@ -1513,6 +1531,7 @@ interface InvitationRow {
   role: string;
   status: string;
   linkToken: string;
+  targetMemberId: string | null;
   createdAt: string;
   expiresAt: string;
 }
@@ -1526,6 +1545,7 @@ function invitationFromRow(row: InvitationRow): Invitation {
     role: row.role as 'MEMBER' | 'OWNER',
     status: row.status as Invitation['status'],
     linkToken: row.linkToken,
+    targetMemberId: row.targetMemberId ?? null,
     createdAt: row.createdAt,
     expiresAt: row.expiresAt,
   };

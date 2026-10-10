@@ -642,6 +642,7 @@ describe('V4-07 E2E: categories and invitations participate in delta sync', () =
       role: 'MEMBER',
       status: 'pending',
       linkToken: 'tok-local-1',
+      targetMemberId: null,
       expiresAt: '2026-10-16T10:00:00.000Z',
     });
 
@@ -703,6 +704,7 @@ describe('V4-07 E2E: categories and invitations participate in delta sync', () =
       role: 'MEMBER',
       status: 'pending',
       linkToken: 'tok-tomb-1',
+      targetMemberId: null,
       expiresAt: '2026-10-16T10:00:00.000Z',
     });
 

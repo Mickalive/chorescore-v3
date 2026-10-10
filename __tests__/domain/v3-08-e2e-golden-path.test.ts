@@ -415,6 +415,7 @@ describe('V3-08 E2E: Invitation flow', () => {
       role: 'MEMBER',
       status: 'pending',
       linkToken: 'test-token-abc',
+      targetMemberId: null,
       expiresAt: '2026-12-31T00:00:00.000Z',
     });
     expect(invitation.id).toBeDefined();

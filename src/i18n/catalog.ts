@@ -308,13 +308,17 @@ export const CATALOG: Record<SupportedLocale, LocaleCatalog> = {
     'groupOptions.namedMember': 'Membre nommé',
     'groupOptions.invite': 'Inviter par lien',
     'groupOptions.inviteHint': 'Partagez un lien d’invitation à ce groupe.',
+    'groupOptions.inviteMember': 'Inviter',
 
     // ── Invitations ───────────────────────────────────────────
     'invite.title': 'Inviter',
     'invite.linkLabel': 'Lien d’invitation',
     'invite.linkOnlyHint':
       'Toute personne disposant de ce lien peut rejoindre le groupe. Le lien est partagé via la feuille de partage native.',
+    'invite.targetedHint':
+      'Cette invitation est destinée à {name} : en l’acceptant, son compte sera lié à ce membre existant, sans doublon ni perte d’historique.',
     'invite.createLink': 'Partager un lien d’invitation',
+    'invite.createTargetedLink': 'Partager l’invitation pour {name}',
     'invite.createError': 'Impossible de créer l’invitation.',
     'invite.groupNotFound': 'Groupe introuvable.',
     'invite.pending': 'En attente',
@@ -339,6 +343,8 @@ export const CATALOG: Record<SupportedLocale, LocaleCatalog> = {
     'join.accepted': 'Vous avez rejoint {group} !',
     'join.goToGroup': 'Aller au groupe',
     'join.acceptError': 'Erreur lors de l’acceptation de l’invitation.',
+    'join.targetNotFound': 'Le membre visé par cette invitation est introuvable.',
+    'join.targetAlreadyLinked': 'Le membre visé par cette invitation est déjà lié à un compte.',
 
     // ── General options ───────────────────────────────────────
     'options.title': 'Options générales',
@@ -692,13 +698,17 @@ export const CATALOG: Record<SupportedLocale, LocaleCatalog> = {
     'groupOptions.namedMember': 'Named member',
     'groupOptions.invite': 'Invite with a link',
     'groupOptions.inviteHint': 'Share an invitation link to this group.',
+    'groupOptions.inviteMember': 'Invite',
 
     // ── Invitations ───────────────────────────────────────────
     'invite.title': 'Invite',
     'invite.linkLabel': 'Invite link',
     'invite.linkOnlyHint':
       'Anyone with this link can join the group. The link is shared through the native share sheet.',
+    'invite.targetedHint':
+      'This invitation is meant for {name}: accepting it links their account to this existing member, with no duplicate and no loss of history.',
     'invite.createLink': 'Share an invitation link',
+    'invite.createTargetedLink': 'Share the invitation for {name}',
     'invite.createError': 'Could not create the invitation.',
     'invite.groupNotFound': 'Group not found.',
     'invite.pending': 'Pending',
@@ -723,6 +733,8 @@ export const CATALOG: Record<SupportedLocale, LocaleCatalog> = {
     'join.accepted': 'You joined {group}!',
     'join.goToGroup': 'Go to group',
     'join.acceptError': 'Error while accepting the invitation.',
+    'join.targetNotFound': 'The member targeted by this invitation could not be found.',
+    'join.targetAlreadyLinked': 'The member targeted by this invitation is already linked to an account.',
 
     // ── General options ───────────────────────────────────────
     'options.title': 'General options',

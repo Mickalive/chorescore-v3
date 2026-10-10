@@ -1472,7 +1472,7 @@ describe('V3-06 REPAIR Finding #6: scoped persistent tasks and invitations', () 
     await expect(scoped.invitations.create({
       householdId: HH, invitedByUserId: 'user-stranger',
       invitedEmail: 'test@test.com', role: 'MEMBER', status: 'pending',
-      linkToken: 'fake-token', expiresAt: '2026-12-31T00:00:00.000Z',
+      linkToken: 'fake-token', targetMemberId: null, expiresAt: '2026-12-31T00:00:00.000Z',
     })).rejects.toThrow(AuthorizationError);
   });
 
@@ -1487,7 +1487,7 @@ describe('V3-06 REPAIR Finding #6: scoped persistent tasks and invitations', () 
     const created = await scoped.invitations.create({
       householdId: HH, invitedByUserId: 'user-owner',
       invitedEmail: 'new@test.com', role: 'MEMBER', status: 'pending',
-      linkToken: 'valid-token', expiresAt: '2026-12-31T00:00:00.000Z',
+      linkToken: 'valid-token', targetMemberId: null, expiresAt: '2026-12-31T00:00:00.000Z',
     });
     expect(created.invitedEmail).toBe('new@test.com');
   });

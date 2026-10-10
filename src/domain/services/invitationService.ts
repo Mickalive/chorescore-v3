@@ -26,6 +26,12 @@ export interface CreateInvitationInput {
    */
   invitedEmail?: string;
   role?: MembershipRole;
+  /**
+   * V4-09: when set, the invitation is targeted at an existing named member
+   * of the household. Accepting it links that member to the accepting
+   * account (same member id, no duplicate) instead of creating a new member.
+   */
+  targetMemberId?: string | null;
 }
 
 export interface AcceptInvitationInput {
@@ -37,6 +43,11 @@ export interface AcceptInvitationInput {
 export interface InvitationResult {
   membership: Membership;
   member: Member;
+  /**
+   * V4-09: true when the acceptance linked an existing named member (the
+   * caller must update that member's userId instead of creating a new one).
+   */
+  linksExistingMember: boolean;
 }
 
 /**
@@ -92,6 +103,7 @@ export function createInvitation(input: CreateInvitationInput): Omit<Invitation,
     role: input.role ?? 'MEMBER',
     status: 'pending',
     linkToken: generateLinkToken(),
+    targetMemberId: input.targetMemberId ?? null,
     expiresAt: expiresAt.toISOString(),
   };
 }
@@ -132,11 +144,23 @@ export function validateAcceptInvitation(
 /**
  * Plan the atomic membership + member creation from an accepted invitation.
  * Returns the data for both records. The caller executes them in a transaction.
+ *
+ * V4-09: when the invitation targets an existing named member
+ * (`invitation.targetMemberId`), the acceptance LINKS that member to the
+ * accepting account instead of creating a new member. The link is validated
+ * strictly:
+ *   - the target member must exist and belong to the invitation's household;
+ *   - the target member must still be named (userId === null) — an already
+ *     linked member can never be linked twice;
+ *   - the caller must pass the exact member referenced by the invitation —
+ *     matching by name is never allowed, so two people with the same name can
+ *     never collapse into one identity.
  */
 export function planInvitationAcceptance(
   invitation: Invitation,
   userId: string,
   displayName: string,
+  existingMember?: Member | null,
 ): InvitationResult {
   const nowIso = new Date().toISOString();
 
@@ -148,6 +172,26 @@ export function planInvitationAcceptance(
     joinedAt: nowIso,
   };
 
+  if (invitation.targetMemberId) {
+    if (!existingMember) {
+      throw new Error('This invitation targets a named member that could not be resolved');
+    }
+    if (existingMember.id !== invitation.targetMemberId) {
+      throw new Error('Invitation targets a different member');
+    }
+    if (existingMember.householdId !== invitation.householdId) {
+      throw new Error('Invitation target does not belong to this household');
+    }
+    if (existingMember.userId !== null && existingMember.userId !== undefined && existingMember.userId !== '') {
+      throw new Error('Invitation target is already linked to an account');
+    }
+    return {
+      membership,
+      member: { ...existingMember, userId },
+      linksExistingMember: true,
+    };
+  }
+
   const member: Member = {
     id: `member-${invitation.id}-${userId}`,
     householdId: invitation.householdId,
@@ -156,5 +200,5 @@ export function planInvitationAcceptance(
     joinedAt: nowIso,
   };
 
-  return { membership, member };
+  return { membership, member, linksExistingMember: false };
 }

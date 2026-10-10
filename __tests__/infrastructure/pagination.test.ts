@@ -139,6 +139,7 @@ function invitation(id: string, createdAt: string): Invitation {
     role: 'MEMBER',
     status: 'pending',
     linkToken: `tok-${id}`,
+    targetMemberId: null,
     createdAt,
     expiresAt: '2026-12-31T00:00:00.000Z',
   };
