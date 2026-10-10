@@ -23,3 +23,6 @@
 - Les tests de coût, privacy, i18n, accessibilité et builds sont des critères de correction.
 - Pour Android : respecter safe areas et cliquer les contrôles d'onglet réels dans E2E, pas le texte dans la barre système.
 - Ne jamais inventer une preuve. Un critère n'est accepté que si la vérification trusted est verte.
+
+- `docs/CI_EFFICIENCY_POLICY.md` est canonique pour toute automation : déterministe avant LLM, artifact/cache avant rebuild, delta ciblé avant full gates, retries bornés, aucune revalidation identique sans justification.
+- Une panne harness/infra ne doit jamais repasser par la Factory produit complète si elle peut être réparée/rejouée sur le même artifact. Les probes multi-modèles et Directors LLM sont des fallbacks exceptionnels, pas des étapes de routine.
