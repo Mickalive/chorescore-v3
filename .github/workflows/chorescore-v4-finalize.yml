@@ -138,7 +138,7 @@ jobs:
             (.criteria[] | select(.id=="V4-09") | .evidence) += ["finalizer-run-"+$cycle,"android-release-apk-sha256-"+$apk,"android-api35-install-launch-v4-golden-path-green","ios-export-readiness-green","privacy-cost-i18n-gates-green"] |
             .pendingArtifact=null | .activeCriteria=[] | .openFindings=[] | .lastCycle=$cycle |
             .progressSummary="V4 RC complete: trusted finalizer passed product/privacy/cost/i18n gates, Android API35 V4 golden path, iOS export, and produced the final arm64-v8a APK." |
-            .factoryHealth.stalled=false | .factoryHealth.consecutiveNoProgress=0 | .factoryHealth.reason=null
+            .factoryHealth.stalled=false | .factoryHealth.consecutiveNoProgress=0 | .factoryHealth.releaseInfraRetries=0 | .factoryHealth.reason=null
           ' docs/RELEASE_STATUS.json > "$tmp"; mv "$tmp" docs/RELEASE_STATUS.json
           tmp=$(mktemp)
           jq '.builder.enabled=false | .builder.criterionId=null | .builder.objective="V4 RC complete." | .builder.scope="No further Builder work." | .builder.acceptance=[]' directives/TASKS.json > "$tmp"; mv "$tmp" directives/TASKS.json
@@ -181,4 +181,4 @@ jobs:
           git commit -m "release $run: reopen V4-09 repair"
           auth=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)
           git -c "http.extraheader=AUTHORIZATION: basic $auth" push origin HEAD:refs/heads/lab/chorescore-v4
-          gh workflow run chorescore-v4-factory.yml --repo '${{ github.repository }}' --ref main
+          gh workflow run chorescore-v4-release-repair.yml --repo '${{ github.repository }}' --ref main -f failed_run="$run"
