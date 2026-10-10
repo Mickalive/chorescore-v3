@@ -4,13 +4,6 @@ on:
   workflow_dispatch:
   schedule:
     - cron: '7 * * * *'
-  push:
-    branches: [main]
-    paths:
-      - '.opencode/agents/v4-builder.md'
-      - '.github/scripts/*v4*'
-      - '.github/workflows/chorescore-v4-factory.yml'
-      - '.github/workflows/chorescore-v4-finalize.yml'
 
 permissions:
   contents: write
@@ -61,7 +54,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        model: [mimo-v2.5-free, deepseek-v4-flash-free, nemotron-3-ultra-free, north-mini-code-free, ling-3.0-flash-free, big-pickle]
+        model: [mimo-v2.5-free, deepseek-v4-flash-free]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -156,7 +149,6 @@ jobs:
         with:
           fetch-depth: 0
           ref: ${{ needs.prepare.outputs.accepted_sha }}
-      - uses: ./.github/actions/setup-opencode
       - uses: actions/download-artifact@v4
         with:
           name: v4-candidate-builder
@@ -169,7 +161,6 @@ jobs:
         env:
           CYCLE_KEY: ${{ github.run_id }}
           ACCEPTED_SHA: ${{ needs.prepare.outputs.accepted_sha }}
-          OX_MODEL: ${{ needs.select-models.outputs.director_model }}
           GH_TOKEN: ${{ github.token }}
         run: bash .github/scripts/integrate-director-v4.sh
 
