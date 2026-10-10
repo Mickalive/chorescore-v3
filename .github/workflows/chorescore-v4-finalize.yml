@@ -42,7 +42,11 @@ jobs:
           pending=$(git show "$sha:docs/RELEASE_STATUS.json" | jq -r '.pendingArtifact=="V4-09-RELEASE"')
           echo "should_run=$pending" >> "$GITHUB_OUTPUT"
           echo "accepted_sha=$sha" >> "$GITHUB_OUTPUT"
-          echo "reuse_run=${{ inputs.reuse_run || '' }}" >> "$GITHUB_OUTPUT"
+          reuse='${{ inputs.reuse_run || '' }}'
+          if [[ -z "$reuse" && -f .github/trigger-v4-finalizer ]]; then
+            reuse=$(grep -oE '[0-9]{8,}' .github/trigger-v4-finalizer | tail -1 || true)
+          fi
+          echo "reuse_run=$reuse" >> "$GITHUB_OUTPUT"
 
   release:
     needs: prepare
