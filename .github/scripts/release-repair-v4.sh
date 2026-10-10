@@ -12,7 +12,9 @@ gh run view "$run_id" --repo "$repo" --log-failed > "$log" 2>&1 || true
 test -s "$log" || { echo "::error::Could not retrieve failed finalizer log $run_id"; exit 2; }
 
 golden_failure=false
-if grep -q 'V4 Android golden path FAIL:' "$log"; then golden_failure=true; fi
+if grep -Eqi 'V4 Android golden path FAIL|FAILURE_CLASS=product_e2e|UI node not found by testID|Create-group form did not open|Text input failed for' "$log"; then
+  golden_failure=true
+fi
 infra_signature=false
 if grep -Eqi 'adb .*failed|adb.*exit code 224|spawnSync adb ETIMEDOUT|System UI.*not responding|Quickstep.*not responding|emulator.*(failed|ERROR)' "$log"; then infra_signature=true; fi
 
