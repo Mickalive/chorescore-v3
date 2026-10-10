@@ -302,6 +302,18 @@ function swipeUp() {
 }
 
 function swipeToTop() {
+  // Invalidate the dump cache: the cached XML describes the pre-reset scroll
+  // position, and uiautomator prunes off-screen nodes, so after a reset a
+  // stale cache can report nodes that are no longer on screen (or miss nodes
+  // that now are).  Trusted finalizer run 38053121004: findVisible()'s sweep
+  // could return a node from the stale pre-reset dump, and the following
+  // typeIntoTestId() read the same stale dump and failed to find the deep
+  // category input.  The expense step had the same latent hazard: after
+  // waitForVisible('Ajouter la dépense') cached a bottom-of-form dump,
+  // swipeToTop() left that stale dump in the cache, so the subsequent
+  // add.expenseTitle lookup would have read the bottom dump and missed the
+  // title at the top of the form.
+  _dumpCache = null;
   for (let i = 0; i < 5; i += 1) {
     try { shell('input', 'swipe', '540', '600', '540', '1900', '250'); } catch (_) {}
     sleep(150);
@@ -454,6 +466,22 @@ function findByTestId(testId, { scroll = true } = {}) {
     if (scroll) {
       try { swipeUp(); } catch (_) {}
     }
+  }
+  if (!scroll) throw new Error(`UI node not found by testID: ${testId}`);
+  // Deep controls (e.g. add.categoryName at the bottom of the long Ajouter
+  // form, add.expenseShare rows in the custom-split section) can sit beyond
+  // the reach of the 3 swipeUps above.  Mirror findVisible()'s final sweep:
+  // reset to the top and walk the whole scrollable form with fresh dumps.
+  // Trusted finalizer run 38053121004 failed here: after swipeToTop() the
+  // category input was several screens below the top, past 3 swipeUps.
+  // The 60s budget bounds the sweep so a genuinely missing node cannot blow
+  // past openCreateGroupForm()'s 240s recovery loop on a slow emulator.
+  swipeToTop();
+  const fallbackUntil = Date.now() + 60000;
+  for (let i = 0; i < 6 && Date.now() < fallbackUntil; i += 1) {
+    let matches = matchesTestId();
+    if (matches.length) return matches;
+    try { swipeUp(); } catch (_) {}
   }
   throw new Error(`UI node not found by testID: ${testId}`);
 }
@@ -1460,7 +1488,10 @@ try {
   // Ajouter form (uiautomator prunes off-screen nodes), so wait with a
   // scroll-aware lookup instead of a non-scrolling waitFor.
   waitForVisible('Créer la catégorie', 120000);
-  swipeToTop();
+  // The name input sits directly above the "Créer la catégorie" action that
+  // waitForVisible just revealed, so keep the current scroll position.  A
+  // swipeToTop() here would push the input several screens below the fold,
+  // beyond findByTestId()'s fast path (trusted finalizer run 38053121004).
   typeIntoTestId('add.categoryName', 'e2e cat');
   tapLabel('Créer la catégorie', { exact: true });
   waitForVisible('e2e cat', 120000);
@@ -1519,7 +1550,10 @@ try {
 
   // 8. Add a member after group creation.
   console.log('Adding a member after creation...');
-  swipeToTop();
+  // The member input lives in the Members Card directly below the
+  // last-created share card the expense step ended on, so keep the current
+  // scroll position.  A swipeToTop() here would push the input to the bottom
+  // of the whole scrollable form, past findByTestId()'s fast path.
   typeIntoTestId('add.memberName', 'chris');
   tapLabel('Ajouter', { exact: true });
   waitFor('chris', 120000);

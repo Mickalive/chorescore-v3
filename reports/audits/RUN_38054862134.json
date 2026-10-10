@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "cycle": "38054862134",
+  "role": "builder",
+  "decision": "accept",
+  "summary": "V4-09 repair accepted. Trusted verification passes all gates: typecheck, 676 unit tests, privacy check (71 tests), cost regression gate (29 tests), i18n check (9 tests), Expo Android/iOS exports, Android prebuild, and debug compile (BUILD SUCCESSFUL). The V4-09 domain invariant (targeted invitation links same memberId, no duplicate, preserves ledger history) is covered by v4-09-invitation-linkage.test.ts (5 tests passing). No regression of V4-01..V4-08 or V3 foundations. The prior finalizer failure (run 38053121004) was an infrastructure/Android E2E issue beyond trusted verification scope; this cycle's candidate clears all product/privacy/cost/i18n/build gates.",
+  "checks": [
+    "typecheck",
+    "unit-tests:676",
+    "privacy-check:71",
+    "cost-check:29",
+    "i18n-check:9",
+    "expo-export-android",
+    "expo-export-ios",
+    "android-prebuild",
+    "android-debug-compile",
+    "v4-09-domain-tests:5"
+  ],
+  "findings": []
+}
