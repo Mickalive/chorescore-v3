@@ -9,3 +9,5 @@ Cette version est 100 % gratuite, sans chrono, sans plans Premium, sans paywall,
 Le backend doit suivre : **Write once. Sync deltas. Read local. Derive incrementally. Classify once. Aggregate later.** Les actions courantes ne doivent pas coûter proportionnellement à l'historique total. Aucun full scan, N+1, listener massif, IA synchrone ou duplication de données n'est acceptable sans justification mesurée.
 
 L'ordre de construction est V3-01 à V3-08 dans `docs/ROADMAP.md`. Le critère actif et ses réparations obligatoires sont dans `directives/TASKS.json`. Ne travaille que sur ce périmètre et préserve tous les critères déjà acceptés.
+
+Pour toute automation GitHub ou agentique, appliquer `docs/CI_EFFICIENCY_POLICY.md` : classifier avant d'agir, scripts déterministes avant LLM, réutiliser artifacts/preuves, ne valider que le delta avant les gates finales et ne jamais répéter un build ou un appel modèle sans nécessité prouvée.
