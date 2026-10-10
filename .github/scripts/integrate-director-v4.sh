@@ -43,7 +43,25 @@ before="${RUNNER_TEMP:?}/release-before.json"
 cp docs/RELEASE_STATUS.json "$before"
 manifest=$(jq -n --arg decision "$decision" --arg criterion "$criterion" --argjson hasDelta "$has" '{auditDecision:$decision,criterionId:$criterion,hasDelta:$hasDelta}')
 
-OPENCODE_RETRY_LABEL=director bash .github/scripts/run-ox.sh opencode run --model "${OX_MODEL:?}" --agent cycle-director "Direct ChoreScore V4 cycle $cycle. Trusted manifest: $manifest. Read V4 audit reports. Write reports/director/RUN_${cycle}.json and .md. JSON: schemaVersion=1, cycle='$cycle', decision continue/stop, nonempty reason, progressEvidence array. For accept describe next V4 criterion; for repair/reject focus on actual mustFix. Trusted shell owns state and V4-09 handoff."
+# Director state transition is deterministic from the trusted audit manifest.
+# Do not spend an LLM call to restate a decision the shell already owns.
+r="reports/director/RUN_${cycle}.json"
+md="reports/director/RUN_${cycle}.md"
+if [[ "$decision" == "accept" && "$criterion" == "V4-09" ]]; then
+  planned="stop"
+  reason="V4-09 accepted; hand off directly to the trusted finalizer."
+elif [[ "$decision" == "accept" ]]; then
+  planned="continue"
+  reason="$criterion accepted; activate the next incomplete V4 criterion."
+else
+  planned="continue"
+  reason="$criterion requires targeted repair from the trusted audit findings."
+fi
+jq -n --arg cycle "$cycle" --arg decision "$planned" --arg reason "$reason" --arg audit "$decision" --arg criterion "$criterion" --argjson hasDelta "$has" '
+  {schemaVersion:1,cycle:$cycle,decision:$decision,reason:$reason,
+   progressEvidence:[("audit="+$audit),("criterion="+$criterion),("hasDelta="+($hasDelta|tostring))]}
+' > "$r"
+printf '# V4 Director %s\n\n- decision: %s\n- criterion: %s\n- audit: %s\n- hasDelta: %s\n- reason: %s\n' "$cycle" "$planned" "$criterion" "$decision" "$has" "$reason" > "$md"
 
 git add -A
 mapfile -d '' directed < <(git diff --cached --name-only -z HEAD)
@@ -53,7 +71,6 @@ for p in "${directed[@]}"; do
     *) echo "::error::V4 Director changed forbidden path $p"; exit 20;;
   esac
 done
-r="reports/director/RUN_${cycle}.json"
 jq -e --arg cycle "$cycle" '.schemaVersion==1 and (.cycle|tostring)==$cycle and (.decision=="continue" or .decision=="stop") and (.reason|type=="string" and length>0) and (.progressEvidence|type=="array")' "$r" >/dev/null
 jq -e -n --slurpfile b "$before" --slurpfile a docs/RELEASE_STATUS.json '[$b[0].criteria[]|select(.status=="complete")] as $done | all($done[]; . as $old | any($a[0].criteria[]; .id==$old.id and .status=="complete"))' >/dev/null
 
