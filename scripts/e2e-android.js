@@ -413,6 +413,12 @@ function typeInto(label, value) {
   const focused = findVisible(label, { exact: true, scroll: false });
   if (focused.focused !== 'true') throw new Error(`Text input did not receive focus: ${label}`);
   inputKeyText(value);
+  // The dump cache was repopulated by the focus check above, before the text
+  // was typed.  On this RN/Android build an empty EditText reports its
+  // placeholder as `text`, so reading the cache would compare the placeholder
+  // against the typed value and fail even though the input landed.  Invalidate
+  // it so the verification below reads the field's actual content.
+  _dumpCache = null;
   const until = Date.now() + 3000;
   while (Date.now() < until) {
     const current = findVisible(label, { exact: true, scroll: false });
@@ -555,6 +561,14 @@ function typeIntoTestId(testId, value, { expected = value, scroll = true } = {})
   if (focused.focused !== 'true') throw new Error(`Text input did not receive focus: ${testId}`);
   clearFocusedField();
   inputKeyText(value);
+  // The focus-check dump above populated the cache BEFORE the text was typed.
+  // On this RN/Android build an empty EditText reports its placeholder as
+  // `text`, so a cached readback would see the placeholder (e.g. "Nom du
+  // membre") and fail while the product actually accepted the input (trusted
+  // finalizer run 38044668252: the failure dump showed
+  // groups.memberInput text="alex" while the readback saw the placeholder).
+  // Invalidate the cache so the verification below reads the real value.
+  _dumpCache = null;
   const until = Date.now() + 3000;
   while (Date.now() < until) {
     const current = findByTestId(testId, { scroll: false })[0];
@@ -576,6 +590,10 @@ function typeIntoTestIdNth(testId, index, value, { expected = value } = {}) {
   if (focused.focused !== 'true') throw new Error(`Text input did not receive focus: ${testId}[${index}]`);
   clearFocusedField();
   inputKeyText(value);
+  // Same stale-cache hazard as typeIntoTestId: the focus-check dump above
+  // predates the typed text and an empty EditText reports its placeholder as
+  // `text` on this build.  Invalidate the cache so the readback is fresh.
+  _dumpCache = null;
   const until = Date.now() + 3000;
   while (Date.now() < until) {
     const current = findByTestId(testId, { scroll: false })[index];

@@ -774,3 +774,29 @@ describe('V4-09 finalizer infrastructure strategy (run 38034294332)', () => {
     expect(wrapper).toContain('classify_failure 1 "Failure calling service input: Broken pipe (32)"');
   });
 });
+
+describe('V4-09 finalizer product verification (run 38044668252)', () => {
+  // Reference evidence: trusted finalizer run 38044668252 reached Groups and
+  // typed into the create-group form, then failed the golden path at
+  // scripts/e2e-android.js:1411 with
+  //   "Text input failed for groups.memberInput: expected alex, saw Nom du membre".
+  // The failure checkpoint dump (03-failure.xml) proves the product ACCEPTED
+  // the input: groups.nameInput text="e2e group" and groups.memberInput
+  // text="alex" (focused="true").  The harness compared the typed value against
+  // a stale dump taken by the focus check before the text was typed; on this
+  // RN/Android build an empty EditText reports its placeholder as `text`, so
+  // the stale read surfaced "Nom du membre".  The text helpers must invalidate
+  // the dump cache after typing so the verification reads the real value.
+
+  test('text-input readback invalidates the pre-typing dump cache', () => {
+    const e2e = readRepo('scripts/e2e-android.js');
+    expect(e2e).toMatch(
+      /function typeIntoTestId\(testId[\s\S]*?inputKeyText\(value\);[\s\S]*?_dumpCache = null;[\s\S]*?const until = Date\.now\(\) \+ 3000/
+    );
+    expect(e2e).toMatch(
+      /function typeIntoTestIdNth\(testId[\s\S]*?inputKeyText\(value\);[\s\S]*?_dumpCache = null;[\s\S]*?const until = Date\.now\(\) \+ 3000/
+    );
+    // The evidence run is cited so the next cycle can trace the rationale.
+    expect(e2e).toContain('38044668252');
+  });
+});

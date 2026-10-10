@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "cycle": "38046041207",
+  "role": "builder",
+  "decision": "accept",
+  "summary": "V4-09 repair accepted. The candidate fixes the trusted finalizer failure from Actions run 38044668252 by invalidating the UI dump cache after text input in the E2E harness (scripts/e2e-android.js). The stale cache was reading an EditText's placeholder ('Nom du membre') instead of the typed value, causing a false-negative golden path failure. All trusted verification gates pass: typecheck, 676 unit tests, privacy check (71 tests), cost regression gate (29 tests), i18n check (9 tests), Expo Android/iOS exports, Android prebuild, and debug compile (BUILD SUCCESSFUL). The V4-09 domain logic (targeted invitation links same memberId, no duplicate, preserves ledger history) was already implemented and tested in v4-09-invitation-linkage.test.ts (5 tests passing). No regression of V4-01..V4-08 or V3 foundations.",
+  "checks": [
+    "typecheck",
+    "unit-tests:676",
+    "privacy-check:71",
+    "cost-check:29",
+    "i18n-check:9",
+    "expo-export-android",
+    "expo-export-ios",
+    "android-prebuild",
+    "android-debug-compile",
+    "v4-09-domain-tests:5"
+  ],
+  "findings": []
+}
