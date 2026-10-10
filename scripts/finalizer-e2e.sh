@@ -314,29 +314,40 @@ clear_metro_cache() {
 # so the later arm64 release build re-bundles WITHOUT the flag and the final
 # artifact never contains the E2E session.
 E2E_REBUILT=0
-if [ "${EXPO_PUBLIC_E2E_AUTH:-}" != "1" ]; then
-  mark_step "x86_64_e2e_rebuild"
-  echo "Rebuilding x86_64 release APK with EXPO_PUBLIC_E2E_AUTH=1..."
-  export EXPO_PUBLIC_E2E_AUTH=1
-  # Delete the JS bundle outputs so Gradle re-runs the bundle task.  Gradle
-  # does not track environment variables as task inputs, so without deleting
-  # the outputs the task would be UP-TO-DATE and the flag would be ignored.
-  rm -rf android/app/build/generated
-  rm -rf android/app/build/intermediates/assets
-  rm -rf android/app/build/intermediates/merged_assets
-  rm -f android/app/build/outputs/apk/release/*.apk
-  # Metro's transform cache is keyed independently of EXPO_PUBLIC_* env vars,
-  # so the earlier non-E2E build's cached transform of e2eAuthConfig.ts would
-  # otherwise be reused and the flag would never reach the bundle.
-  clear_metro_cache
-  ( cd android && ./gradlew :app:assembleRelease -PreactNativeArchitectures=x86_64 --no-daemon )
-  E2E_REBUILT=1
-  echo "E2E release APK rebuilt with the deterministic session."
+REUSE_APK="${V4_E2E_REUSE_APK:-}"
+if [ -n "$REUSE_APK" ]; then
+  mark_step "x86_64_e2e_reuse"
+  test -s "$REUSE_APK" || { echo "ERROR: requested reusable E2E APK is missing: $REUSE_APK" >&2; exit 1; }
+  echo "Reusing previously built E2E x86_64 APK: $REUSE_APK"
+else
+  if [ "${EXPO_PUBLIC_E2E_AUTH:-}" != "1" ]; then
+    mark_step "x86_64_e2e_rebuild"
+    echo "Rebuilding x86_64 release APK with EXPO_PUBLIC_E2E_AUTH=1..."
+    export EXPO_PUBLIC_E2E_AUTH=1
+    # Delete the JS bundle outputs so Gradle re-runs the bundle task.  Gradle
+    # does not track environment variables as task inputs, so without deleting
+    # the outputs the task would be UP-TO-DATE and the flag would be ignored.
+    rm -rf android/app/build/generated
+    rm -rf android/app/build/intermediates/assets
+    rm -rf android/app/build/intermediates/merged_assets
+    rm -f android/app/build/outputs/apk/release/*.apk
+    # Metro's transform cache is keyed independently of EXPO_PUBLIC_* env vars,
+    # so the earlier non-E2E build's cached transform of e2eAuthConfig.ts would
+    # otherwise be reused and the flag would never reach the bundle.
+    clear_metro_cache
+    ( cd android && ./gradlew :app:assembleRelease -PreactNativeArchitectures=x86_64 --no-daemon )
+    E2E_REBUILT=1
+    echo "E2E release APK rebuilt with the deterministic session."
+  fi
 fi
 
 # 1. Locate the release APK
 mark_step "apk_locate"
-apk=$(find android/app/build/outputs/apk/release -type f -name '*.apk' | head -1)
+if [ -n "$REUSE_APK" ]; then
+  apk="$REUSE_APK"
+else
+  apk=$(find android/app/build/outputs/apk/release -type f -name '*.apk' | head -1)
+fi
 if [ -z "$apk" ]; then
   echo "ERROR: No release APK found under android/app/build/outputs/apk/release" >&2
   exit 1
@@ -463,6 +474,13 @@ mkdir -p audit/android-e2e
 echo "Capturing logcat for post-mortem..."
 adb logcat -d -t 300 > audit/android-e2e/logcat-finalizer.txt 2>/dev/null || true
 echo "E2E exit code: $E2E_EXIT"
+# Preserve the exact E2E-enabled x86_64 candidate on failure. A harness-only
+# repair can reuse it on the next run, avoiding another product/export/Gradle
+# cycle before re-testing the same binary with a corrected driver.
+if [ "$E2E_EXIT" -ne 0 ] && [ -s "$apk" ]; then
+  cp "$apk" audit/android-e2e/e2e-release-x86.apk
+  echo "Preserved reusable E2E APK: audit/android-e2e/e2e-release-x86.apk"
+fi
 # Print the explicit last-product-step + failure class so a later cycle can
 # tell a product golden-path failure from adb/emulator infrastructure.
 if [ "$E2E_EXIT" -ne 0 ]; then
