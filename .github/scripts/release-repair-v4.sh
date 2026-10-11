@@ -124,6 +124,9 @@ cp "$log" "reports/release-input/FINALIZER_${run_id}.log"
 
 # Fast lane: ask the Builder only for harness-level repairs. Product/domain/UI
 # changes are deliberately forbidden here and are escalated to the full factory.
+# Install OpenCode only here: deterministic infra routing above spends zero
+# model setup/time/tokens.
+source "$control/.github/scripts/setup-opencode.sh"
 agent_rc=1
 for model in mimo-v2.5-free deepseek-v4-flash-free; do
   set +e
