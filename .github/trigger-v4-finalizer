@@ -1,2 +1,2 @@
 reuse_run=38168210838
-retry=full-audit-nondestructive-adb-and-bound-artifacts
+retry=canonical-deduplicated-finalizer-wrapper
