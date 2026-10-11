@@ -2,6 +2,8 @@
 set -euo pipefail
 label="${1:-verification}"
 criterion=$(jq -r '.builder.criterionId // ""' directives/TASKS.json 2>/dev/null || true)
+fast=false
+[[ "$label" == "candidate-fast" ]] && fast=true
 echo "=== ChoreScore V4 trusted $label ($criterion) ==="
 
 if [[ ! -f package.json ]]; then
@@ -19,6 +21,11 @@ npm run check
 if jq -e '.scripts["privacy:check"]' package.json >/dev/null 2>&1; then npm run privacy:check; fi
 if jq -e '.scripts["cost:check"]' package.json >/dev/null 2>&1; then npm run cost:check; fi
 if jq -e '.scripts["i18n:check"]' package.json >/dev/null 2>&1; then npm run i18n:check; fi
+
+if [[ "$fast" == true ]]; then
+  echo "Candidate fast verification complete; mobile export/native gates are owned by the independent Auditor."
+  exit 0
+fi
 
 if jq -e '.dependencies.expo or .devDependencies.expo' package.json >/dev/null && [[ -f app.json || -f app.config.js || -f app.config.ts ]]; then
   test -s package-lock.json || { echo "::error::Expo application must commit package-lock.json"; exit 1; }
