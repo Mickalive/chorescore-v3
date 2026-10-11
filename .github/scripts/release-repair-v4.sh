@@ -84,11 +84,46 @@ if [[ "$golden_failure" == false && "$infra_signature" == true ]]; then
     push_state_and_dispatch_finalizer "pure Android/ADB infrastructure failure; direct retry $((retries+1))/2"
     exit 0
   fi
+
+  # Repeated infra failure is NOT a product failure. Never spend a full
+  # Builder/Auditor/Director cycle on it. Mark the release lane stalled with
+  # exact evidence so a constrained infra/harness repair can change strategy.
+  tmp=$(mktemp)
+  jq --arg run "$run_id" '
+    (.criteria[] | select(.id=="V4-09") | .status)="in_progress" |
+    .activeCriteria=[] |
+    .pendingArtifact=null |
+    .openFindings=[{
+      path:"release-infra",
+      problem:"Repeated trusted Android release infrastructure failure",
+      evidence:("GitHub Actions V4 finalizer run "+$run),
+      mustFix:true,
+      requiredFix:"Repair only Android emulator/ADB/finalizer infrastructure using a new strategy. Do not invoke the product factory.",
+      verification:"Reuse the preserved E2E APK and pass Android API35 golden path before production arm64 build."
+    }] |
+    .progressSummary=("V4-09 release infrastructure stalled after bounded retries in run "+$run) |
+    .factoryHealth.stalled=true |
+    .factoryHealth.reason="Repeated Android/ADB infrastructure failure; product factory intentionally not invoked."
+  ' docs/RELEASE_STATUS.json > "$tmp"; mv "$tmp" docs/RELEASE_STATUS.json
+  tmp=$(mktemp)
+  jq '.builder.enabled=false | .builder.criterionId=null | .builder.objective="Release infrastructure repair only." | .builder.scope="scripts/boot-emulator.sh, scripts/finalizer-e2e.sh, and trusted release workflow only; no product changes." | .builder.acceptance=[]' directives/TASKS.json > "$tmp"; mv "$tmp" directives/TASKS.json
+
+  git config user.name chorescore-v4-release-repair
+  git config user.email chorescore-v4-release-repair@users.noreply.github.com
+  git add docs/RELEASE_STATUS.json directives/TASKS.json
+  if ! git diff --cached --quiet; then
+    git commit -m "release $run_id: stall repeated V4 infra failure without product factory"
+    auth=$(printf 'x-access-token:%s' "${GH_TOKEN:?}" | base64 -w0)
+    git -c "http.extraheader=AUTHORIZATION: basic $auth" push origin "HEAD:refs/heads/$branch"
+  fi
+  echo "::error::Repeated Android/ADB infrastructure failure; stopped without invoking product factory."
+  exit 1
 fi
 
-# Unknown/non-golden failures stay on the conservative full-factory path.
+# Only genuinely unclassified/non-Android failures use the conservative full
+# product factory. Infrastructure never reaches this branch.
 if [[ "$golden_failure" == false ]]; then
-  echo "::notice::Failure is not a recognized harness/infra golden-path case; using full V4 factory"
+  echo "::notice::Failure is genuinely unclassified; using full V4 factory"
   dispatch_factory
   exit 0
 fi
