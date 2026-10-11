@@ -86,18 +86,16 @@ describe('V3-08 finalizer wrapper contract', () => {
     expect(wrapper).toContain('already installed — skipping install');
   });
 
-  test('wrapper restarts adb server before the first install attempt only', () => {
-    // The emulator start log shows 'Unable to connect to adb daemon on
-    // port: 5037' and the adb sync service (used by `adb install`) can
-    // hang on degraded API 35 x86_64 emulators.  The restart must be
-    // conditional on install (attempt 1), NOT an unconditional restart
-    // before the golden path (which destabilises a healthy connection).
+  test('wrapper refreshes adb transport before install without killing the server', () => {
+    // Hosted runners can orphan the emulator transport when the adb server is
+    // killed after launch. Recovery must preserve the server, reconnect the
+    // device in place and re-gate framework services before install.
     const wrapper = readRepo('scripts/finalizer-e2e.sh');
-    expect(wrapper).toContain('Restarting adb server before install');
-    expect(wrapper).toContain('adb kill-server');
+    expect(wrapper).toContain('Refreshing adb transport before install without server restart');
+    expect(wrapper).toContain('recover_adb_transport "install"');
     expect(wrapper).toContain('adb start-server');
-    // The restart must be guarded by the first-attempt condition
-    expect(wrapper).toMatch(/INSTALL_ATTEMPTS" -eq 1[\s\S]*Restarting adb server before install/);
+    expect(wrapper).not.toContain('adb kill-server');
+    expect(wrapper).toMatch(/INSTALL_ATTEMPTS" -eq 1[\s\S]*Refreshing adb transport before install/);
   });
 
   test('wrapper gates on input/settings services and re-dismisses the keyguard', () => {
@@ -719,15 +717,17 @@ describe('V4-09 finalizer infrastructure strategy (run 38034294332)', () => {
     expect(boot).toContain('498359');
   });
 
-  test('boot-emulator.sh actively recovers a dead adb transport before failing', () => {
-    // Blind waiting does not clear the broken-pipe transport; the script must
-    // reconnect (and restart the adb server when the device stops answering)
-    // and re-gate. Bounded so it can never loop forever.
+  test('boot-emulator.sh actively recovers adb without orphaning the emulator transport', () => {
+    // Blind waiting does not clear a broken transport, but killing the adb
+    // server after emulator launch can orphan the hosted emulator. Recovery
+    // therefore preserves the server, reconnects in place and can attach
+    // directly to the emulator adb TCP port.
     const boot = readRepo('scripts/boot-emulator.sh');
     expect(boot).toContain('recover_adb_transport()');
     expect(boot).toContain('reconnect offline');
-    expect(boot).toContain('adb kill-server');
     expect(boot).toContain('adb start-server');
+    expect(boot).toContain('adb connect');
+    expect(boot).not.toContain('adb kill-server');
     expect(boot).toMatch(/recoveries" -lt 4/);
     expect(boot).toMatch(/attempt % 20/);
     // Explicit infrastructure classification on failure + an explicit ready
