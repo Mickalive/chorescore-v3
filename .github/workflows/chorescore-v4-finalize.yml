@@ -27,6 +27,7 @@ jobs:
       should_run: ${{ steps.state.outputs.should_run }}
       accepted_sha: ${{ steps.state.outputs.accepted_sha }}
       reuse_run: ${{ steps.state.outputs.reuse_run }}
+      product_sha: ${{ steps.state.outputs.product_sha }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -40,6 +41,9 @@ jobs:
           pending=$(git show "$sha:docs/RELEASE_STATUS.json" | jq -r '.pendingArtifact=="V4-09-RELEASE"')
           echo "should_run=$pending" >> "$GITHUB_OUTPUT"
           echo "accepted_sha=$sha" >> "$GITHUB_OUTPUT"
+          product_sha=$(git show "$sha:docs/RELEASE_STATUS.json" | jq -r '.factoryHealth.lastProductSha // empty')
+          [[ -n "$product_sha" && "$product_sha" != "null" ]] || product_sha="$sha"
+          echo "product_sha=$product_sha" >> "$GITHUB_OUTPUT"
           reuse='${{ inputs.reuse_run || '' }}'
           if [[ -z "$reuse" && -f .github/trigger-v4-finalizer ]]; then
             reuse=$(grep -oE '[0-9]{8,}' .github/trigger-v4-finalizer | tail -1 || true)
@@ -82,14 +86,24 @@ jobs:
         run: |
           set -euo pipefail
           apk=$(find "${RUNNER_TEMP}/v4-reuse" -type f -name 'e2e-release-x86.apk' 2>/dev/null | head -1 || true)
-          if [[ -n "$apk" && -s "$apk" ]]; then
+          meta=$(find "${RUNNER_TEMP}/v4-reuse" -type f -name 'e2e-product-sha.txt' 2>/dev/null | head -1 || true)
+          expected='${{ needs.prepare.outputs.product_sha }}'
+          actual=""
+          [[ -n "$meta" && -s "$meta" ]] && actual=$(tr -d '[:space:]' < "$meta")
+
+          if [[ -n "$apk" && -s "$apk" && -n "$actual" && "$actual" == "$expected" ]]; then
             echo "has_reuse=true" >> "$GITHUB_OUTPUT"
             echo "e2e_apk=$apk" >> "$GITHUB_OUTPUT"
-            echo "Reusing E2E APK from finalizer run ${{ needs.prepare.outputs.reuse_run }}"
+            echo "Reusing E2E APK from finalizer run ${{ needs.prepare.outputs.reuse_run }} for product $expected"
           else
             echo "has_reuse=false" >> "$GITHUB_OUTPUT"
             echo "e2e_apk=" >> "$GITHUB_OUTPUT"
-            echo "No reusable E2E APK available; falling back to normal full build"
+            if [[ -n "$apk" && -s "$apk" ]]; then
+              echo "Reusable APK rejected: product metadata '${actual:-missing}' != '$expected'."
+            else
+              echo "No reusable E2E APK available."
+            fi
+            echo "Falling back to one fresh E2E build."
           fi
 
       - name: Trusted V4 product, privacy, cost and i18n gates
@@ -121,7 +135,9 @@ jobs:
           test -s "$apk"
           mkdir -p audit/android-e2e
           cp "$apk" audit/android-e2e/e2e-release-x86.apk
-          echo "Reusable E2E x86 APK preserved before emulator boot."
+          printf '%s\n' '${{ needs.prepare.outputs.product_sha }}' > audit/android-e2e/e2e-product-sha.txt
+          printf '%s\n' '${{ needs.prepare.outputs.accepted_sha }}' > audit/android-e2e/e2e-accepted-sha.txt
+          echo "Reusable E2E x86 APK preserved before emulator boot for product ${{ needs.prepare.outputs.product_sha }}."
 
       - name: Android API 35 install, launch and V4 golden path
         env:
@@ -211,7 +227,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          ref: lab/chorescore-v4
+          ref: ${{ needs.prepare.outputs.accepted_sha }}
       - name: Attest V4 RC complete
         env:
           GH_TOKEN: ${{ github.token }}
@@ -219,10 +235,16 @@ jobs:
         run: |
           set -euo pipefail
           cycle='${{ github.run_id }}'
+          tested='${{ needs.prepare.outputs.accepted_sha }}'
+          product='${{ needs.prepare.outputs.product_sha }}'
+          git fetch origin +refs/heads/lab/chorescore-v4:refs/remotes/origin/lab/chorescore-v4
+          remote=$(git rev-parse refs/remotes/origin/lab/chorescore-v4)
+          [[ "$remote" == "$tested" ]] || { echo "::error::V4 branch advanced from tested SHA $tested to $remote; refusing stale release attestation"; exit 75; }
+
           tmp=$(mktemp)
-          jq --arg cycle "$cycle" --arg apk "$APK_SHA" '
+          jq --arg cycle "$cycle" --arg apk "$APK_SHA" --arg tested "$tested" --arg product "$product" '
             (.criteria[] | select(.id=="V4-09") | .status)="complete" |
-            (.criteria[] | select(.id=="V4-09") | .evidence) += ["finalizer-run-"+$cycle,"android-release-apk-sha256-"+$apk,"android-api35-install-launch-v4-golden-path-green","ios-export-readiness-green","privacy-cost-i18n-gates-green"] |
+            (.criteria[] | select(.id=="V4-09") | .evidence) += ["finalizer-run-"+$cycle,"tested-v4-sha-"+$tested,"tested-product-sha-"+$product,"android-release-apk-sha256-"+$apk,"android-api35-install-launch-v4-golden-path-green","ios-export-readiness-green","privacy-cost-i18n-gates-green"] |
             .pendingArtifact=null | .activeCriteria=[] | .openFindings=[] | .lastCycle=$cycle |
             .progressSummary="V4 RC complete: trusted finalizer passed product/privacy/cost/i18n gates, Android API35 V4 golden path, iOS export, and produced the final arm64-v8a APK." |
             .factoryHealth.stalled=false | .factoryHealth.consecutiveNoProgress=0 | .factoryHealth.releaseInfraRetries=0 | .factoryHealth.reason=null
@@ -234,6 +256,8 @@ jobs:
           git add docs/RELEASE_STATUS.json directives/TASKS.json
           git commit -m "release $cycle: attest ChoreScore V4 RC"
           auth=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)
+          git -c "http.extraheader=AUTHORIZATION: basic $auth" fetch origin +refs/heads/lab/chorescore-v4:refs/remotes/origin/lab/chorescore-v4
+          [[ "$(git rev-parse refs/remotes/origin/lab/chorescore-v4)" == "$tested" ]] || { echo "::error::V4 advanced while attesting; refusing stale push"; exit 75; }
           git -c "http.extraheader=AUTHORIZATION: basic $auth" push origin HEAD:refs/heads/lab/chorescore-v4
 
   reopen-on-failure:
@@ -244,13 +268,20 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          ref: lab/chorescore-v4
+          ref: ${{ needs.prepare.outputs.accepted_sha }}
       - name: Reopen exact V4-09 blocker
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           run='${{ github.run_id }}'
+          tested='${{ needs.prepare.outputs.accepted_sha }}'
+          git fetch origin +refs/heads/lab/chorescore-v4:refs/remotes/origin/lab/chorescore-v4
+          remote=$(git rev-parse refs/remotes/origin/lab/chorescore-v4)
+          if [[ "$remote" != "$tested" ]]; then
+            echo "::warning::Ignoring stale failure from $tested because V4 advanced to $remote."
+            exit 0
+          fi
           tmp=$(mktemp)
           jq --arg run "$run" '
             (.criteria[] | select(.id=="V4-09") | .status)="in_progress" |
