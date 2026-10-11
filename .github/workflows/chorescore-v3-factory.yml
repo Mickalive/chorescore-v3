@@ -2,26 +2,6 @@ name: ChoreScore V3 Factory
 
 on:
   workflow_dispatch:
-  schedule:
-    - cron: '*/5 * * * *'
-  push:
-    branches: [main]
-    paths:
-      - 'MAIN_PROMPT.md'
-      - 'AGENTS.md'
-      - '.gitignore'
-      - 'governance/**'
-      - 'directives/**'
-      - 'docs/V3_CONSTITUTION.md'
-      - 'docs/V3_BACKEND_FRUGAL.md'
-      - 'docs/V2_TO_V3_MIGRATION.md'
-      - 'docs/ROADMAP.md'
-      - 'docs/agent-workflow.md'
-      - '.opencode/**'
-      - '.github/actions/**'
-      - '.github/scripts/**'
-      - '.github/workflows/chorescore-v3-factory.yml'
-      - 'opencode.json'
 
 permissions:
   contents: write
@@ -62,7 +42,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        model: [mimo-v2.5-free, hy3-free, big-pickle, muse-spark-1.2-contributor-free, nemotron-3-ultra-free, nemotron-3.5-lightning-free, deepseek-v4-flash-free, north-mini-code-free, laguna-s-2.1-free, ling-3.0-flash-free, ling-3.0-tiny-free, x-preview-f-free]
+        model: [mimo-v2.5-free, deepseek-v4-flash-free]
     steps:
       - uses: actions/checkout@v4
         with:
