@@ -18,6 +18,9 @@ else
 fi
 
 npm run check
+if [[ -x scripts/validate-release-harness.sh || -f scripts/validate-release-harness.sh ]]; then
+  bash scripts/validate-release-harness.sh
+fi
 if jq -e '.scripts["privacy:check"]' package.json >/dev/null 2>&1; then npm run privacy:check; fi
 if jq -e '.scripts["cost:check"]' package.json >/dev/null 2>&1; then npm run cost:check; fi
 if jq -e '.scripts["i18n:check"]' package.json >/dev/null 2>&1; then npm run i18n:check; fi
