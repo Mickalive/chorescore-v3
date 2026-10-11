@@ -77,12 +77,25 @@ classify_failure() {
 # only re-probed.
 mark_step "boot_or_attach"
 adb start-server >/dev/null 2>&1 || true
-if ! adb get-state 2>/dev/null | grep -q '^device
-# Active adb transport recovery (shared signature with boot-emulator.sh).
-# Run 38034294332 showed the action's `settings put` and `input keyevent 82`
-# failing with "Broken pipe (32)" right after boot. Re-probing a dead
-# transport does not clear it; reconnecting — and restarting the server when
-# the device stops answering — does. Bounded by the caller.
+if ! adb get-state 2>/dev/null | grep -q '^device$'; then
+  echo "No attached emulator detected — booting one via scripts/boot-emulator.sh"
+  bash scripts/boot-emulator.sh
+fi
+
+# Pin all subsequent bare adb calls to the transport that is actually alive.
+default_serial="emulator-${EMULATOR_PORT:-5554}"
+tcp_serial="127.0.0.1:$((${EMULATOR_PORT:-5554} + 1))"
+if timeout 10 adb -s "$default_serial" get-state 2>/dev/null | grep -q '^device$'; then
+  export ANDROID_SERIAL="$default_serial"
+elif timeout 10 adb -s "$tcp_serial" get-state 2>/dev/null | grep -q '^device$'; then
+  export ANDROID_SERIAL="$tcp_serial"
+else
+  export ANDROID_SERIAL="${ANDROID_SERIAL:-$default_serial}"
+fi
+echo "Target device: ${ANDROID_SERIAL}"
+
+# Recover a degraded transport without ever killing the adb server. Hosted
+# runners can permanently orphan a running emulator when the server is killed.
 recover_adb_transport() {
   local attempt="$1"
   echo "  adb transport recovery ${attempt}: reconnect without killing server" >&2
@@ -90,10 +103,18 @@ recover_adb_transport() {
   sleep 2
   timeout 15 adb start-server >/dev/null 2>&1 || true
   timeout 20 adb wait-for-device >/dev/null 2>&1 || true
+
   if ! timeout 10 adb get-state >/dev/null 2>&1; then
-    local tcp_serial="127.0.0.1:$((${EMULATOR_PORT:-5554} + 1))"
-    timeout 15 adb connect "$tcp_serial" >/dev/null 2>&1 || true
-    if timeout 10 adb -s "$tcp_serial" get-state 2>/dev/null | grep -q '^device
+    local direct_serial="127.0.0.1:$((${EMULATOR_PORT:-5554} + 1))"
+    timeout 15 adb connect "$direct_serial" >/dev/null 2>&1 || true
+    if timeout 10 adb -s "$direct_serial" get-state 2>/dev/null | grep -q '^device$'; then
+      export ANDROID_SERIAL="$direct_serial"
+      echo "  adb transport recovery ${attempt}: switched to $ANDROID_SERIAL" >&2
+    fi
+  fi
+  sleep 2
+}
+
 # Probe whether the Android framework command services actually answer a real
 # round-trip.  In the trusted finalizer run 37909577314, right after
 # sys.boot_completed flipped to 1, the emulator-runner action's own
