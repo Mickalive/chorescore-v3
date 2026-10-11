@@ -141,6 +141,12 @@ if [ "$(uname -s)" = "Linux" ]; then
   fi
 fi
 EMULATOR_LOG="${TMPDIR:-/tmp}/chorescore-emulator.log"
+
+# The emulator registers its transport with the adb server at launch. Keep the
+# server alive for the whole emulator lifetime; killing it after launch can
+# permanently orphan the emulator transport on hosted runners.
+timeout 15 adb start-server >/dev/null 2>&1 || true
+
 echo "Launching emulator (log: $EMULATOR_LOG)..."
 # shellcheck disable=SC2086 # ACCEL_OPT must word-split when set
 "$EMULATOR_BIN" -port "$EMULATOR_PORT" -avd "$AVD_NAME" \
@@ -152,67 +158,62 @@ echo "Emulator pid ${EMULATOR_PID}"
 # ── Wait for sys.boot_completed ────────────────────────────────────────
 echo "Waiting for sys.boot_completed=1 (timeout ${EMULATOR_BOOT_TIMEOUT}s)..."
 
-# Start ADB explicitly before polling. Run 38166266903 proved the emulator
-# itself had completed boot in ~419s while the adb server was no longer
-# running; the old loop silently swallowed every failed getprop for the full
-# 900s and reported a false boot timeout.
-timeout 15 adb start-server >/dev/null 2>&1 || true
-
 deadline=$(( $(date +%s) + EMULATOR_BOOT_TIMEOUT ))
 booted=0
 boot_checks=0
+TCP_SERIAL="127.0.0.1:$((EMULATOR_PORT + 1))"
+
 while [ "$(date +%s)" -lt "$deadline" ]; do
   boot_checks=$((boot_checks + 1))
+
   prop=$(timeout 15 adb -s "$SERIAL" shell getprop sys.boot_completed 2>/dev/null | tr -d '\r' || true)
   if [ "$prop" = "1" ]; then
     booted=1
     break
   fi
 
-  # Recover the adb SERVER during boot instead of merely polling a dead
-  # transport. Also recover immediately once the emulator's own log says
-  # Android boot completed; that marker is not sufficient to pass the gate,
-  # but it is strong evidence that ADB is now the blocker.
-  log_booted=false
-  if grep -q 'Boot completed in' "$EMULATOR_LOG" 2>/dev/null; then
-    log_booted=true
-  fi
-  if [[ "$log_booted" == true || $((boot_checks % 30)) -eq 0 ]]; then
+  # Never kill the adb server here. Run 38168210838 proved that doing so can
+  # orphan a fully booted emulator forever. If normal emulator registration
+  # is missing, try a direct TCP attachment to the emulator's adb port while
+  # preserving the existing server.
+  if grep -q 'Boot completed in' "$EMULATOR_LOG" 2>/dev/null || [ $((boot_checks % 30)) -eq 0 ]; then
     state=$(timeout 10 adb -s "$SERIAL" get-state 2>/dev/null | tr -d '\r' || true)
-    if [ "$state" != "device" ] || [[ "$log_booted" == true ]]; then
-      echo "  boot ADB recovery: state='${state:-unavailable}', emulator_log_booted=$log_booted"
-      timeout 10 adb kill-server >/dev/null 2>&1 || true
-      sleep 2
-      timeout 15 adb start-server >/dev/null 2>&1 || true
-      timeout 30 adb -s "$SERIAL" wait-for-device >/dev/null 2>&1 || true
-      prop=$(timeout 15 adb -s "$SERIAL" shell getprop sys.boot_completed 2>/dev/null | tr -d '\r' || true)
-      if [ "$prop" = "1" ]; then
-        booted=1
-        break
+    if [ "$state" != "device" ]; then
+      echo "  adb transport not registered as $SERIAL; attempting direct attach $TCP_SERIAL"
+      timeout 15 adb connect "$TCP_SERIAL" >/dev/null 2>&1 || true
+      tcp_state=$(timeout 10 adb -s "$TCP_SERIAL" get-state 2>/dev/null | tr -d '\r' || true)
+      if [ "$tcp_state" = "device" ]; then
+        SERIAL="$TCP_SERIAL"
+        echo "  using direct adb transport $SERIAL"
+      else
+        # Re-assert start-server only; do NOT kill it.
+        timeout 15 adb start-server >/dev/null 2>&1 || true
       fi
     fi
   fi
+
   sleep 2
 done
 
-# One final bounded server recovery before declaring a timeout.
 if [ "$booted" -ne 1 ]; then
-  timeout 10 adb kill-server >/dev/null 2>&1 || true
-  sleep 2
-  timeout 15 adb start-server >/dev/null 2>&1 || true
-  timeout 30 adb -s "$SERIAL" wait-for-device >/dev/null 2>&1 || true
-  if [ "$(timeout 15 adb -s "$SERIAL" shell getprop sys.boot_completed 2>/dev/null | tr -d '\r' || true)" = "1" ]; then
-    booted=1
+  # Last chance: attach directly without destroying the server.
+  timeout 15 adb connect "$TCP_SERIAL" >/dev/null 2>&1 || true
+  if [ "$(timeout 10 adb -s "$TCP_SERIAL" get-state 2>/dev/null | tr -d '\r' || true)" = "device" ]; then
+    SERIAL="$TCP_SERIAL"
+    if [ "$(timeout 15 adb -s "$SERIAL" shell getprop sys.boot_completed 2>/dev/null | tr -d '\r' || true)" = "1" ]; then
+      booted=1
+    fi
   fi
 fi
 
 if [ "$booted" -ne 1 ]; then
   echo "FAILURE_CLASS=infra_android_adb_emulator" >&2
-  echo "ERROR: emulator did not reach a live ADB sys.boot_completed=1 within ${EMULATOR_BOOT_TIMEOUT}s" >&2
+  echo "ERROR: emulator booted but no live adb transport reached sys.boot_completed=1 within ${EMULATOR_BOOT_TIMEOUT}s" >&2
+  adb devices -l >&2 || true
   tail -80 "$EMULATOR_LOG" >&2 || true
   exit 1
 fi
-echo "Emulator booted and ADB sees sys.boot_completed=1."
+echo "Emulator booted and ADB sees sys.boot_completed=1 on $SERIAL."
 
 # ── Live readiness gate ────────────────────────────────────────────────
 # sys.boot_completed alone is NOT proof that the framework command services
@@ -244,19 +245,18 @@ live_probe() {
 # caller decides how many times to invoke this.
 recover_adb_transport() {
   local attempt="$1"
-  echo "  adb transport recovery ${attempt}: reconnect (broken-pipe signature)" >&2
+  echo "  adb transport recovery ${attempt}: reconnect without killing adb server" >&2
   timeout 15 adb -s "$SERIAL" reconnect offline >/dev/null 2>&1 || true
   sleep 2
+  timeout 15 adb start-server >/dev/null 2>&1 || true
   timeout 15 adb -s "$SERIAL" wait-for-device >/dev/null 2>&1 || true
-  # If the transport is still dead, restart the server so the emulator
-  # re-registers a fresh transport from scratch.
-  if ! timeout 15 adb -s "$SERIAL" get-state >/dev/null 2>&1; then
-    echo "  adb transport recovery ${attempt}: restarting adb server" >&2
-    timeout 10 adb kill-server >/dev/null 2>&1 || true
-    sleep 3
-    timeout 15 adb start-server >/dev/null 2>&1 || true
-    sleep 2
-    timeout 30 adb -s "$SERIAL" wait-for-device >/dev/null 2>&1 || true
+  if ! timeout 10 adb -s "$SERIAL" get-state >/dev/null 2>&1; then
+    local tcp_serial="127.0.0.1:$((EMULATOR_PORT + 1))"
+    timeout 15 adb connect "$tcp_serial" >/dev/null 2>&1 || true
+    if [ "$(timeout 10 adb -s "$tcp_serial" get-state 2>/dev/null | tr -d '\r' || true)" = "device" ]; then
+      SERIAL="$tcp_serial"
+      echo "  adb transport recovery ${attempt}: switched to $SERIAL" >&2
+    fi
   fi
   sleep 2
 }
