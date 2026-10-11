@@ -47,23 +47,30 @@ jobs:
 
   probe-models:
     needs: prepare
-    if: needs.prepare.outputs.final != 'true' && needs.prepare.outputs.pending_artifact != 'true' && needs.prepare.outputs.builder_enabled == 'true'
+    if: needs.prepare.outputs.final != 'true' && needs.prepare.outputs.pending_artifact != 'true' && needs.prepare.outputs.stalled != 'true' && needs.prepare.outputs.builder_enabled == 'true'
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        model: [mimo-v2.5-free, deepseek-v4-flash-free]
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
           ref: ${{ needs.prepare.outputs.accepted_sha }}
       - uses: ./.github/actions/setup-opencode
-      - run: bash .github/scripts/probe-model.sh '${{ matrix.model }}'
+      - name: Probe primary model, fallback only if needed
+        run: |
+          set -euo pipefail
+          primary=mimo-v2.5-free
+          fallback=deepseek-v4-flash-free
+          bash .github/scripts/probe-model.sh "$primary"
+          if ! jq -e '.healthy==true' "${RUNNER_TEMP}/model-probe-$primary/probe.json" >/dev/null; then
+            echo "Primary model unhealthy; probing fallback."
+            bash .github/scripts/probe-model.sh "$fallback"
+          else
+            echo "Primary model healthy; skipping fallback probe."
+          fi
       - uses: actions/upload-artifact@v4
         with:
-          name: v4-model-probe-${{ matrix.model }}
-          path: ${{ runner.temp }}/model-probe-${{ matrix.model }}/probe.json
+          name: v4-model-probe-sequential
+          path: ${{ runner.temp }}/model-probe-*/probe.json
           retention-days: 2
 
   select-models:
