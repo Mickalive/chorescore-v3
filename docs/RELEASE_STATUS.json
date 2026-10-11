@@ -4,7 +4,7 @@
   "lastCycle": "38054862134",
   "activeCriteria": [],
   "pendingArtifact": "V4-09-RELEASE",
-  "progressSummary": "V4-09 fast release repair ready after finalizer 38168210838: pure Android/ADB infrastructure failure; direct retry 2/2",
+  "progressSummary": "V4-09 optimized retry after fixing ADB server lifecycle; reuse E2E x86 APK from run 38168210838.",
   "criteria": [
     {
       "id": "V4-01",
@@ -88,6 +88,6 @@
     "consecutiveNoProgress": 0,
     "lastProductSha": "5ee5f11f7cfbc6bd106fdaa0e898b93705d0cca8",
     "reason": null,
-    "releaseInfraRetries": 2
+    "releaseInfraRetries": 0
   }
 }
