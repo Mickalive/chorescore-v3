@@ -672,10 +672,14 @@ describe('V4 golden-path label sourcing', () => {
     expect(e2e).toContain('function openCreateGroupForm');
     expect(e2e).toContain('function findTestIdOrEmpty');
     expect(e2e).toContain("findTestIdOrEmpty('groups.nameInput')");
-    // Strategy change 1: a held touch instead of a 0ms tap, so the DOWN is
-    // delivered before the UP even when system_server is loaded.
+    // Strategy change 1: use independent activation paths instead of
+    // repeating one gesture. The driver tries a normal tap, then a held touch
+    // on the stable testID node, then the visible localized action.
     expect(e2e).toContain('function longPressNode');
-    expect(e2e).toContain("longPressNode(findByTestId('groups.createButton')[0])");
+    expect(e2e).toContain("const createNode = findByTestId('groups.createButton')[0]");
+    expect(e2e).toContain('tapNode(createNode, 900)');
+    expect(e2e).toContain('longPressNode(createNode, 150, 900)');
+    expect(e2e).toContain("tapLabel('Créer un groupe', { exact: true, waitMs: 900 })");
     // Strategy change 2: a bounded app relaunch to replace a stale
     // window/input channel after repeated dropped touches.
     expect(e2e).toContain('function relaunchApp');
