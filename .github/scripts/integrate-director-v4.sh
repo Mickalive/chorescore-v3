@@ -110,17 +110,35 @@ else
   fixes=$(jq -r '[.findings[]|select(.mustFix==true)|.requiredFix]|join("; ")' "$report")
   current_np=$(jq -r '.factoryHealth.consecutiveNoProgress // 0' docs/RELEASE_STATUS.json)
   if [[ "$has" == true ]]; then no_progress=0; else no_progress=$((current_np+1)); fi
-  tmp=$(mktemp)
-  jq --arg c "$criterion" --arg cycle "$cycle" --arg sha "$product_sha" --argjson findings "$findings" --argjson np "$no_progress" '
-    (.criteria[] | select(.id==$c) | .status)="in_progress" |
-    .activeCriteria=[$c] | .pendingArtifact=null | .openFindings=$findings | .lastCycle=$cycle |
-    .factoryHealth.consecutiveNoProgress=$np | .factoryHealth.stalled=false | .factoryHealth.lastProductSha=$sha | .factoryHealth.reason=null |
-    .progressSummary=("Audited "+$c+" requires targeted repair; safe WIP retained and autonomous loop continues.")
-  ' docs/RELEASE_STATUS.json > "$tmp"; mv "$tmp" docs/RELEASE_STATUS.json
-  acceptance=$(jq -c '.builder.acceptance' directives/TASKS.json)
-  tmp=$(mktemp)
-  jq --arg c "$criterion" --arg obj "REPAIR $criterion: $fixes" --arg scope "Repair only audited must-fix findings on the preserved V4 baseline. Use new evidence/strategy rather than merely increasing timeouts." --argjson acceptance "$acceptance" '.builder.enabled=true | .builder.criterionId=$c | .builder.objective=$obj | .builder.scope=$scope | .builder.acceptance=$acceptance' directives/TASKS.json > "$tmp"; mv "$tmp" directives/TASKS.json
-  pending=false; continue=true
+
+  if (( no_progress >= 2 )); then
+    tmp=$(mktemp)
+    jq --arg c "$criterion" --arg cycle "$cycle" --arg sha "$product_sha" --argjson findings "$findings" --argjson np "$no_progress" '
+      (.criteria[] | select(.id==$c) | .status)="in_progress" |
+      .activeCriteria=[$c] | .pendingArtifact=null | .openFindings=$findings | .lastCycle=$cycle |
+      .factoryHealth.consecutiveNoProgress=$np | .factoryHealth.stalled=true | .factoryHealth.lastProductSha=$sha |
+      .factoryHealth.reason="Two consecutive audited repair cycles produced no product delta; autonomous relaunch stopped." |
+      .progressSummary=("Audited "+$c+" is stalled after two no-progress repair cycles; preserved WIP retained and automatic relaunch stopped.")
+    ' docs/RELEASE_STATUS.json > "$tmp"; mv "$tmp" docs/RELEASE_STATUS.json
+
+    tmp=$(mktemp)
+    jq '.builder.enabled=false | .builder.objective="Factory stalled after two no-progress cycles; require new evidence or strategy before re-enabling." | .builder.scope="No automatic retry." | .builder.acceptance=[]' directives/TASKS.json > "$tmp"; mv "$tmp" directives/TASKS.json
+    pending=false
+    continue=false
+  else
+    tmp=$(mktemp)
+    jq --arg c "$criterion" --arg cycle "$cycle" --arg sha "$product_sha" --argjson findings "$findings" --argjson np "$no_progress" '
+      (.criteria[] | select(.id==$c) | .status)="in_progress" |
+      .activeCriteria=[$c] | .pendingArtifact=null | .openFindings=$findings | .lastCycle=$cycle |
+      .factoryHealth.consecutiveNoProgress=$np | .factoryHealth.stalled=false | .factoryHealth.lastProductSha=$sha | .factoryHealth.reason=null |
+      .progressSummary=("Audited "+$c+" requires targeted repair; safe WIP retained and one bounded autonomous retry remains.")
+    ' docs/RELEASE_STATUS.json > "$tmp"; mv "$tmp" docs/RELEASE_STATUS.json
+    acceptance=$(jq -c '.builder.acceptance' directives/TASKS.json)
+    tmp=$(mktemp)
+    jq --arg c "$criterion" --arg obj "REPAIR $criterion: $fixes" --arg scope "Repair only audited must-fix findings on the preserved V4 baseline. Use new evidence/strategy rather than merely increasing timeouts." --argjson acceptance "$acceptance" '.builder.enabled=true | .builder.criterionId=$c | .builder.objective=$obj | .builder.scope=$scope | .builder.acceptance=$acceptance' directives/TASKS.json > "$tmp"; mv "$tmp" directives/TASKS.json
+    pending=false
+    continue=true
+  fi
 fi
 
 tmp=$(mktemp)
