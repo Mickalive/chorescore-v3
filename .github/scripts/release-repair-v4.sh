@@ -18,6 +18,18 @@ fi
 infra_signature=false
 if grep -Eqi 'adb .*failed|adb.*exit code 224|spawnSync adb ETIMEDOUT|System UI.*not responding|Quickstep.*not responding|emulator.*(failed|ERROR|not found)|FAILURE_CLASS=infra_android_adb_emulator' "$log"; then infra_signature=true; fi
 
+# If the failed log belongs to the trusted Android install/launch/golden-path
+# step but contains no product-level golden-path assertion, classify it as
+# release infrastructure/harness. This covers boot/sdk/adb/setup failures that
+# occur before the JS E2E driver can emit FAILURE_CLASS.
+android_step_failure=false
+if grep -Fqi 'Android API 35 install, launch and V4 golden path' "$log"; then
+  android_step_failure=true
+fi
+if [[ "$android_step_failure" == true && "$golden_failure" == false ]]; then
+  infra_signature=true
+fi
+
 dispatch_finalizer() {
   # Reuse the failed run's preserved E2E x86 APK when available. If an older
   # run predates APK preservation, the finalizer detects that and falls back
