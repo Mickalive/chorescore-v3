@@ -129,8 +129,16 @@ fi
 
 # ── Launch ─────────────────────────────────────────────────────────────
 ACCEL_OPT=""
-if [ "$(uname -s)" = "Linux" ] && [ ! -r /dev/kvm ]; then
-  ACCEL_OPT="-accel off"
+if [ "$(uname -s)" = "Linux" ]; then
+  # Hosted runners may expose /dev/kvm but not make it readable by the job
+  # user. Enable it when possible before falling back to painfully slow
+  # software emulation.
+  if [ -e /dev/kvm ] && [ ! -r /dev/kvm ]; then
+    sudo chmod 666 /dev/kvm >/dev/null 2>&1 || true
+  fi
+  if [ ! -r /dev/kvm ]; then
+    ACCEL_OPT="-accel off"
+  fi
 fi
 EMULATOR_LOG="${TMPDIR:-/tmp}/chorescore-emulator.log"
 echo "Launching emulator (log: $EMULATOR_LOG)..."
