@@ -59,7 +59,7 @@ jobs:
           fi
       - uses: actions/upload-artifact@v4
         with:
-          name: v3-model-probe-sequential
+          name: model-probe-sequential
           path: ${{ runner.temp }}/model-probe-*/probe.json
           retention-days: 2
 
