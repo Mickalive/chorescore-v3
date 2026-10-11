@@ -155,13 +155,28 @@ jobs:
           npx --no-install expo prebuild --platform android --no-install
           jq -e '.scripts["e2e:android"]' package.json >/dev/null
 
-      - name: Build final arm64-v8a V4 APK
+      - name: Build final arm64-v8a V4 production APK
+        env:
+          EXPO_PUBLIC_E2E_AUTH: ''
         run: |
           set -euo pipefail
-          rm -f android/app/build/outputs/apk/release/*.apk
-          (cd android && ./gradlew :app:assembleRelease -PreactNativeArchitectures=arm64-v8a --no-daemon)
+
+          # The x86 golden-path binary is intentionally bundled with
+          # EXPO_PUBLIC_E2E_AUTH=1. Gradle/Metro do not treat that environment
+          # variable as an input, so reusing generated assets here could ship
+          # the deterministic E2E session in the production APK. Recreate the
+          # native tree and JS bundle from a clean production state.
+          unset EXPO_PUBLIC_E2E_AUTH
+          rm -rf android
+          rm -rf node_modules/.cache/metro
+          rm -rf "${TMPDIR:-/tmp}"/metro-* "${TMPDIR:-/tmp}"/haste-map-* 2>/dev/null || true
+          npx --no-install expo prebuild --platform android --no-install
+
+          (cd android && env -u EXPO_PUBLIC_E2E_AUTH ./gradlew :app:assembleRelease -PreactNativeArchitectures=arm64-v8a --no-daemon)
+
           apk=$(find android/app/build/outputs/apk/release -type f -name '*.apk' | head -1)
           test -s "$apk"
+          echo "Final production arm64-v8a APK: $apk ($(stat -c%s "$apk") bytes)"
 
       - id: digest
         name: Hash final V4 APK
