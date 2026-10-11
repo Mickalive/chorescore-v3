@@ -1,2 +1,2 @@
 reuse_run=38168210838
-retry=keep-adb-server-alive-direct-attach
+retry=audited-release-clean-production-build
