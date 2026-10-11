@@ -1,2 +1,2 @@
 reuse_run=38168210838
-retry=audited-release-clean-production-build
+retry=full-audit-nondestructive-adb-and-bound-artifacts
