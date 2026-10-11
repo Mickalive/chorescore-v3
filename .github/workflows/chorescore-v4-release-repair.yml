@@ -36,8 +36,6 @@ jobs:
           path: product
           fetch-depth: 0
 
-      - uses: ./control/.github/actions/setup-opencode
-
       - uses: actions/setup-node@v4
         with:
           node-version: 20
