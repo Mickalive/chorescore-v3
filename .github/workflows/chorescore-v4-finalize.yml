@@ -108,17 +108,25 @@ jobs:
           npx --no-install expo prebuild --platform android --no-install
           jq -e '.scripts["e2e:android"]' package.json >/dev/null
 
-      - name: Build x86_64 V4 release candidate for API 35
+      - name: Build x86_64 V4 E2E release candidate for API 35
         if: steps.reuse.outputs.has_reuse != 'true'
+        env:
+          EXPO_PUBLIC_E2E_AUTH: '1'
         run: |
           set -euo pipefail
+          rm -rf android/app/build/generated android/app/build/intermediates/assets android/app/build/intermediates/merged_assets
+          rm -f android/app/build/outputs/apk/release/*.apk
           (cd android && ./gradlew :app:assembleRelease -PreactNativeArchitectures=x86_64 --no-daemon)
           apk=$(find android/app/build/outputs/apk/release -type f -name '*.apk' | head -1)
           test -s "$apk"
+          mkdir -p audit/android-e2e
+          cp "$apk" audit/android-e2e/e2e-release-x86.apk
+          echo "Reusable E2E x86 APK preserved before emulator boot."
 
       - name: Android API 35 install, launch and V4 golden path
         env:
           V4_E2E_REUSE_APK: ${{ steps.reuse.outputs.e2e_apk }}
+          EXPO_PUBLIC_E2E_AUTH: '1'
           API_LEVEL: '35'
           ARCH: x86_64
           TARGET: default
