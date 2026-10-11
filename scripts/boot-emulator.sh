@@ -97,12 +97,11 @@ resolve_tool() {
 
 SDKMANAGER="$(resolve_tool sdkmanager)"
 AVDMANAGER="$(resolve_tool avdmanager)"
-EMULATOR_BIN="$ANDROID_HOME/emulator/emulator"
-if [ ! -x "$EMULATOR_BIN" ]; then
-  EMULATOR_BIN="$(resolve_tool emulator)"
-fi
 
 # ── SDK packages ───────────────────────────────────────────────────────
+# Install the emulator package before resolving its binary. GitHub runners
+# expose sdkmanager/avdmanager through cmdline-tools, but the emulator binary
+# is not guaranteed to be preinstalled.
 echo "Installing SDK packages (platform-tools, emulator, platform, system image)..."
 yes | "$SDKMANAGER" --sdk_root="$ANDROID_HOME" --licenses >/dev/null 2>&1 || true
 "$SDKMANAGER" --sdk_root="$ANDROID_HOME" --install \
@@ -110,6 +109,11 @@ yes | "$SDKMANAGER" --sdk_root="$ANDROID_HOME" --licenses >/dev/null 2>&1 || tru
   "emulator" \
   "platforms;android-${API_LEVEL}" \
   "system-images;android-${API_LEVEL};${TARGET};${ARCH}" >/dev/null
+
+EMULATOR_BIN="$ANDROID_HOME/emulator/emulator"
+if [ ! -x "$EMULATOR_BIN" ]; then
+  EMULATOR_BIN="$(resolve_tool emulator)"
+fi
 
 # ── AVD creation ───────────────────────────────────────────────────────
 export ANDROID_AVD_HOME="${ANDROID_AVD_HOME:-$HOME/.android/avd}"
