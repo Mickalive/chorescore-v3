@@ -91,28 +91,41 @@ let _dumpCacheTime = 0;
 const DUMP_CACHE_TTL_MS = 30_000;
 
 function adbReconnect() {
-  // Kill and restart the adb SERVER PROCESS to recover from degraded state.
-  // API 35 x86_64 emulators on GitHub Actions develop a broken adb server
-  // after React Native Hermes cold start — 'adb reconnect' only resets the
-  // transport layer but the server process remains in a degraded state where
-  // 'adb shell cat' consistently times out.  kill-server + start-server
-  // fully restarts the server process, which automatically rediscovers the
-  // running emulator via its broadcast channel.
+  // Never kill the adb server after the emulator has launched. Hosted runners
+  // can permanently orphan the emulator transport when the server is killed.
+  // Recover the transport in place, keep the server alive, and fall back to a
+  // direct TCP attachment when the canonical emulator serial is unavailable.
   adbReconnectCount++;
-  console.log(`  adb reconnect #${adbReconnectCount} — killing and restarting adb server`);
-  try { execFileSync('adb', ['kill-server'], { timeout: 10_000, stdio: 'ignore' }); } catch (_) {}
-  sleep(3000);
-  try { execFileSync('adb', ['start-server'], { timeout: 10_000, stdio: 'pipe' }); } catch (_) {}
-  sleep(2000);
-  try { execFileSync('adb', ['wait-for-device'], { timeout: 30_000, stdio: 'ignore' }); } catch (_) {}
+  console.log(`  adb reconnect #${adbReconnectCount} — preserving adb server`);
+  try { execFileSync('adb', ['reconnect', 'offline'], { timeout: 10_000, stdio: 'ignore' }); } catch (_) {}
   sleep(1500);
-  // Verify the server is healthy after restart
+  try { execFileSync('adb', ['start-server'], { timeout: 10_000, stdio: 'pipe' }); } catch (_) {}
+  sleep(1000);
+  try { execFileSync('adb', ['wait-for-device'], { timeout: 20_000, stdio: 'ignore' }); } catch (_) {}
+
+  let state = '';
   try {
-    const state = execFileSync('adb', ['get-state'], { encoding: 'utf8', timeout: 5_000, stdio: ['ignore', 'pipe', 'pipe'] }).trim();
-    console.log(`  adb server restarted — device state: ${state}`);
-  } catch (_) {
-    console.log('  adb server restarted — state check failed (proceeding)');
+    state = execFileSync('adb', ['get-state'], { encoding: 'utf8', timeout: 5_000, stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+  } catch (_) {}
+
+  if (state !== 'device') {
+    const configured = process.env.ANDROID_SERIAL || '';
+    const match = configured.match(/^emulator-(\d+)$/);
+    if (match) {
+      const tcpSerial = `127.0.0.1:${Number(match[1]) + 1}`;
+      try { execFileSync('adb', ['connect', tcpSerial], { timeout: 10_000, stdio: 'ignore' }); } catch (_) {}
+      try {
+        const tcpState = execFileSync('adb', ['-s', tcpSerial, 'get-state'], { encoding: 'utf8', timeout: 5_000, stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+        if (tcpState === 'device') {
+          process.env.ANDROID_SERIAL = tcpSerial;
+          state = tcpState;
+          console.log(`  adb reconnect switched to direct transport ${tcpSerial}`);
+        }
+      } catch (_) {}
+    }
   }
+
+  console.log(`  adb transport state after reconnect: ${state || 'unavailable'}`);
 }
 
 function adb(args, { binary = false, retries = 3, timeoutMs, allowReconnect = true } = {}) {
@@ -1215,7 +1228,7 @@ function launch() {
   } catch (_) {}
 
   // Ensure adb transport is healthy after the cold-start phase.
-  // Do NOT call adbReconnect() (kill-server + start-server) here — it
+  // Do NOT call adbReconnect() (transport reconnect without killing the server) here — it
   // disrupts the adb connection right when the uiautomator server needs
   // to initialize, and the adb function's own retry+reconnect logic
   // handles transient transport issues within each call.
@@ -1386,7 +1399,7 @@ try {
     console.log(`Installing APK: ${apkPath}`);
     // Restart the adb server before install: on degraded API 35 x86_64
     // emulators the adb sync service (used by `adb install`) can hang
-    // with zero output.  kill-server + start-server fully restarts the
+    // with zero output.  transport reconnect without killing the server fully restarts the
     // server process and the emulator's adbd re-registers via its
     // broadcast channel.  This is conditional (install only), not a
     // blanket restart before the golden path.
