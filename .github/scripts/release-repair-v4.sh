@@ -16,7 +16,7 @@ if grep -Eqi 'V4 Android golden path FAIL|FAILURE_CLASS=product_e2e|UI node not 
   golden_failure=true
 fi
 infra_signature=false
-if grep -Eqi 'adb .*failed|adb.*exit code 224|spawnSync adb ETIMEDOUT|System UI.*not responding|Quickstep.*not responding|emulator.*(failed|ERROR)' "$log"; then infra_signature=true; fi
+if grep -Eqi 'adb .*failed|adb.*exit code 224|spawnSync adb ETIMEDOUT|System UI.*not responding|Quickstep.*not responding|emulator.*(failed|ERROR|not found)|FAILURE_CLASS=infra_android_adb_emulator' "$log"; then infra_signature=true; fi
 
 dispatch_finalizer() {
   # Reuse the failed run's preserved E2E x86 APK when available. If an older
