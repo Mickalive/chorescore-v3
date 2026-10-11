@@ -151,21 +151,68 @@ echo "Emulator pid ${EMULATOR_PID}"
 
 # ── Wait for sys.boot_completed ────────────────────────────────────────
 echo "Waiting for sys.boot_completed=1 (timeout ${EMULATOR_BOOT_TIMEOUT}s)..."
+
+# Start ADB explicitly before polling. Run 38166266903 proved the emulator
+# itself had completed boot in ~419s while the adb server was no longer
+# running; the old loop silently swallowed every failed getprop for the full
+# 900s and reported a false boot timeout.
+timeout 15 adb start-server >/dev/null 2>&1 || true
+
 deadline=$(( $(date +%s) + EMULATOR_BOOT_TIMEOUT ))
 booted=0
+boot_checks=0
 while [ "$(date +%s)" -lt "$deadline" ]; do
-  if [ "$(adb -s "$SERIAL" shell getprop sys.boot_completed 2>/dev/null | tr -d '\r' || true)" = "1" ]; then
+  boot_checks=$((boot_checks + 1))
+  prop=$(timeout 15 adb -s "$SERIAL" shell getprop sys.boot_completed 2>/dev/null | tr -d '\r' || true)
+  if [ "$prop" = "1" ]; then
     booted=1
     break
   fi
+
+  # Recover the adb SERVER during boot instead of merely polling a dead
+  # transport. Also recover immediately once the emulator's own log says
+  # Android boot completed; that marker is not sufficient to pass the gate,
+  # but it is strong evidence that ADB is now the blocker.
+  log_booted=false
+  if grep -q 'Boot completed in' "$EMULATOR_LOG" 2>/dev/null; then
+    log_booted=true
+  fi
+  if [[ "$log_booted" == true || $((boot_checks % 30)) -eq 0 ]]; then
+    state=$(timeout 10 adb -s "$SERIAL" get-state 2>/dev/null | tr -d '\r' || true)
+    if [ "$state" != "device" ] || [[ "$log_booted" == true ]]; then
+      echo "  boot ADB recovery: state='${state:-unavailable}', emulator_log_booted=$log_booted"
+      timeout 10 adb kill-server >/dev/null 2>&1 || true
+      sleep 2
+      timeout 15 adb start-server >/dev/null 2>&1 || true
+      timeout 30 adb -s "$SERIAL" wait-for-device >/dev/null 2>&1 || true
+      prop=$(timeout 15 adb -s "$SERIAL" shell getprop sys.boot_completed 2>/dev/null | tr -d '\r' || true)
+      if [ "$prop" = "1" ]; then
+        booted=1
+        break
+      fi
+    fi
+  fi
   sleep 2
 done
+
+# One final bounded server recovery before declaring a timeout.
 if [ "$booted" -ne 1 ]; then
-  echo "ERROR: emulator did not reach sys.boot_completed=1 within ${EMULATOR_BOOT_TIMEOUT}s" >&2
-  tail -50 "$EMULATOR_LOG" >&2 || true
+  timeout 10 adb kill-server >/dev/null 2>&1 || true
+  sleep 2
+  timeout 15 adb start-server >/dev/null 2>&1 || true
+  timeout 30 adb -s "$SERIAL" wait-for-device >/dev/null 2>&1 || true
+  if [ "$(timeout 15 adb -s "$SERIAL" shell getprop sys.boot_completed 2>/dev/null | tr -d '\r' || true)" = "1" ]; then
+    booted=1
+  fi
+fi
+
+if [ "$booted" -ne 1 ]; then
+  echo "FAILURE_CLASS=infra_android_adb_emulator" >&2
+  echo "ERROR: emulator did not reach a live ADB sys.boot_completed=1 within ${EMULATOR_BOOT_TIMEOUT}s" >&2
+  tail -80 "$EMULATOR_LOG" >&2 || true
   exit 1
 fi
-echo "Emulator booted."
+echo "Emulator booted and ADB sees sys.boot_completed=1."
 
 # ── Live readiness gate ────────────────────────────────────────────────
 # sys.boot_completed alone is NOT proof that the framework command services
