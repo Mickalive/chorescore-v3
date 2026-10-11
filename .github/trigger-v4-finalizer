@@ -1,2 +1,2 @@
-reuse_run=38166266903
-retry=adb-boot-recovery-latest-v4-sha
+reuse_run=38168210838
+retry=keep-adb-server-alive-direct-attach
