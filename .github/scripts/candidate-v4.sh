@@ -33,7 +33,7 @@ set -e
 
 verify_log="$out/trusted-verification.log"
 set +e
-bash .github/scripts/verify-v4.sh candidate > >(tee "$verify_log") 2>&1
+bash .github/scripts/verify-v4.sh candidate-fast > >(tee "$verify_log") 2>&1
 verify_rc=$?
 set -e
 
