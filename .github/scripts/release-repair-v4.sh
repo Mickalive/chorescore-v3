@@ -190,9 +190,7 @@ printf '  %s\n' "${changed_files[@]}"
 
 # Targeted harness proof only. Full product/privacy/cost/i18n/mobile gates are
 # deliberately deferred to the immediate trusted finalizer.
-bash -n scripts/boot-emulator.sh
-bash -n scripts/finalizer-e2e.sh
-node --check scripts/e2e-android.js
+bash scripts/validate-release-harness.sh
 
 test -s package-lock.json
 npm ci --ignore-scripts --no-audit --no-fund
