@@ -1515,7 +1515,13 @@ try {
   // swipeToTop() here would push the input several screens below the fold,
   // beyond findByTestId()'s fast path (trusted finalizer run 38053121004).
   typeIntoTestId('add.categoryName', 'e2e cat');
-  tapLabel('Créer la catégorie', { exact: true });
+  // Typing opens the IME and shrinks the viewport. Re-locate the submit
+  // action after dismissing the keyboard; using the pre-IME layout can tap
+  // below the visible window and silently do nothing.
+  back();
+  _dumpCache = null;
+  waitForVisible('Créer la catégorie', 120000);
+  tapLabel('Créer la catégorie', { exact: true, waitMs: 900 });
   waitForVisible('e2e cat', 120000);
   // Close the manager so the category chip is reachable at the top.
   tapLabel('Gérer les catégories', { exact: true });
