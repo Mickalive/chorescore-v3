@@ -420,6 +420,20 @@ function tapTab(label) {
   return tapLabel(label, { exact: true, waitMs: 700 });
 }
 
+function dismissKeyboardIfShown() {
+  let state = '';
+  try {
+    state = shell('dumpsys', 'input_method', { timeoutMs: 5000, retries: 1 });
+  } catch (_) {
+    return;
+  }
+  if (/mInputShown=true|mIsInputViewShown=true|isInputViewShown\(\)=true|mShowRequested=true/.test(state)) {
+    try { shell('input', 'keyevent', 'KEYCODE_BACK', { timeoutMs: 5000, retries: 1 }); } catch (_) {}
+    _dumpCache = null;
+    sleep(400);
+  }
+}
+
 function inputKeyText(value) {
   const keyFor = (ch) => {
     if (/^[a-z]$/.test(ch)) return `KEYCODE_${ch.toUpperCase()}`;
@@ -447,7 +461,10 @@ function typeInto(label, value) {
   const until = Date.now() + 3000;
   while (Date.now() < until) {
     const current = findVisible(label, { exact: true, scroll: false });
-    if (current.text === value) return;
+    if (current.text === value) {
+      dismissKeyboardIfShown();
+      return;
+    }
     sleep(150);
   }
   const current = findVisible(label, { exact: true, scroll: false });
@@ -622,7 +639,10 @@ function typeIntoTestId(testId, value, { expected = value, scroll = true } = {})
   const until = Date.now() + 3000;
   while (Date.now() < until) {
     const current = findByTestId(testId, { scroll: false })[0];
-    if (current.text === expected) return;
+    if (current.text === expected) {
+      dismissKeyboardIfShown();
+      return;
+    }
     sleep(150);
   }
   const current = findByTestId(testId, { scroll: false })[0];
@@ -647,7 +667,10 @@ function typeIntoTestIdNth(testId, index, value, { expected = value } = {}) {
   const until = Date.now() + 3000;
   while (Date.now() < until) {
     const current = findByTestId(testId, { scroll: false })[index];
-    if (current.text === expected) return;
+    if (current.text === expected) {
+      dismissKeyboardIfShown();
+      return;
+    }
     sleep(150);
   }
   const current = findByTestId(testId, { scroll: false })[index];
@@ -1515,13 +1538,9 @@ try {
   // swipeToTop() here would push the input several screens below the fold,
   // beyond findByTestId()'s fast path (trusted finalizer run 38053121004).
   typeIntoTestId('add.categoryName', 'e2e cat');
-  // Typing opens the IME and shrinks the viewport. Dismiss it once, then
-  // drive the actual native button by resource-id rather than by a text node
-  // whose stale/off-screen coordinates can land on the keyboard.
-  shell('input', 'keyevent', 'KEYCODE_BACK');
-  _dumpCache = null;
-  sleep(800);
-
+  // The typing helper closes the IME when it is actually shown. Drive the
+  // submit action by native resource-id, never by a potentially off-screen
+  // localized text node.
   let createCategoryButton = findByTestId('add.categoryCreateButton')[0];
   tapNode(createCategoryButton, 1000);
 
@@ -1557,8 +1576,8 @@ try {
   tapLabel('e2e cat', { exact: true });
   tapLabel('Personnalisé', { exact: true });
   typeIntoTestId('add.taskNote', 'e2e note');
-  tapLabel('Ajouter une photo', { exact: true });
-  waitFor('Photo jointe', 120000);
+  tapNode(findByTestId('add.taskPhotoButton')[0], 900);
+  waitFor('Photo jointe', 30000);
   screenshot('06-task-form');
   tapLabel('Ajouter la tâche', { exact: true });
   console.log('Waiting for task confirmation...');
@@ -1588,8 +1607,8 @@ try {
   typeIntoTestIdNth('add.expenseShare', 0, '20.00');
   typeIntoTestIdNth('add.expenseShare', 1, '20.00');
   typeIntoTestId('add.expenseNote', 'e2e note');
-  tapLabel('Ajouter une photo', { exact: true });
-  waitFor('Photo jointe', 120000);
+  tapNode(findByTestId('add.expensePhotoButton')[0], 900);
+  waitFor('Photo jointe', 30000);
   screenshot('08-expense-form');
   tapLabel('Ajouter la dépense', { exact: true });
   console.log('Waiting for expense confirmation...');
