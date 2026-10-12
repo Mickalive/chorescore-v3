@@ -531,6 +531,8 @@ describe('V4-04 Add screen', () => {
   test('note and photo are available on both task and expense', () => {
     expect(source).toContain('add.noteOptional');
     expect(source).toContain('add.photoOptional');
+    expect(source).toContain("'add.taskPhotoButton'");
+    expect(source).toContain("'add.expensePhotoButton'");
     expect(source).toContain('services.attachments');
   });
 
