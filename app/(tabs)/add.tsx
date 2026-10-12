@@ -962,6 +962,7 @@ export default function AddScreen() {
           </View>
         ))}
       <Button
+        testID="add.categoryCreateButton"
         title={t('add.categoryCreateAction')}
         variant="secondary"
         size="small"
