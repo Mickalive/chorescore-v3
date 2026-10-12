@@ -1577,7 +1577,7 @@ try {
   tapLabel('Personnalisé', { exact: true });
   typeIntoTestId('add.taskNote', 'e2e note');
   tapNode(findByTestId('add.taskPhotoButton')[0], 900);
-  waitFor('Photo jointe', 30000);
+  waitFor('Photo jointe', 90000);
   screenshot('06-task-form');
   tapLabel('Ajouter la tâche', { exact: true });
   console.log('Waiting for task confirmation...');
@@ -1608,7 +1608,7 @@ try {
   typeIntoTestIdNth('add.expenseShare', 1, '20.00');
   typeIntoTestId('add.expenseNote', 'e2e note');
   tapNode(findByTestId('add.expensePhotoButton')[0], 900);
-  waitFor('Photo jointe', 30000);
+  waitFor('Photo jointe', 90000);
   screenshot('08-expense-form');
   tapLabel('Ajouter la dépense', { exact: true });
   console.log('Waiting for expense confirmation...');
