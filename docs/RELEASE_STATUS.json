@@ -3,8 +3,8 @@
   "milestone": "v4-rc",
   "lastCycle": "38054862134",
   "activeCriteria": [],
-  "pendingArtifact": null,
-  "progressSummary": "V4-09 release lane stalled safely after run 38174317980: No safe infra delta was produced from the exact failure evidence.",
+  "pendingArtifact": "V4-09-RELEASE",
+  "progressSummary": "V4-09 ready for the single deterministic release workflow; all legacy factory/finalizer/repair loops retired.",
   "criteria": [
     {
       "id": "V4-01",
@@ -82,21 +82,12 @@
       ]
     }
   ],
-  "openFindings": [
-    {
-      "path": "release-infra",
-      "problem": "Trusted V4 release harness/infrastructure requires a new repair strategy",
-      "evidence": "GitHub Actions V4 finalizer run 38174317980",
-      "mustFix": true,
-      "requiredFix": "No safe infra delta was produced from the exact failure evidence.",
-      "verification": "Pass the targeted harness checks, then the trusted Android API35 golden path and clean production arm64 build."
-    }
-  ],
+  "openFindings": [],
   "factoryHealth": {
-    "stalled": true,
+    "stalled": false,
     "consecutiveNoProgress": 0,
-    "lastProductSha": "5ee5f11f7cfbc6bd106fdaa0e898b93705d0cca8",
-    "reason": "No safe infra delta was produced from the exact failure evidence.",
-    "releaseInfraRetries": 1
+    "lastProductSha": "00d2efd67658e75721e89c426ab214d19b87ab00",
+    "reason": null,
+    "releaseInfraRetries": 0
   }
 }
