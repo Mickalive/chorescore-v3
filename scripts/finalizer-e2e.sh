@@ -25,6 +25,12 @@
 
 set -euo pipefail
 
+ANDROID_HOME="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
+if [[ -n "$ANDROID_HOME" ]]; then
+  export PATH="$ANDROID_HOME/platform-tools:$ANDROID_HOME/emulator:$PATH"
+fi
+command -v adb >/dev/null 2>&1 || { echo "FAILURE_CLASS=infra_android_adb_emulator"; echo "ERROR: adb not found on PATH" >&2; exit 1; }
+
 echo "=== ChoreScore V4 finalizer E2E ==="
 echo "Time: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
