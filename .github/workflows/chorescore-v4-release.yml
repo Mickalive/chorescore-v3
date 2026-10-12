@@ -37,6 +37,17 @@ jobs:
           node-version: 20
           cache: npm
 
+      - name: Cheap trusted gates
+        run: |
+          set -euo pipefail
+          npm ci --ignore-scripts --no-audit --no-fund
+          npm run check
+          npm run privacy:check
+          npm run cost:check
+          npm run i18n:check
+          bash -n scripts/boot-emulator.sh
+          node --check scripts/e2e-android.js
+
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -60,17 +71,6 @@ jobs:
           command -v adb
           adb version
           command -v emulator || test -x "$ANDROID_HOME/emulator/emulator"
-
-      - name: Cheap trusted gates
-        run: |
-          set -euo pipefail
-          npm ci --ignore-scripts --no-audit --no-fund
-          npm run check
-          npm run privacy:check
-          npm run cost:check
-          npm run i18n:check
-          bash -n scripts/boot-emulator.sh
-          node --check scripts/e2e-android.js
 
       - name: Build x86_64 E2E APK once
         env:
