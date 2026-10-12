@@ -1,0 +1,69 @@
+name: Android APK
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: chorescore-android-apk
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    steps:
+      - name: Checkout application
+        uses: actions/checkout@v4
+
+      - name: Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Java for Android
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Validate TypeScript
+        run: npm run typecheck
+
+      - name: Build installable Android APK
+        run: |
+          set -euo pipefail
+          unset EXPO_PUBLIC_E2E_AUTH
+          npx --no-install expo prebuild --platform android --no-install --clean
+          (
+            cd android
+            ./gradlew :app:assembleRelease -PreactNativeArchitectures=arm64-v8a --no-daemon
+          )
+          apk=$(find android/app/build/outputs/apk/release -name '*.apk' -type f | head -1)
+          test -n "$apk" && test -s "$apk"
+          mkdir -p release
+          cp "$apk" release/ChoreScore-Android.apk
+          unzip -t release/ChoreScore-Android.apk | tail -1
+          unzip -Z1 release/ChoreScore-Android.apk | grep -q '^lib/arm64-v8a/'
+          sha256sum release/ChoreScore-Android.apk > release/SHA256.txt
+
+      - name: Downloadable APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: ChoreScore-Android-APK
+          path: |
+            release/ChoreScore-Android.apk
+            release/SHA256.txt
+          if-no-files-found: error
+          retention-days: 30

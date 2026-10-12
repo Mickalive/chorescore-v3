@@ -5,6 +5,12 @@ import {
   ContributionUnit,
   CrossLedgerSettlement,
 } from '../entities';
+import {
+  validateContributionValue,
+  validateContributionMemberIds,
+} from './validation';
+import { validateCrossLedgerSettlement } from './crossLedgerSettlement';
+import { allocateEntryShares } from './taskSplit';
 
 const EPSILON = 1e-9;
 
@@ -13,36 +19,12 @@ function add(map: Map<string, number>, memberId: string, delta: number): void {
 }
 
 function validateContribution(entry: ContributionEntry): void {
-  if (!Number.isFinite(entry.value) || entry.value <= 0) {
-    throw new Error(`Contribution ${entry.id} must have a finite value > 0`);
-  }
-  if (!entry.performedByMemberId) {
-    throw new Error(`Contribution ${entry.id} must have a performer`);
-  }
-  if (entry.beneficiaryMemberIds.length === 0) {
-    throw new Error(`Contribution ${entry.id} must have at least one beneficiary`);
-  }
-  if (new Set(entry.beneficiaryMemberIds).size !== entry.beneficiaryMemberIds.length) {
-    throw new Error(`Contribution ${entry.id} contains duplicate beneficiaries`);
-  }
-}
-
-function validateSettlement(settlement: CrossLedgerSettlement): void {
-  if (settlement.contributionCreditorMemberId === settlement.counterpartyMemberId) {
-    throw new Error(`Settlement ${settlement.id} cannot target the same member`);
-  }
-  if (!Number.isFinite(settlement.contributionValue) || settlement.contributionValue <= 0) {
-    throw new Error(`Settlement ${settlement.id} must consume a positive contribution value`);
-  }
-  if (!Number.isInteger(settlement.moneyAmountMinor) || settlement.moneyAmountMinor <= 0) {
-    throw new Error(`Settlement ${settlement.id} must contain a positive integer money amount`);
-  }
-  if (settlement.rateSnapshot.contributionUnit !== settlement.contributionUnit) {
-    throw new Error(`Settlement ${settlement.id} rate unit does not match settlement unit`);
-  }
-  if (settlement.rateSnapshot.currency.toUpperCase() !== settlement.currency.toUpperCase()) {
-    throw new Error(`Settlement ${settlement.id} rate currency does not match settlement currency`);
-  }
+  validateContributionValue(entry.value, entry.id);
+  validateContributionMemberIds(
+    entry.performedByMemberId,
+    entry.beneficiaryMemberIds,
+    entry.id
+  );
 }
 
 /**
@@ -66,16 +48,19 @@ export function calculateContributionBalances(
     if (entry.unit !== unit) continue;
     validateContribution(entry);
 
+    // Resolve the split BEFORE mutating balances so an invalid custom split
+    // throws instead of leaving a half-applied entry. V3 entries (no split
+    // fields) keep the exact original equal-split arithmetic.
+    const shares = allocateEntryShares(entry);
     add(balances, entry.performedByMemberId, entry.value);
-    const share = entry.value / entry.beneficiaryMemberIds.length;
-    for (const beneficiaryId of entry.beneficiaryMemberIds) {
-      add(balances, beneficiaryId, -share);
+    for (const beneficiaryShare of shares) {
+      add(balances, beneficiaryShare.memberId, -beneficiaryShare.share);
     }
   }
 
   for (const settlement of settlements) {
     if (settlement.contributionUnit !== unit) continue;
-    validateSettlement(settlement);
+    validateCrossLedgerSettlement(settlement);
 
     add(balances, settlement.contributionCreditorMemberId, -settlement.contributionValue);
     add(balances, settlement.counterpartyMemberId, settlement.contributionValue);

@@ -1,0 +1,286 @@
+/**
+ * ChoreScore V3 — Join Group via Deep-Link
+ *
+ * Route: /join/:token
+ *
+ * Resolves an invitation by its link token and accepts it atomically
+ * (creates both membership and member in a transaction).
+ *
+ * If the user is not signed in, they are prompted to sign in first.
+ * If the invitation is expired, revoked, or the user is already a member,
+ * an appropriate message is shown.
+ *
+ * Free for all. No premium gating. No plan limits.
+ */
+
+import React, { useState, useEffect, useCallback } from 'react';
+import {
+  View,
+  StyleSheet,
+  Alert,
+} from 'react-native';
+import { useLocalSearchParams, useRouter } from 'expo-router';
+import { ScreenContainer } from '../../src/ui/components/ScreenContainer';
+import { Text } from '../../src/ui/components/Text';
+import { Button } from '../../src/ui/components/Button';
+import { Card } from '../../src/ui/components/Card';
+import { LoadingState, ErrorState } from '../../src/ui/components/States';
+import { colors, spacing } from '../../src/ui/design-system/theme';
+import { useApp } from '../../src/features/app/AppContext';
+import { useI18n } from '../../src/i18n';
+import {
+  validateAcceptInvitation,
+  planInvitationAcceptance,
+} from '../../src/domain/services/invitationService';
+
+type JoinStatus = 'loading' | 'ready' | 'accepting' | 'accepted' | 'error';
+
+export default function JoinScreen() {
+  const { token } = useLocalSearchParams<{ token: string }>();
+  const router = useRouter();
+  const { t } = useI18n();
+  const { currentUser, repos, rawRepos, signIn } = useApp();
+
+  const [status, setStatus] = useState<JoinStatus>('loading');
+  const [errorMessage, setErrorMessage] = useState('');
+  const [householdName, setHouseholdName] = useState('');
+
+  const resolveInvitation = useCallback(async () => {
+    if (!token) {
+      setStatus('error');
+      setErrorMessage(t('join.invalidLink'));
+      return;
+    }
+
+    try {
+      // V3-06 REPAIR: Use rawRepos for invitation resolution. The join flow
+      // requires reading the household and existing memberships BEFORE the
+      // user is a member, so scoped repos would reject with CROSS_TENANT.
+      // Token-based invitation lookups are invitation-authorized (anyone with
+      // the token can resolve).
+      const invitation = await rawRepos.invitations.getByLinkToken(token as string);
+      if (!invitation) {
+        setStatus('error');
+        setErrorMessage(t('join.notFound'));
+        return;
+      }
+
+      const household = await rawRepos.households.getById(invitation.householdId);
+      if (!household) {
+        setStatus('error');
+        setErrorMessage(t('join.groupNotFound'));
+        return;
+      }
+
+      setHouseholdName(household.name);
+
+      // Check if user is signed in
+      if (!currentUser) {
+        setStatus('error');
+        setErrorMessage(t('join.signInRequired'));
+        return;
+      }
+
+      // Validate acceptance using raw repos (user is not yet a member)
+      const existingMemberships = await rawRepos.memberships.getByHousehold(invitation.householdId);
+      try {
+        validateAcceptInvitation(invitation, household, existingMemberships, currentUser.userId);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : t('join.notFound');
+        setStatus('error');
+        setErrorMessage(msg);
+        return;
+      }
+
+      // V4-09: a targeted invitation must resolve to the exact named member it
+      // references. The link is by member id — never by name — so two people
+      // with the same name can never collapse into one identity.
+      if (invitation.targetMemberId) {
+        const target = await rawRepos.members.getById(invitation.targetMemberId);
+        if (!target || target.householdId !== invitation.householdId) {
+          setStatus('error');
+          setErrorMessage(t('join.targetNotFound'));
+          return;
+        }
+        if (target.userId !== null && target.userId !== undefined && target.userId !== '') {
+          setStatus('error');
+          setErrorMessage(t('join.targetAlreadyLinked'));
+          return;
+        }
+      }
+
+      setStatus('ready');
+    } catch {
+      setStatus('error');
+      setErrorMessage(t('join.verifyError'));
+    }
+  }, [token, rawRepos, currentUser, t]);
+
+  useEffect(() => {
+    resolveInvitation();
+  }, [resolveInvitation]);
+
+  const handleAccept = async () => {
+    if (!token || !currentUser) return;
+    setStatus('accepting');
+
+    try {
+      // V3-06 REPAIR: Use rawRepos for the entire join flow. The user is
+      // not yet a member of the household, so scoped repos would reject
+      // all operations with CROSS_TENANT. Token-based invitation access
+      // and membership creation are invitation-authorized.
+      const invitation = await rawRepos.invitations.getByLinkToken(token as string);
+      if (!invitation) {
+        setStatus('error');
+        setErrorMessage(t('join.notFound'));
+        return;
+      }
+
+      const household = await rawRepos.households.getById(invitation.householdId);
+      if (!household) {
+        setStatus('error');
+        setErrorMessage(t('join.groupNotFound'));
+        return;
+      }
+
+      // Plan the atomic membership + member creation. For a targeted
+      // invitation, the existing named member is passed so the acceptance
+      // LINKS it (same member id) instead of creating a duplicate.
+      const targetMember = invitation.targetMemberId
+        ? await rawRepos.members.getById(invitation.targetMemberId)
+        : null;
+      const result = planInvitationAcceptance(
+        invitation,
+        currentUser.userId,
+        currentUser.displayName,
+        targetMember,
+      );
+
+      // Execute atomically in a transaction (using rawRepos for invitation-authorized writes)
+      await rawRepos.withTransaction(async () => {
+        await rawRepos.memberships.create({
+          userId: result.membership.userId,
+          householdId: result.membership.householdId,
+          role: result.membership.role,
+        });
+        if (result.linksExistingMember) {
+          // V4-09: link the existing named member — no new member, no rewrite
+          // of the ledger entries that already reference this member id.
+          await rawRepos.members.update(result.member.id, {
+            userId: result.member.userId,
+          });
+        } else {
+          await rawRepos.members.create({
+            householdId: result.member.householdId,
+            name: result.member.name,
+            userId: result.member.userId,
+          });
+        }
+        await rawRepos.invitations.updateStatus(invitation.id, 'accepted');
+      });
+
+      setStatus('accepted');
+    } catch {
+      setStatus('error');
+      setErrorMessage(t('join.acceptError'));
+    }
+  };
+
+  const handleGoToGroup = () => {
+    // Navigate to the root and the user can open the group
+    router.replace('/');
+  };
+
+  return (
+    <ScreenContainer edges={['top', 'bottom']}>
+      <View style={styles.container}>
+        <Text variant="screenTitle" style={styles.title}>
+          {t('join.title')}
+        </Text>
+
+        {status === 'loading' && (
+          <Card style={styles.card}>
+            <LoadingState message={t('join.verifying')} />
+          </Card>
+        )}
+
+        {status === 'ready' && (
+          <Card style={styles.card}>
+            <Text variant="body" style={styles.message}>
+              {t('join.invited', { group: householdName })}
+            </Text>
+            <Button
+              title={t('join.accept')}
+              variant="primary"
+              onPress={handleAccept}
+              style={styles.button}
+            />
+          </Card>
+        )}
+
+        {status === 'accepting' && (
+          <Card style={styles.card}>
+            <LoadingState message={t('join.accepting')} />
+          </Card>
+        )}
+
+        {status === 'accepted' && (
+          <Card style={styles.card}>
+            <Text variant="body" style={styles.successMessage}>
+              {t('join.accepted', { group: householdName })}
+            </Text>
+            <Button
+              title={t('join.goToGroup')}
+              variant="primary"
+              onPress={handleGoToGroup}
+              style={styles.button}
+            />
+          </Card>
+        )}
+
+        {status === 'error' && (
+          <Card style={styles.card}>
+            <ErrorState
+              title={t('state.errorTitle')}
+              message={errorMessage}
+              retryLabel={t('action.back')}
+              onRetry={() => router.replace('/')}
+            />
+          </Card>
+        )}
+      </View>
+    </ScreenContainer>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    justifyContent: 'center',
+    padding: spacing.xl,
+  },
+  title: {
+    textAlign: 'center',
+    marginBottom: spacing.xxl,
+  },
+  card: {
+    padding: spacing.xl,
+  },
+  message: {
+    textAlign: 'center',
+    marginBottom: spacing.xl,
+  },
+  successMessage: {
+    textAlign: 'center',
+    marginBottom: spacing.xl,
+    color: colors.balancePositive,
+  },
+  errorMessage: {
+    textAlign: 'center',
+    marginBottom: spacing.xl,
+    color: colors.balanceNegative,
+  },
+  button: {
+    marginTop: spacing.md,
+  },
+});

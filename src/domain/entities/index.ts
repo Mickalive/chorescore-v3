@@ -46,8 +46,96 @@ export interface Member {
   id: string;
   householdId: string;
   name: string;
-  userId: string;
+  /**
+   * Linked account id, or null for a named member.
+   *
+   * V4: a group can be created with member names before anyone has an
+   * account. A named member (userId === null) is still exactly one member
+   * identity in every ledger; when that person later joins, the same member
+   * record is linked (userId becomes a user id) without rewriting history.
+   */
+  userId: string | null;
   joinedAt: string;
+}
+
+export type MemberIdentityKind = 'named' | 'linked';
+
+/**
+ * Minimal identity shape accepted by the member-kind helpers. `undefined` is
+ * tolerated (and classified as named) so a partially-built member can be
+ * passed without an unsafe cast; the implementation already treats it as named.
+ */
+export type MemberIdentityRef = { userId: string | null | undefined };
+
+/** Named member: created from a name only, not yet linked to an account. */
+export function isNamedMember(member: MemberIdentityRef): boolean {
+  return memberIdentityKind(member) === 'named';
+}
+
+/** Linked member: tied to an authenticated account. */
+export function isLinkedMember(member: MemberIdentityRef): boolean {
+  return memberIdentityKind(member) === 'linked';
+}
+
+/**
+ * Distinguish the two member identities without ever merging them:
+ * a named member must never be treated as an account, and two different
+ * names must never collapse into one identity.
+ */
+export function memberIdentityKind(member: MemberIdentityRef): MemberIdentityKind {
+  return member.userId === null || member.userId === undefined || member.userId === ''
+    ? 'named'
+    : 'linked';
+}
+
+// ── V4-01: Categories (user-created only, never seeded) ────────
+
+/**
+ * Weighted ratio used by an equal-percentage task split.
+ * Weights are group-defined numbers; ChoreScore never imposes a taxonomy.
+ */
+export interface TaskSplitWeight {
+  memberId: string;
+  weight: number;
+}
+
+export type TaskSplitMode = 'equal' | 'custom';
+
+/**
+ * Where an entry's split came from at creation time.
+ * `category-default` entries carry a snapshot of the category ratio, so
+ * later category edits or deletions never reinterpret history.
+ */
+export type TaskSplitSource = 'equal' | 'custom' | 'category-default';
+
+export interface Category {
+  id: string;
+  householdId: string;
+  name: string;
+  /** Default task ratio for new tasks in this category; null means equal split. */
+  defaultTaskRatio: TaskSplitWeight[] | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+// ── V4-01: Attachments (provider-agnostic) ─────────────────────
+
+export type AttachmentKind = 'photo';
+
+/**
+ * A photo attached to a task or expense.
+ * `ref` is an opaque provider reference (file id or local uri): no provider
+ * type ever reaches the domain, and the reference never leaves the device.
+ */
+export interface Attachment {
+  id: string;
+  kind: AttachmentKind;
+  ref: string;
+  mimeType?: string;
+  byteSize?: number;
+  width?: number;
+  height?: number;
+  createdAt: string;
 }
 
 export interface ContributionEntry {
@@ -62,6 +150,20 @@ export interface ContributionEntry {
   occurredAt: string;
   createdBy: string;
   modifiedBy?: string;
+  /** Optional user-created category reference. */
+  categoryId?: string | null;
+  /** Category name captured at creation; keeps history readable after a rename. */
+  categoryLabelSnapshot?: string;
+  /** Optional free note (operational data only — never exported to analytics). */
+  note?: string;
+  /** Optional photo attachments (provider-agnostic references). */
+  attachments?: Attachment[];
+  /** Defaults to 'equal' when absent (V3 entries are always equal split). */
+  splitMode?: TaskSplitMode;
+  /** Snapshot of the split ratio used for this entry. */
+  splitWeights?: TaskSplitWeight[];
+  /** Provenance of the split (equal / custom / category-default). */
+  splitSource?: TaskSplitSource;
 }
 
 export interface PersistentTask {
@@ -73,6 +175,13 @@ export interface PersistentTask {
   defaultBeneficiaryMemberIds?: string[];
   createdAt: string;
 }
+
+/**
+ * V4-01: a todo is either a task (contribution ledger) or an expense
+ * (money ledger). Completion of either kind stays atomic: one todo update,
+ * exactly one ledger entry.
+ */
+export type TodoKind = 'task' | 'expense';
 
 export interface TodoItem {
   id: string;
@@ -87,6 +196,12 @@ export interface TodoItem {
   status: 'todo' | 'in-progress' | 'completed';
   createdAt: string;
   completedAt?: string;
+  /** Defaults to 'task' when absent (V3 todos are tasks). */
+  kind?: TodoKind;
+  categoryId?: string | null;
+  /** Default amount for an expense todo (integer minor units). */
+  expenseAmountMinor?: number;
+  expenseCurrency?: string;
 }
 
 export type ExpenseSplitMode = 'equal' | 'custom';
@@ -107,7 +222,14 @@ export interface ExpenseEntry {
   splitMode: ExpenseSplitMode;
   customShares?: ExpenseParticipantShare[];
   note?: string;
+  /** Display label kept by the entry (V3 behaviour). */
   category?: string;
+  /** Optional user-created category reference. */
+  categoryId?: string | null;
+  /** Category name captured at creation; keeps history readable after a rename. */
+  categoryLabelSnapshot?: string;
+  /** Optional photo attachments (provider-agnostic references). */
+  attachments?: Attachment[];
   occurredAt: string;
   createdBy: string;
   modifiedBy?: string;
@@ -161,3 +283,82 @@ export type ActivityEntry =
   | { type: 'contribution'; entry: ContributionEntry }
   | { type: 'expense'; entry: ExpenseEntry }
   | { type: 'cross-ledger-settlement'; entry: CrossLedgerSettlement };
+
+// ── V3-06: Invitations ─────────────────────────────────────────
+
+export type InvitationStatus = 'pending' | 'accepted' | 'declined' | 'revoked' | 'expired';
+
+export interface Invitation {
+  id: string;
+  householdId: string;
+  invitedByUserId: string;
+  invitedEmail: string;
+  role: MembershipRole;
+  status: InvitationStatus;
+  /** Opaque token embedded in the share link / deep-link. */
+  linkToken: string;
+  /**
+   * V4-09: when set, accepting this invitation links the named member with
+   * this id (same household, currently unlinked) instead of creating a new
+   * member. The link is by member id — never by name — so a group created
+   * with member names keeps exactly one identity per person and every ledger
+   * entry referencing that member keeps its history.
+   */
+  targetMemberId: string | null;
+  createdAt: string;
+  expiresAt: string;
+}
+
+// ── V3-06: Sync cursors & revisions ────────────────────────────
+
+/**
+ * Per-group sync cursor stored locally.  Each client tracks the last
+ * revision it successfully pulled for each collection so the next sync
+ * fetches only the delta.
+ */
+export interface SyncCursor {
+  householdId: string;
+  collection: SyncCollection;
+  lastRevision: number;
+  lastSyncedAt: string;
+}
+
+export type SyncCollection =
+  | 'contribution_entries'
+  | 'expense_entries'
+  | 'settlements'
+  | 'todo_items'
+  | 'persistent_tasks'
+  | 'members'
+  | 'memberships'
+  | 'households'
+  | 'categories'
+  | 'invitations';
+
+/**
+ * A single revisioned change record.  Used by the sync engine to represent
+ * an upsert or tombstone in a delta-only protocol.
+ */
+export interface SyncRecord {
+  id: string;
+  householdId: string;
+  collection: SyncCollection;
+  revision: number;
+  /** ISO timestamp of the last mutation. */
+  updatedAt: string;
+  /** Null for upserts, non-null for soft-deletes. */
+  deletedAt: string | null;
+  /** Serialized entity payload (JSON).  Absent for tombstones. */
+  payload: string | null;
+}
+
+/**
+ * Lightweight change signal emitted by the sync engine when new deltas
+ * have been applied.  Screens subscribe and refresh only affected data
+ * instead of doing a full re-read.
+ */
+export interface SyncChangeSignal {
+  householdId: string;
+  collections: SyncCollection[];
+  receivedAt: string;
+}

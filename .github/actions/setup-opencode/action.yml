@@ -1,8 +1,0 @@
-name: Setup pinned OpenCode
-description: Install the reviewed OpenCode version used by the autonomous factories
-runs:
-  using: composite
-  steps:
-    - name: Download and verify pinned installer
-      shell: bash
-      run: source "$GITHUB_ACTION_PATH/../../scripts/setup-opencode.sh"
