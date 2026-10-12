@@ -1,2 +1,2 @@
-single-release=4
-reason=simplified-fresh-x86-no-drifting-expo-check
+single-release=5
+reason=fix-photo-golden-path-and-676-test-contract
