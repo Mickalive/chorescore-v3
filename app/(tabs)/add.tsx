@@ -877,6 +877,7 @@ export default function AddScreen() {
   const renderPhotoField = (
     attachments: Attachment[],
     onChange: (next: Attachment[]) => void,
+    addButtonTestID: string,
   ) => (
     <View style={styles.inputGroup}>
       <Text variant="caption">{t('add.photoOptional')}</Text>
@@ -902,6 +903,7 @@ export default function AddScreen() {
       ) : null}
       {attachmentsAvailable ? (
         <Button
+          testID={addButtonTestID}
           title={t('add.photoAdd')}
           variant="secondary"
           size="small"
@@ -1331,8 +1333,10 @@ export default function AddScreen() {
             />
           </View>
 
-          {renderPhotoField(taskForm.attachments, (next) =>
-            setTaskForm((prev) => ({ ...prev, attachments: next })),
+          {renderPhotoField(
+            taskForm.attachments,
+            (next) => setTaskForm((prev) => ({ ...prev, attachments: next })),
+            'add.taskPhotoButton',
           )}
 
           {/* Date / Time */}
@@ -1552,8 +1556,10 @@ export default function AddScreen() {
             />
           </View>
 
-          {renderPhotoField(expenseForm.attachments, (next) =>
-            setExpenseForm((prev) => ({ ...prev, attachments: next })),
+          {renderPhotoField(
+            expenseForm.attachments,
+            (next) => setExpenseForm((prev) => ({ ...prev, attachments: next })),
+            'add.expensePhotoButton',
           )}
 
           {/* Date / Time */}
