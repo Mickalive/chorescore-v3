@@ -1515,14 +1515,36 @@ try {
   // swipeToTop() here would push the input several screens below the fold,
   // beyond findByTestId()'s fast path (trusted finalizer run 38053121004).
   typeIntoTestId('add.categoryName', 'e2e cat');
-  // Typing opens the IME and shrinks the viewport. Re-locate the submit
-  // action after dismissing the keyboard; using the pre-IME layout can tap
-  // below the visible window and silently do nothing.
-  back();
+  // Typing opens the IME and shrinks the viewport. Dismiss it once, then
+  // drive the actual native button by resource-id rather than by a text node
+  // whose stale/off-screen coordinates can land on the keyboard.
+  shell('input', 'keyevent', 'KEYCODE_BACK');
   _dumpCache = null;
-  waitForVisible('Créer la catégorie', 120000);
-  tapLabel('Créer la catégorie', { exact: true, waitMs: 900 });
-  waitForVisible('e2e cat', 120000);
+  sleep(800);
+
+  let createCategoryButton = findByTestId('add.categoryCreateButton')[0];
+  tapNode(createCategoryButton, 1000);
+
+  // A loaded emulator can occasionally swallow one injected tap. Verify the
+  // handler actually reset the draft; if not, retry the exact same native
+  // control once with a held touch. No blind scrolling/retry loop.
+  let categoryCommitted = false;
+  for (let i = 0; i < 6; i += 1) {
+    _dumpCache = null;
+    const input = findByTestId('add.categoryName', { scroll: false })[0];
+    if (input.text !== 'e2e cat') {
+      categoryCommitted = true;
+      break;
+    }
+    sleep(500);
+  }
+  if (!categoryCommitted) {
+    createCategoryButton = findByTestId('add.categoryCreateButton', { scroll: false })[0];
+    longPressNode(createCategoryButton, 150, 1000);
+  }
+
+  waitForVisible('e2e cat', 30000);
+  screenshot('05-category-created');
   // Close the manager so the category chip is reachable at the top.
   tapLabel('Gérer les catégories', { exact: true });
   swipeToTop();
