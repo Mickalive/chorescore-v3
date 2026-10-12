@@ -401,6 +401,21 @@ function longPressNode(node, holdMs = 150, waitMs = 1500) {
   sleep(waitMs);
 }
 
+// Exercise the native photo button, but verify that Android actually delivered
+// the press. Under an unaccelerated API 35 emulator a zero-duration tap can be
+// swallowed; a held touch is more reliable. A single alternate tap is allowed
+// only when the resulting UI gives evidence that no photo was added.
+function attachE2EPhoto(buttonTestId) {
+  dismissKeyboardIfShown();
+  longPressNode(findByTestId(buttonTestId)[0], 220, 900);
+  if (!findNodes('Photo jointe').length) {
+    console.log(`Photo action not observed for ${buttonTestId}; one alternate tap`);
+    dismissKeyboardIfShown();
+    tapNode(findByTestId(buttonTestId)[0], 900);
+  }
+  waitFor('Photo jointe', 90000);
+}
+
 function tapLabel(label, options = {}) {
   const node = findVisible(label, options);
   tapNode(node, options.waitMs || 550);
@@ -1576,8 +1591,7 @@ try {
   tapLabel('e2e cat', { exact: true });
   tapLabel('Personnalisé', { exact: true });
   typeIntoTestId('add.taskNote', 'e2e note');
-  tapNode(findByTestId('add.taskPhotoButton')[0], 900);
-  waitFor('Photo jointe', 90000);
+  attachE2EPhoto('add.taskPhotoButton');
   screenshot('06-task-form');
   tapLabel('Ajouter la tâche', { exact: true });
   console.log('Waiting for task confirmation...');
@@ -1607,8 +1621,7 @@ try {
   typeIntoTestIdNth('add.expenseShare', 0, '20.00');
   typeIntoTestIdNth('add.expenseShare', 1, '20.00');
   typeIntoTestId('add.expenseNote', 'e2e note');
-  tapNode(findByTestId('add.expensePhotoButton')[0], 900);
-  waitFor('Photo jointe', 90000);
+  attachE2EPhoto('add.expensePhotoButton');
   screenshot('08-expense-form');
   tapLabel('Ajouter la dépense', { exact: true });
   console.log('Waiting for expense confirmation...');
