@@ -110,6 +110,12 @@ yes | "$SDKMANAGER" --sdk_root="$ANDROID_HOME" --licenses >/dev/null 2>&1 || tru
   "platforms;android-${API_LEVEL}" \
   "system-images;android-${API_LEVEL};${TARGET};${ARCH}" >/dev/null
 
+# sdkmanager installs adb under platform-tools, which is not guaranteed to be
+# on PATH on GitHub hosted runners. Fail immediately if it is unavailable.
+export PATH="$ANDROID_HOME/platform-tools:$ANDROID_HOME/emulator:$PATH"
+command -v adb >/dev/null 2>&1 || { echo "ERROR: adb missing after platform-tools install" >&2; exit 1; }
+adb version | head -2
+
 EMULATOR_BIN="$ANDROID_HOME/emulator/emulator"
 if [ ! -x "$EMULATOR_BIN" ]; then
   EMULATOR_BIN="$(resolve_tool emulator)"
