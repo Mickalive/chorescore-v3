@@ -86,6 +86,34 @@ jobs:
           cp "$apk" release/chorescore-v4-e2e-x86.apk
           echo "E2E APK: $(stat -c%s release/chorescore-v4-e2e-x86.apk) bytes"
 
+      - name: Build clean arm64-v8a production APK
+        env:
+          EXPO_PUBLIC_E2E_AUTH: ''
+        run: |
+          set -euo pipefail
+          unset EXPO_PUBLIC_E2E_AUTH
+          rm -rf android
+          rm -rf node_modules/.cache/metro
+          rm -rf "${TMPDIR:-/tmp}"/metro-* "${TMPDIR:-/tmp}"/haste-map-* 2>/dev/null || true
+          npx --no-install expo prebuild --platform android --no-install
+          (cd android && env -u EXPO_PUBLIC_E2E_AUTH ./gradlew :app:assembleRelease -PreactNativeArchitectures=arm64-v8a --no-daemon)
+          apk=$(find android/app/build/outputs/apk/release -type f -name '*.apk' | head -1)
+          test -s "$apk"
+          mkdir -p release
+          cp "$apk" release/ChoreScore-v4-arm64-release.apk
+          sha256sum release/ChoreScore-v4-arm64-release.apk | tee release/SHA256.txt
+          test "$(stat -c%s release/ChoreScore-v4-arm64-release.apk)" -gt 1000000
+
+      - name: Upload installable APK preview before E2E
+        uses: actions/upload-artifact@v4
+        with:
+          name: chorescore-v4-android-preview-unverified
+          path: |
+            release/ChoreScore-v4-arm64-release.apk
+            release/SHA256.txt
+          if-no-files-found: error
+          retention-days: 30
+
       - name: Android API 35 golden path — at most two infra attempts
         env:
           API_LEVEL: '35'
@@ -175,25 +203,7 @@ jobs:
           npx --no-install expo export --platform android --output-dir "$RUNNER_TEMP/v4-final-android-export"
           npx --no-install expo export --platform ios --output-dir "$RUNNER_TEMP/v4-final-ios-export"
 
-      - name: Build clean arm64-v8a production APK
-        env:
-          EXPO_PUBLIC_E2E_AUTH: ''
-        run: |
-          set -euo pipefail
-          unset EXPO_PUBLIC_E2E_AUTH
-          rm -rf android
-          rm -rf node_modules/.cache/metro
-          rm -rf "${TMPDIR:-/tmp}"/metro-* "${TMPDIR:-/tmp}"/haste-map-* 2>/dev/null || true
-          npx --no-install expo prebuild --platform android --no-install
-          (cd android && env -u EXPO_PUBLIC_E2E_AUTH ./gradlew :app:assembleRelease -PreactNativeArchitectures=arm64-v8a --no-daemon)
-          apk=$(find android/app/build/outputs/apk/release -type f -name '*.apk' | head -1)
-          test -s "$apk"
-          mkdir -p release
-          cp "$apk" release/ChoreScore-v4-arm64-release.apk
-          sha256sum release/ChoreScore-v4-arm64-release.apk | tee release/SHA256.txt
-          test "$(stat -c%s release/ChoreScore-v4-arm64-release.apk)" -gt 1000000
-
-      - name: Upload final APK
+      - name: Upload verified APK after Android golden path and iOS export
         uses: actions/upload-artifact@v4
         with:
           name: chorescore-v4-android-release
