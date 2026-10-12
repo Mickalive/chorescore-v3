@@ -4,8 +4,8 @@
   "builder": {
     "enabled": false,
     "criterionId": null,
-    "objective": "Release harness/infrastructure repair only.",
-    "scope": "No product changes.",
+    "objective": "Single deterministic V4 release workflow owns final APK production.",
+    "scope": "No autonomous factory loop. Release workflow only.",
     "acceptance": [],
     "previousCriteriaPreserved": [
       "V4-01: accepted and must not regress",
