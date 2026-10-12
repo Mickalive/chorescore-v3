@@ -516,6 +516,7 @@ describe('V4-04 Add screen', () => {
 
   test('categories are user-managed, with no imposed taxonomy', () => {
     expect(source).toContain('add.categoryManage');
+    expect(source).toContain('testID="add.categoryCreateButton"');
     expect(source).toContain('repos.categories.create');
     expect(source).toContain('repos.categories.update');
     expect(source).toContain('repos.categories.delete');
